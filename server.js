@@ -3,6 +3,8 @@ import cors from "cors";
 import dotenv from "dotenv";
 import bcrypt from "bcrypt";
 import pkg from "pg";
+import jwt from "jsonwebtoken";
+
 
 dotenv.config();
 
@@ -85,17 +87,28 @@ app.post("/login", async (req, res) => {
       });
     }
 
-    res.json({
-      success: true,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        permissions: user.permissions,
-      },
-    });
+ const token = jwt.sign(
+  {
+    id: user.id,
+    role: user.role,
+  },
+  process.env.JWT_SECRET,
+  { expiresIn: "7d" }
+);
+
+res.json({
+  success: true,
+  user: {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    role: user.role,
+    permissions: user.permissions,
+    token, // 🔥 مهم
+  },
+});
+
   } catch (err) {
     console.error("LOGIN ERROR:", err);
     res.status(500).json({
