@@ -63,7 +63,19 @@ app.post("/login", async (req, res) => {
     }
 
     const result = await db.query(
-      "SELECT * FROM users WHERE email=$1 OR phone=$1 LIMIT 1",
+      `
+      SELECT 
+        id,
+        name,
+        email,
+        phone,
+        role,
+        permissions,
+        password_hash
+      FROM users
+      WHERE email = $1 OR phone = $1
+      LIMIT 1
+      `,
       [identifier]
     );
 
@@ -75,7 +87,8 @@ app.post("/login", async (req, res) => {
     }
 
     const user = result.rows[0];
-    const isMatch = await bcrypt.compare(password, user.password);
+
+    const isMatch = await bcrypt.compare(password, user.password_hash);
 
     if (!isMatch) {
       return res.status(401).json({
@@ -84,24 +97,22 @@ app.post("/login", async (req, res) => {
       });
     }
 
-    res.json({
+    // لا ترسل password_hash للفرونت ❌
+    delete user.password_hash;
+
+    return res.json({
       success: true,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-      },
+      user,
     });
   } catch (err) {
     console.error("LOGIN ERROR:", err);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Server error",
     });
   }
 });
+
 
 /* =========================
    Run Server
