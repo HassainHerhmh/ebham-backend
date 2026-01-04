@@ -9,19 +9,29 @@ dotenv.config();
 const { Pool } = pkg;
 const app = express();
 
-/* =========================
-   Middlewares
-========================= */
-app.use(express.json());
-
+/* ======================================================
+   🌐 CORS (FINAL - Vercel ↔ Railway)
+====================================================== */
 app.use(
   cors({
     origin: [
       "http://localhost:5173",
       "https://ebham-dashboard-gcpu.vercel.app",
+      "https://ebham-dashboard2.vercel.app",
     ],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
   })
 );
+
+// 🔥 مهم جدًا للـ preflight
+app.options("*", cors());
+
+/* =========================
+   Middlewares
+========================= */
+app.use(express.json());
 
 /* =========================
    Database
