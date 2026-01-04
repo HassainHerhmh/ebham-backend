@@ -5,14 +5,13 @@ import bcrypt from "bcrypt";
 import pkg from "pg";
 import jwt from "jsonwebtoken";
 
-
 dotenv.config();
 
 const { Pool } = pkg;
 const app = express();
 
 /* ======================================================
-   🌐 CORS (FINAL - Vercel ↔ Railway)
+   🌐 CORS (Vercel ↔ Railway)
 ====================================================== */
 app.use(
   cors({
@@ -27,7 +26,7 @@ app.use(
   })
 );
 
-// 🔥 مهم جدًا للـ preflight
+// مهم للـ preflight
 app.options("*", cors());
 
 /* =========================
@@ -36,11 +35,15 @@ app.options("*", cors());
 app.use(express.json());
 
 /* =========================
-   Database
+   Database (Supabase + Railway)
 ========================= */
+if (!process.env.DATABASE_URL) {
+  console.error("❌ DATABASE_URL is missing");
+  process.exit(1);
+}
+
 const db = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+  connectionString: process.env.DATABASE_URL + "?sslmode=require",
 });
 
 /* =========================
@@ -48,6 +51,19 @@ const db = new Pool({
 ========================= */
 app.get("/", (req, res) => {
   res.json({ success: true, message: "API WORKING 🚀" });
+});
+
+/* =========================
+   DB Test (اختياري)
+========================= */
+app.get("/db-test", async (req, res) => {
+  try {
+    await db.query("SELECT 1");
+    res.json({ success: true, db: "connected" });
+  } catch (err) {
+    console.error("DB TEST ERROR:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 /* =========================
@@ -65,7 +81,7 @@ app.post("/login", async (req, res) => {
     }
 
     const result = await db.query(
-      "SELECT * FROM users WHERE email=$1 OR phone=$1 LIMIT 1",
+      "SELECT * FROM users WHERE email = $1 OR phone = $1 LIMIT 1",
       [identifier]
     );
 
@@ -78,6 +94,13 @@ app.post("/login", async (req, res) => {
 
     const user = result.rows[0];
 
+    if (!user.is_active) {
+      return res.status(403).json({
+        success: false,
+        message: "الحساب موقوف",
+      });
+    }
+
     const isMatch = await bcrypt.compare(password, user.password_hash);
 
     if (!isMatch) {
@@ -87,28 +110,31 @@ app.post("/login", async (req, res) => {
       });
     }
 
- const token = jwt.sign(
-  {
-    id: user.id,
-    role: user.role,
-  },
-  process.env.JWT_SECRET,
-  { expiresIn: "7d" }
-);
+    if (!process.env.JWT_SECRET) {
+      throw new Error("JWT_SECRET is missing");
+    }
 
-res.json({
-  success: true,
-  user: {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    phone: user.phone,
-    role: user.role,
-    permissions: user.permissions,
-    token, // 🔥 مهم
-  },
-});
+    const token = jwt.sign(
+      {
+        id: user.id,
+        role: user.role,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
 
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        permissions: user.permissions,
+        token,
+      },
+    });
   } catch (err) {
     console.error("LOGIN ERROR:", err);
     res.status(500).json({
@@ -121,7 +147,7 @@ res.json({
 /* =========================
    Run Server
 ========================= */
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, () =>
-  console.log("🚀 Server running on port", PORT)
+  console.log(`🚀 Server running on port ${PORT}`)
 );
