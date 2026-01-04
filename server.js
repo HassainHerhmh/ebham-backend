@@ -9,9 +9,14 @@ dotenv.config();
 const { Pool } = pkg;
 const app = express();
 
-/* =========================
-   ✅ CORS (FIXED FOR RAILWAY)
-========================= */
+/* ======================================================
+   🧠 Middlewares (مهم الترتيب)
+====================================================== */
+app.use(express.json());
+
+/* ======================================================
+   🌐 CORS (حل نهائي)
+====================================================== */
 const allowedOrigins = [
   "http://localhost:5173",
   "https://ebham-dashboard-gcpu.vercel.app",
@@ -21,44 +26,39 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: function (origin, callback) {
-      // السماح للطلبات بدون origin (Postman / Server)
-      if (!origin) return callback(null, true);
-
+      if (!origin) return callback(null, true); // postman / server-to-server
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
-      } else {
-        return callback(new Error("Not allowed by CORS"));
       }
+      return callback(new Error("Not allowed by CORS"));
     },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE"],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
   })
 );
 
-/* =========================
-   Middlewares
-========================= */
-app.use(express.json());
+/* 🔥 لازم هذا السطر تحديدًا */
+app.options("*", cors());
 
-/* =========================
-   Database
-========================= */
+/* ======================================================
+   🗄️ Database
+====================================================== */
 const db = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
 
-/* =========================
-   Health Check
-========================= */
+/* ======================================================
+   🩺 Health Check
+====================================================== */
 app.get("/", (req, res) => {
   res.json({ success: true, message: "API WORKING 🚀" });
 });
 
-/* =========================
-   Login (POST ONLY)
-========================= */
+/* ======================================================
+   🔐 Login
+====================================================== */
 app.post("/login", async (req, res) => {
   try {
     const { identifier, password } = req.body;
@@ -112,9 +112,9 @@ app.post("/login", async (req, res) => {
   }
 });
 
-/* =========================
-   Run Server
-========================= */
+/* ======================================================
+   🚀 Run Server
+====================================================== */
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () =>
   console.log("🚀 Server running on port", PORT)
