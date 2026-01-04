@@ -10,34 +10,31 @@ const { Pool } = pkg;
 const app = express();
 
 /* =========================
-   ✅ CORS (FINAL FIX)
+   ✅ CORS (FIXED FOR RAILWAY)
 ========================= */
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://ebham-dashboard-gcpu.vercel.app",
+  "https://ebham-dashboard2.vercel.app",
+];
+
 app.use(
   cors({
-    origin: (origin, callback) => {
-      const allowedOrigins = [
-        "http://localhost:5173",
-        "https://ebham-dashboard-gcpu.vercel.app",
-        "https://ebham-dashboard2.vercel.app"
-      ];
-
+    origin: function (origin, callback) {
       // السماح للطلبات بدون origin (Postman / Server)
       if (!origin) return callback(null, true);
 
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
+      } else {
+        return callback(new Error("Not allowed by CORS"));
       }
-
-      return callback(new Error("Not allowed by CORS"));
     },
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true
   })
 );
-
-// 🔥 مهم جدًا
-app.options("*", cors());
 
 /* =========================
    Middlewares
@@ -49,7 +46,7 @@ app.use(express.json());
 ========================= */
 const db = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  ssl: { rejectUnauthorized: false },
 });
 
 /* =========================
@@ -60,7 +57,7 @@ app.get("/", (req, res) => {
 });
 
 /* =========================
-   Login
+   Login (POST ONLY)
 ========================= */
 app.post("/login", async (req, res) => {
   try {
@@ -69,7 +66,7 @@ app.post("/login", async (req, res) => {
     if (!identifier || !password) {
       return res.status(400).json({
         success: false,
-        message: "البيانات غير مكتملة"
+        message: "البيانات غير مكتملة",
       });
     }
 
@@ -81,7 +78,7 @@ app.post("/login", async (req, res) => {
     if (!result.rows.length) {
       return res.status(404).json({
         success: false,
-        message: "المستخدم غير موجود"
+        message: "المستخدم غير موجود",
       });
     }
 
@@ -91,7 +88,7 @@ app.post("/login", async (req, res) => {
     if (!isMatch) {
       return res.status(401).json({
         success: false,
-        message: "كلمة المرور غير صحيحة"
+        message: "كلمة المرور غير صحيحة",
       });
     }
 
@@ -103,13 +100,15 @@ app.post("/login", async (req, res) => {
         email: user.email,
         phone: user.phone,
         role: user.role,
-        permissions: user.permissions
-      }
+        permissions: user.permissions,
+      },
     });
-
   } catch (err) {
     console.error("LOGIN ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 });
 
