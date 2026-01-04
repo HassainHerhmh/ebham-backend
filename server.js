@@ -63,19 +63,7 @@ app.post("/login", async (req, res) => {
     }
 
     const result = await db.query(
-      `
-      SELECT 
-        id,
-        name,
-        email,
-        phone,
-        role,
-        permissions,
-        password_hash
-      FROM users
-      WHERE email = $1 OR phone = $1
-      LIMIT 1
-      `,
+      "SELECT * FROM users WHERE email=$1 OR phone=$1 LIMIT 1",
       [identifier]
     );
 
@@ -97,22 +85,25 @@ app.post("/login", async (req, res) => {
       });
     }
 
-    // لا ترسل password_hash للفرونت ❌
-    delete user.password_hash;
-
-    return res.json({
+    res.json({
       success: true,
-      user,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        permissions: user.permissions,
+      },
     });
   } catch (err) {
     console.error("LOGIN ERROR:", err);
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       message: "Server error",
     });
   }
 });
-
 
 /* =========================
    Run Server
