@@ -1,23 +1,16 @@
 import mysql from "mysql2/promise";
 
-/* =========================
-   🛢️ MySQL Connection Pool
-========================= */
 const pool = mysql.createPool({
-  host: process.env.MYSQLHOST || "mysql.railway.internal",
-  user: process.env.MYSQLUSER || "root",
-  password: process.env.MYSQLPASSWORD || "",
-  database: process.env.MYSQLDATABASE || "railway",
-  port: Number(process.env.MYSQLPORT) || 3306,
+  host: process.env.MYSQLHOST,
+  user: process.env.MYSQLUSER,
+  password: process.env.MYSQLPASSWORD,
+  database: process.env.MYSQLDATABASE,
+  port: Number(process.env.MYSQLPORT),
 
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0,
 });
 
-/* =========================
-   🔌 Test Connection
-========================= */
 (async () => {
   try {
     const conn = await pool.getConnection();
