@@ -31,22 +31,34 @@ router.get("/", async (req, res) => {
 /* =========================
    POST /users
 ========================= */
-router.post("/", async (req, res) => {
+router.post("/", upload.single("image"), async (req, res) => {
   try {
-    const { name, email, phone, password, role } = req.body;
+    const { name, email, password, role, permissions } = req.body;
 
-    if (!name || (!email && !phone) || !password) {
+    if (!name || !email || !password) {
       return res.status(400).json({ message: "بيانات ناقصة" });
     }
 
     const hashed = await bcrypt.hash(password, 10);
 
+    const imageUrl = req.file
+      ? `/uploads/${req.file.filename}`
+      : null;
+
     await pool.query(
       `
-      INSERT INTO users (name, email, phone, password, role, is_active)
-      VALUES (?, ?, ?, ?, ?, 1)
+      INSERT INTO users
+      (name, email, password, role, permissions, image_url, status)
+      VALUES (?,?,?,?,?,?, 'active')
       `,
-      [name, email || null, phone || null, hashed, role]
+      [
+        name,
+        email,
+        hashed,
+        role,
+        permissions || "{}",
+        imageUrl
+      ]
     );
 
     res.json({ success: true });
@@ -55,6 +67,7 @@ router.post("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 /* =========================
    PUT /users/:id
