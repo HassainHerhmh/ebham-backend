@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import pool from "./db.js";
+import usersRoutes from "./routes/users.js";
 
 dotenv.config();
 const app = express();
@@ -86,7 +87,7 @@ app.post("/login", async (req, res) => {
 /* =========================
    Users Routes
 ========================= */
-import usersRoutes from "./routes/users.js";
+
 app.use("/users", usersRoutes);
 
 /* =========================
