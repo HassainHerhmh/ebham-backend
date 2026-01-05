@@ -1,65 +1,44 @@
-// routes/auth.js
 import express from "express";
-import pool from "../db.js";
-import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
+import db from "../db.js";
 
 const router = express.Router();
 
-/* =========================
-   POST /login
-========================= */
 router.post("/login", async (req, res) => {
+  const { identifier, password } = req.body;
+
   try {
-    const { identifier, password } = req.body;
-
-    if (!identifier || !password) {
-      return res.status(400).json({ message: "بيانات ناقصة" });
-    }
-
-    const { rows } = await pool.query(
+    const [rows] = await db.query(
       `
-      SELECT id, name, email, phone, password, role, permissions, status
+      SELECT id, name, email, phone, password, role, is_active
       FROM users
-      WHERE email=$1 OR phone=$1
+      WHERE email = ? OR phone = ?
       `,
-      [identifier]
+      [identifier, identifier]
     );
 
     if (!rows.length) {
-      return res.status(401).json({ message: "المستخدم غير موجود" });
+      return res.json({ success: false, message: "المستخدم غير موجود" });
     }
 
     const user = rows[0];
 
-    if (user.status !== "active") {
-      return res.status(403).json({ message: "الحساب معطل" });
+    if (!user.is_active) {
+      return res.json({ success: false, message: "الحساب معطل" });
     }
 
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid) {
-      return res.status(401).json({ message: "كلمة المرور غير صحيحة" });
+    if (user.password !== password) {
+      return res.json({ success: false, message: "كلمة المرور غير صحيحة" });
     }
-
-    const token = jwt.sign(
-      {
-        id: user.id,
-        role: user.role,
-        permissions: user.permissions,
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
 
     delete user.password;
 
     res.json({
       success: true,
-      user: { ...user, token },
+      user,
     });
   } catch (err) {
     console.error("LOGIN ERROR:", err);
-    res.status(500).json({ message: "خطأ في السيرفر" });
+    res.status(500).json({ success: false });
   }
 });
 
