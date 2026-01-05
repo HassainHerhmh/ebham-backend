@@ -36,6 +36,10 @@ app.options("*", cors());
 /* =========================
  عرض مجلد uploads
 ========================= */
+import usersRoutes from "./routes/users.js";
+app.use("/users", usersRoutes);
+
+
 app.use("/uploads", express.static("uploads"));
 
 /* =========================
