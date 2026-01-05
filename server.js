@@ -9,14 +9,9 @@ dotenv.config();
 const { Pool } = pkg;
 const app = express();
 
-/* ======================================================
-   🧠 Middlewares (مهم الترتيب)
-====================================================== */
-app.use(express.json());
-
-/* ======================================================
-   🌐 CORS (حل نهائي)
-====================================================== */
+/* =========================
+   CORS (FINAL – FIXED)
+========================= */
 const allowedOrigins = [
   "http://localhost:5173",
   "https://ebham-dashboard-gcpu.vercel.app",
@@ -26,39 +21,47 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin) return callback(null, true); // postman / server-to-server
+      // السماح للطلبات بدون origin (Postman / Server)
+      if (!origin) return callback(null, true);
+
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
+      } else {
+        return callback(new Error("Not allowed by CORS"));
       }
-      return callback(new Error("Not allowed by CORS"));
     },
+    credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true,
   })
 );
 
-/* 🔥 لازم هذا السطر تحديدًا */
+/* 🔥 مهم جدًا – حل مشكلة preflight */
 app.options("*", cors());
 
-/* ======================================================
-   🗄️ Database
-====================================================== */
+/* =========================
+   Middlewares
+========================= */
+app.use(express.json());
+
+/* =========================
+   Database
+========================= */
 const db = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
 
-/* ======================================================
-   🩺 Health Check
-====================================================== */
+/* =========================
+   Health Check
+========================= */
 app.get("/", (req, res) => {
   res.json({ success: true, message: "API WORKING 🚀" });
 });
 
-/* ======================================================
-   🔐 Login
-====================================================== */
+/* =========================
+   Login
+========================= */
 app.post("/login", async (req, res) => {
   try {
     const { identifier, password } = req.body;
@@ -83,8 +86,8 @@ app.post("/login", async (req, res) => {
     }
 
     const user = result.rows[0];
-    const isMatch = await bcrypt.compare(password, user.password_hash);
 
+    const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
       return res.status(401).json({
         success: false,
@@ -92,6 +95,7 @@ app.post("/login", async (req, res) => {
       });
     }
 
+    // ❌ بدون JWT حالياً (كما طلبت)
     res.json({
       success: true,
       user: {
@@ -112,9 +116,9 @@ app.post("/login", async (req, res) => {
   }
 });
 
-/* ======================================================
-   🚀 Run Server
-====================================================== */
+/* =========================
+   Run Server
+========================= */
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () =>
   console.log("🚀 Server running on port", PORT)
