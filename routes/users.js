@@ -10,24 +10,35 @@ const router = express.Router();
 ========================= */
 router.get("/", async (req, res) => {
   try {
-    const [rows] = await pool.query(`
+    const [rows] = await pool.query(
+      `
       SELECT 
         id,
         name,
         email,
         phone,
         role,
-        is_active AS status
+        status,
+        permissions,
+        image_url
       FROM users
       ORDER BY id DESC
-    `);
+      `
+    );
 
-    res.json(rows);
+    // ✅ تحويل JSON نصي إلى Object
+    const users = rows.map(u => ({
+      ...u,
+      permissions: u.permissions ? JSON.parse(u.permissions) : {}
+    }));
+
+    res.json(users);
   } catch (err) {
     console.error("GET USERS ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json([]);
   }
 });
+
 
 /* =========================
    POST /users
