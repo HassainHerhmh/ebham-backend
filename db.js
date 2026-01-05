@@ -9,9 +9,7 @@ const pool = new Pool({
   family: 4, // Force IPv4
 });
 
-pool.query("select 1")
-  .then(() => console.log("✅ DB CONNECTED"))
-  .catch(err => console.error("❌ DB ERROR", err.message));
+
 
 
 export default pool;
