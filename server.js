@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
+import usersRoutes from "./routes/users.js";
 
 dotenv.config();
 
@@ -80,10 +81,8 @@ app.post("/login", (req, res) => {
 /* =========================
 المستخدمين 
 ========================= */
-import usersRoutes from "./routes/users.js";
 
 app.use("/users", usersRoutes);
-
 
 /* =========================
    Start Server
