@@ -7,13 +7,7 @@ import pool from "../db.js";
 const { Pool } = pkg;
 const router = express.Router();
 
-/* =========================
-   Database
-========================= */
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
+
 
 /* =========================
    Multer (رفع الصور)
