@@ -1,10 +1,5 @@
 import mysql from "mysql2/promise";
 
-if (!process.env.MYSQL_URL) {
-  console.error("❌ MYSQL_URL is NOT defined");
-  process.exit(1);
-}
-
 const pool = mysql.createPool({
   uri: process.env.MYSQL_PUBLIC_URL,
   waitForConnections: true,
