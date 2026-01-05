@@ -1,43 +1,35 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import pkg from "pg";
 
 dotenv.config();
-const { Pool } = pkg;
 
 const app = express();
-
-/* =========================
-   🔥 CORS (حل جذري)
-========================= */
-app.use(cors({
-  origin: [
-    "http://localhost:5173",
-    "https://ebham-dashboard2.vercel.app"
-  ],
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true
-}));
-
-// ⚠️ هذا السطر هو الأهم
-app.options("*", cors());
 
 /* =========================
    Middlewares
 ========================= */
 app.use(express.json());
 
+app.use(
+  cors({
+    origin: [
+      "https://ebham-dashboard2.vercel.app",
+      "http://localhost:5173",
+    ],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
 /* =========================
-   Database
+   ENV Check
 ========================= */
-const db = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-});
+if (!process.env.JWT_SECRET) {
+  console.error("❌ JWT_SECRET is missing");
+  process.exit(1);
+}
 
 /* =========================
    Health Check
@@ -47,56 +39,47 @@ app.get("/", (req, res) => {
 });
 
 /* =========================
-   Login (POST فقط)
+   Login
 ========================= */
-app.post("/login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
+app.post("/login", (req, res) => {
+  const { identifier, password } = req.body;
 
-    if (!email || !password) {
-      return res.status(400).json({ success: false, message: "بيانات ناقصة" });
-    }
-
-    const result = await db.query(
-      "SELECT * FROM users WHERE email=$1 LIMIT 1",
-      [email]
-    );
-
-    if (!result.rows.length) {
-      return res.status(401).json({ success: false, message: "مستخدم غير موجود" });
-    }
-
-    const user = result.rows[0];
-    const match = await bcrypt.compare(password, user.password);
-
-    if (!match) {
-      return res.status(401).json({ success: false, message: "كلمة المرور خطأ" });
-    }
-
-    const token = jwt.sign(
-      { id: user.id, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
-    res.json({
-      success: true,
-      token,
-      user: {
-        id: user.id,
-        name: user.name,
-        role: user.role
-      }
+  if (!identifier || !password) {
+    return res.status(400).json({
+      success: false,
+      message: "البيانات ناقصة",
     });
-
-  } catch (err) {
-    console.error("LOGIN ERROR:", err);
-    res.status(500).json({ success: false, message: "Server error" });
   }
+
+  // 🔴 تسجيل دخول تجريبي (ثابت)
+  if (identifier !== "admin@ebham.com" || password !== "123456") {
+    return res.status(400).json({
+      success: false,
+      message: "بيانات الدخول غير صحيحة",
+    });
+  }
+
+  const user = {
+    id: 1,
+    name: "Admin",
+    role: "admin",
+  };
+
+  const token = jwt.sign(user, process.env.JWT_SECRET, {
+    expiresIn: "7d",
+  });
+
+  res.json({
+    success: true,
+    user: {
+      ...user,
+      token,
+    },
+  });
 });
 
 /* =========================
-   Server Start
+   Start Server
 ========================= */
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
