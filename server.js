@@ -34,6 +34,11 @@ app.use(
 app.options("*", cors());
 
 /* =========================
+ عرض مجلد uploads
+========================= */
+app.use("/uploads", express.static("uploads"));
+
+/* =========================
    Login (حقيقي)
 ========================= */
 import authRoutes from "./routes/auth.js";
