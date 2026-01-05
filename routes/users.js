@@ -9,9 +9,17 @@ const router = express.Router();
 ========================= */
 router.get("/", async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      "SELECT id, name, email, phone, role, status FROM users ORDER BY id DESC"
-    );
+    const [rows] = await pool.query(`
+      SELECT 
+        id,
+        name,
+        email,
+        phone,
+        role,
+        is_active AS status
+      FROM users
+      ORDER BY id DESC
+    `);
 
     res.json(rows);
   } catch (err) {
@@ -25,9 +33,9 @@ router.get("/", async (req, res) => {
 ========================= */
 router.post("/", async (req, res) => {
   try {
-    const { name, username, password, role, permissions } = req.body;
+    const { name, email, phone, password, role } = req.body;
 
-    if (!name || !username || !password) {
+    if (!name || (!email && !phone) || !password) {
       return res.status(400).json({ message: "بيانات ناقصة" });
     }
 
@@ -35,10 +43,10 @@ router.post("/", async (req, res) => {
 
     await pool.query(
       `
-      INSERT INTO users (name, email, password, role, permissions, status)
-      VALUES ($1,$2,$3,$4,$5,'active')
+      INSERT INTO users (name, email, phone, password, role, is_active)
+      VALUES (?, ?, ?, ?, ?, 1)
       `,
-      [name, username, hashed, role, permissions || "{}"]
+      [name, email || null, phone || null, hashed, role]
     );
 
     res.json({ success: true });
@@ -53,15 +61,15 @@ router.post("/", async (req, res) => {
 ========================= */
 router.put("/:id", async (req, res) => {
   try {
-    const { name, role, permissions } = req.body;
+    const { name, role } = req.body;
 
     await pool.query(
       `
       UPDATE users
-      SET name=$1, role=$2, permissions=$3
-      WHERE id=$4
+      SET name = ?, role = ?
+      WHERE id = ?
       `,
-      [name, role, permissions || "{}", req.params.id]
+      [name, role, req.params.id]
     );
 
     res.json({ success: true });
@@ -76,7 +84,7 @@ router.put("/:id", async (req, res) => {
 ========================= */
 router.delete("/:id", async (req, res) => {
   try {
-    await pool.query("DELETE FROM users WHERE id=$1", [req.params.id]);
+    await pool.query("DELETE FROM users WHERE id = ?", [req.params.id]);
     res.json({ success: true });
   } catch (err) {
     console.error("DELETE USER ERROR:", err);
@@ -90,7 +98,7 @@ router.delete("/:id", async (req, res) => {
 router.put("/:id/disable", async (req, res) => {
   try {
     await pool.query(
-      "UPDATE users SET status='disabled' WHERE id=$1",
+      "UPDATE users SET is_active = 0 WHERE id = ?",
       [req.params.id]
     );
     res.json({ success: true });
