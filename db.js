@@ -4,11 +4,11 @@ import mysql from "mysql2/promise";
    🛢️ MySQL Connection Pool
 ========================= */
 const pool = mysql.createPool({
-  host: process.env.MYSQLHOST  ||  mysql.railway.internal, 
-  user: process.env.MYSQLUSER   ||  root,  
-  password: process.env.MYSQLPASSWORD  || uJUVWhgygtvQoXDgsAQxjUfLEPWXGGHC,
-  database: process.env.MYSQLDATABASE ||  railway, 
-  port: process.env.MYSQLPORT || 3306,
+  host: process.env.MYSQLHOST || "mysql.railway.internal",
+  user: process.env.MYSQLUSER || "root",
+  password: process.env.MYSQLPASSWORD || "",
+  database: process.env.MYSQLDATABASE || "railway",
+  port: Number(process.env.MYSQLPORT) || 3306,
 
   waitForConnections: true,
   connectionLimit: 10,
