@@ -2,6 +2,7 @@ import express from "express";
 import bcrypt from "bcrypt";
 import multer from "multer";
 import pkg from "pg";
+import pool from "../db.js";
 
 const { Pool } = pkg;
 const router = express.Router();
