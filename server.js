@@ -77,6 +77,14 @@ app.post("/login", (req, res) => {
     },
   });
 });
+/* =========================
+المستخدمين 
+========================= */
+import usersRoutes from "./routes/users.js";
+
+app.use(express.json());
+app.use("/users", usersRoutes);
+
 
 /* =========================
    Start Server
