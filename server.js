@@ -21,16 +21,12 @@ app.use(
     ],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
   })
 );
 
-/* =========================
-   ENV Check
-========================= */
-if (!process.env.JWT_SECRET) {
-  console.error("❌ JWT_SECRET is missing");
-  process.exit(1);
-}
+// مهم جدًا للـ preflight
+app.options("*", cors());
 
 /* =========================
    Health Check
@@ -46,42 +42,26 @@ app.post("/login", (req, res) => {
   const { identifier, password } = req.body;
 
   if (!identifier || !password) {
-    return res.status(400).json({
-      success: false,
-      message: "البيانات ناقصة",
-    });
+    return res.status(400).json({ success: false, message: "البيانات ناقصة" });
   }
 
-  // 🔴 تسجيل دخول تجريبي (ثابت)
   if (identifier !== "admin@ebham.com" || password !== "123456") {
-    return res.status(400).json({
-      success: false,
-      message: "بيانات الدخول غير صحيحة",
-    });
+    return res.status(400).json({ success: false, message: "بيانات غير صحيحة" });
   }
 
-  const user = {
-    id: 1,
-    name: "Admin",
-    role: "admin",
-  };
+  const user = { id: 1, name: "Admin", role: "admin" };
 
-  const token = jwt.sign(user, process.env.JWT_SECRET, {
-    expiresIn: "7d",
-  });
+  const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "7d" });
 
   res.json({
     success: true,
-    user: {
-      ...user,
-      token,
-    },
+    user: { ...user, token },
   });
 });
-/* =========================
-المستخدمين 
-========================= */
 
+/* =========================
+   Users Routes
+========================= */
 app.use("/users", usersRoutes);
 
 /* =========================
