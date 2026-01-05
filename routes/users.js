@@ -43,7 +43,7 @@ router.get("/", async (req, res) => {
 /* =========================
    POST /users
 ========================= */
-router.post("/", upload.single("image"), async (req, res) => {
+router.post("/", async (req, res) => {
   try {
     const { name, email, password, role, permissions } = req.body;
 
@@ -53,25 +53,21 @@ router.post("/", upload.single("image"), async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 10);
 
-    const imageUrl = req.file
-      ? `/uploads/${req.file.filename}`
-      : null;
-
     await pool.query(
       `
-      INSERT INTO users
-      (name, email, password, role, permissions, image_url, status)
-      VALUES (?,?,?,?,?,?, 'active')
+      INSERT INTO users (name, email, password, role, permissions, status)
+      VALUES (?,?,?,?,?, 'active')
       `,
-      [
-        name,
-        email,
-        hashed,
-        role,
-        permissions || "{}",
-        imageUrl
-      ]
+      [name, email, hashed, role, permissions || "{}"]
     );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("ADD USER ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
 
     res.json({ success: true });
   } catch (err) {
