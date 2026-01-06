@@ -17,7 +17,8 @@ app.use(express.json());
 app.use(
   cors({
     origin: [
-      "https://ebham-dashboard2.vercel.app",
+     "https://ebham-dashboard2.vercel.app", // لوحة التحكم
+      "https://ebham-apk.vercel.app",        // صفحة العملاء ✅
       "http://localhost:5173",
     ],
     credentials: true,
