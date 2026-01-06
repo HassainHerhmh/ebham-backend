@@ -9,7 +9,7 @@ router.post("/login", async (req, res) => {
   try {
     const [rows] = await db.query(
       `
-      SELECT id, name, email, phone, password, role, is_active
+      SELECT id, name, email, phone, password, role, status
       FROM users
       WHERE email = ? OR phone = ?
       `,
@@ -22,7 +22,7 @@ router.post("/login", async (req, res) => {
 
     const user = rows[0];
 
-    if (!user.is_active) {
+    if (user.status !== "active") {
       return res.json({ success: false, message: "الحساب معطل" });
     }
 
