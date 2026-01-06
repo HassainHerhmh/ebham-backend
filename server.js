@@ -61,6 +61,14 @@ import customersRoutes from "./routes/customers.js";
 
 app.use("/customers", customersRoutes);
 
+
+/* =========================
+مدن+احياء
+========================= */
+import citiesRoutes from "./routes/cities.js";
+app.use("/cities", citiesRoutes);
+
+
 /* =========================
    Start Server
 ========================= */
