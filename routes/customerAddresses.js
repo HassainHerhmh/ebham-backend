@@ -9,14 +9,12 @@ const router = express.Router();
 router.get("/", async (req, res) => {
   try {
     const [rows] = await db.query(`
-      SELECT 
+      SELECT
         ca.id,
         ca.customer_id,
         c.name AS customer_name,
-        ca.city_id,
-        ci.name AS city_name,
-        ca.neighborhood_id,
-        n.name AS neighborhood_name,
+        ca.city_id AS province,
+        ca.neighborhood_id AS district,
         ca.location_type,
         ca.address,
         ca.gps_link,
@@ -24,8 +22,6 @@ router.get("/", async (req, res) => {
         ca.longitude
       FROM customer_addresses ca
       JOIN customers c ON c.id = ca.customer_id
-      JOIN cities ci ON ci.id = ca.city_id
-      JOIN neighborhoods n ON n.id = ca.neighborhood_id
       ORDER BY ca.id DESC
     `);
 
@@ -42,16 +38,16 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   const {
     customer_id,
-    city_id,
-    neighborhood_id,
+    province,   // city_id
+    district,   // neighborhood_id
     location_type,
     address,
     gps_link,
     latitude,
-    longitude,
+    longitude
   } = req.body;
 
-  if (!customer_id || !city_id || !neighborhood_id) {
+  if (!customer_id || !province || !district) {
     return res.json({ success: false, message: "بيانات ناقصة" });
   }
 
@@ -64,13 +60,13 @@ router.post("/", async (req, res) => {
       `,
       [
         customer_id,
-        city_id,
-        neighborhood_id,
+        province,
+        district,
         location_type || null,
         address || null,
         gps_link || null,
         latitude || null,
-        longitude || null,
+        longitude || null
       ]
     );
 
@@ -86,9 +82,10 @@ router.post("/", async (req, res) => {
 ========================= */
 router.delete("/:id", async (req, res) => {
   try {
-    await db.query("DELETE FROM customer_addresses WHERE id=?", [
-      req.params.id,
-    ]);
+    await db.query(
+      "DELETE FROM customer_addresses WHERE id=?",
+      [req.params.id]
+    );
 
     res.json({ success: true });
   } catch (err) {
