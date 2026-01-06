@@ -13,15 +13,23 @@ router.get("/", async (req, res) => {
         ca.id,
         ca.customer_id,
         c.name AS customer_name,
-        ca.city_id AS province,
-        ca.neighborhood_id AS district,
+
+        ca.province,
+        ca.district,
+
+        ci.name AS city_name,
+        n.name AS neighborhood_name,
+
         ca.location_type,
         ca.address,
         ca.gps_link,
         ca.latitude,
-        ca.longitude
+        ca.longitude,
+        ca.created_at
       FROM customer_addresses ca
       JOIN customers c ON c.id = ca.customer_id
+      JOIN cities ci ON ci.id = ca.province
+      JOIN neighborhoods n ON n.id = ca.district
       ORDER BY ca.id DESC
     `);
 
@@ -32,14 +40,15 @@ router.get("/", async (req, res) => {
   }
 });
 
+
 /* =========================
    POST /customer-addresses
 ========================= */
 router.post("/", async (req, res) => {
   const {
     customer_id,
-    province,   // city_id
-    district,   // neighborhood_id
+    province,
+    district,
     location_type,
     address,
     gps_link,
@@ -47,28 +56,21 @@ router.post("/", async (req, res) => {
     longitude
   } = req.body;
 
-  if (!customer_id || !province || !district) {
-    return res.json({ success: false, message: "بيانات ناقصة" });
-  }
-
   try {
-    await db.query(
-      `
+    await db.query(`
       INSERT INTO customer_addresses
-      (customer_id, city_id, neighborhood_id, location_type, address, gps_link, latitude, longitude)
+      (customer_id, province, district, location_type, address, gps_link, latitude, longitude)
       VALUES (?,?,?,?,?,?,?,?)
-      `,
-      [
-        customer_id,
-        province,
-        district,
-        location_type || null,
-        address || null,
-        gps_link || null,
-        latitude || null,
-        longitude || null
-      ]
-    );
+    `, [
+      customer_id,
+      province,
+      district,
+      location_type,
+      address,
+      gps_link,
+      latitude,
+      longitude
+    ]);
 
     res.json({ success: true });
   } catch (err) {
@@ -76,6 +78,7 @@ router.post("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 /* =========================
    DELETE /customer-addresses/:id
