@@ -72,6 +72,10 @@ app.use("/cities", citiesRoutes);
 app.use("/neighborhoods", neighborhoodsRoutes);
 
 
+import customerAddresses from "./routes/customerAddresses.js";
+
+app.use("/customer-addresses", customerAddresses);
+
 
 /* =========================
    Start Server
