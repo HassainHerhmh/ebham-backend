@@ -65,10 +65,11 @@ router.post("/google", async (req, res) => {
     }
 
     // التحقق من Google
-    const ticket = await googleClient.verifyIdToken({
-      idToken: token,
-      audience: process.env.GOOGLE_CLIENT_ID,
-    });
+  const ticket = await googleClient.verifyIdToken({
+  idToken: token,
+  audience: [process.env.GOOGLE_CLIENT_ID],
+});
+
 
     const payload = ticket.getPayload();
     const email = payload.email;
