@@ -65,22 +65,32 @@ router.post("/", async (req, res) => {
    UPDATE Neighborhood
 ========================= */
 router.put("/:id", async (req, res) => {
-  try {
-    const { city_id, name, delivery_fee } = req.body;
+  const { city_id, name, delivery_fee } = req.body;
 
+  if (!city_id || !name) {
+    return res.status(400).json({
+      success: false,
+      message: "بيانات ناقصة",
+    });
+  }
+
+  try {
     await db.query(
       `
       UPDATE neighborhoods
       SET city_id = ?, name = ?, delivery_fee = ?
       WHERE id = ?
       `,
-      [city_id, name, delivery_fee, req.params.id]
+      [city_id, name, delivery_fee || 0, req.params.id]
     );
 
     res.json({ success: true });
   } catch (err) {
     console.error("UPDATE NEIGHBORHOOD ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      error: err.message,
+    });
   }
 });
 
