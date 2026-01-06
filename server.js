@@ -55,6 +55,13 @@ import usersRoutes from "./routes/users.js";
 app.use("/users", usersRoutes);
 
 /* =========================
+  العملاء
+========================= */
+import customersRoutes from "./routes/customers.js";
+
+app.use("/customers", customersRoutes);
+
+/* =========================
    Start Server
 ========================= */
 const PORT = process.env.PORT || 8080;
