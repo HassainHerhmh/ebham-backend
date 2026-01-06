@@ -66,7 +66,11 @@ app.use("/customers", customersRoutes);
 مدن+احياء
 ========================= */
 import citiesRoutes from "./routes/cities.js";
+import neighborhoodsRoutes from "./routes/neighborhoods.js";
+
 app.use("/cities", citiesRoutes);
+app.use("/neighborhoods", neighborhoodsRoutes);
+
 
 
 /* =========================
