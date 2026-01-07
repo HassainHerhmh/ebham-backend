@@ -140,80 +140,48 @@ router.post("/google", async (req, res) => {
   }
 });
 
-/* ======================================================
-   📱 تسجيل الدخول برقم الهاتف (OTP – Customers)
-   ⚠️ التحقق من OTP يتم في Firebase (Frontend)
-====================================================== */
-router.post("/phone-login", async (req, res) => {
+/* =========================
+   📱 Phone OTP Login
+========================= */
+router.post("/phone", async (req, res) => {
   try {
-    const { phone } = req.body;
+    const { phone, firebase_uid } = req.body;
 
-    if (!phone) {
-      return res.status(400).json({
-        success: false,
-        message: "رقم الهاتف مطلوب",
-      });
+    if (!phone || !firebase_uid) {
+      return res.json({ success: false });
     }
 
     const [rows] = await db.query(
-      `
-      SELECT
-        id,
-        name,
-        phone,
-        email,
-        backup_phone,
-        city_id,
-        neighborhood_id,
-        is_profile_complete
-      FROM customers
-      WHERE phone = ?
-      LIMIT 1
-      `,
+      "SELECT * FROM customers WHERE phone = ? LIMIT 1",
       [phone]
     );
 
     let customer;
-    let needProfile = false;
 
     if (rows.length) {
       customer = rows[0];
-      needProfile = customer.is_profile_complete === 0;
     } else {
-      // 🆕 New phone customer
       const [result] = await db.query(
-        `
-        INSERT INTO customers (phone, is_profile_complete)
-        VALUES (?, 0)
-        `,
+        "INSERT INTO customers (phone, is_profile_complete) VALUES (?, 0)",
         [phone]
       );
 
       customer = {
         id: result.insertId,
-        name: null,
         phone,
-        email: null,
-        backup_phone: null,
-        city_id: null,
-        neighborhood_id: null,
         is_profile_complete: 0,
       };
-
-      needProfile = true;
     }
 
     res.json({
       success: true,
       customer,
-      needProfile,
+      needProfile: customer.is_profile_complete === 0,
     });
+
   } catch (err) {
-    console.error("PHONE LOGIN ERROR:", err);
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+    console.error("PHONE AUTH ERROR:", err);
+    res.status(500).json({ success: false });
   }
 });
 
