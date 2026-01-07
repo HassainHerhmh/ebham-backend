@@ -3,6 +3,7 @@ console.log("GOOGLE_CLIENT_ID =", process.env.GOOGLE_CLIENT_ID);
 import express from "express";
 import db from "../db.js";
 import { OAuth2Client } from "google-auth-library";
+import crypto from "crypto";
 
 const router = express.Router();
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -38,7 +39,6 @@ router.post("/login", async (req, res) => {
     }
 
     delete user.password;
-
     res.json({ success: true, user });
   } catch (err) {
     console.error("LOGIN ERROR:", err);
@@ -47,48 +47,31 @@ router.post("/login", async (req, res) => {
 });
 
 /* ======================================================
-   🔵 تسجيل الدخول عبر Google (Customers فقط)
+   🔵 تسجيل الدخول عبر Google (Customers)
 ====================================================== */
 router.post("/google", async (req, res) => {
   try {
     const { token } = req.body;
-
     if (!token) {
-      return res.status(400).json({
-        success: false,
-        message: "Google token missing",
-      });
+      return res.json({ success: false, message: "Google token missing" });
     }
 
-    // 🔐 Verify Google token
     const ticket = await googleClient.verifyIdToken({
       idToken: token,
       audience: process.env.GOOGLE_CLIENT_ID,
     });
 
     const payload = ticket.getPayload();
-    const email = payload?.email || null;
-    const name = payload?.name || null;
+    const email = payload?.email;
+    const name = payload?.name;
 
     if (!email) {
-      return res.status(400).json({
-        success: false,
-        message: "Email not provided by Google",
-      });
+      return res.json({ success: false, message: "Email not provided" });
     }
 
-    // 🔍 Search customer
     const [rows] = await db.query(
       `
-      SELECT
-        id,
-        name,
-        email,
-        phone,
-        backup_phone,
-        city_id,
-        neighborhood_id,
-        is_profile_complete
+      SELECT id, name, email, phone, is_profile_complete
       FROM customers
       WHERE email = ?
       LIMIT 1
@@ -103,7 +86,6 @@ router.post("/google", async (req, res) => {
       customer = rows[0];
       needProfile = customer.is_profile_complete === 0;
     } else {
-      // 🆕 New Google customer
       const [result] = await db.query(
         `
         INSERT INTO customers (name, email, is_profile_complete)
@@ -117,52 +99,115 @@ router.post("/google", async (req, res) => {
         name,
         email,
         phone: null,
-        backup_phone: null,
-        city_id: null,
-        neighborhood_id: null,
         is_profile_complete: 0,
       };
-
       needProfile = true;
     }
 
-    return res.json({
-      success: true,
-      customer,
-      needProfile,
-    });
+    res.json({ success: true, customer, needProfile });
   } catch (err) {
     console.error("GOOGLE LOGIN ERROR:", err);
-    return res.status(401).json({
-      success: false,
-      message: "Google authentication failed",
-    });
+    res.json({ success: false, message: "Google auth failed" });
   }
 });
 
-/* =========================
-   📱 Phone OTP Login
-========================= */
-router.post("/phone", async (req, res) => {
-  try {
-    const { phone, firebase_uid } = req.body;
+/* ======================================================
+   📱 OTP HELPERS
+====================================================== */
+function generateOtp() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
 
-    if (!phone || !firebase_uid) {
-      return res.json({ success: false });
+function hashOtp(code) {
+  return crypto.createHash("sha256").update(code).digest("hex");
+}
+
+/* ======================================================
+   📤 إرسال OTP (Phone Login)
+====================================================== */
+router.post("/send-otp", async (req, res) => {
+  try {
+    const { phone } = req.body;
+
+    if (!phone) {
+      return res.json({ success: false, message: "رقم الهاتف مطلوب" });
+    }
+
+    const code = generateOtp();
+    const codeHash = hashOtp(code);
+
+    await db.query(
+      `
+      INSERT INTO otp_codes (phone, code_hash, expires_at)
+      VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 2 MINUTE))
+      `,
+      [phone, codeHash]
+    );
+
+    // ⛔ مؤقتًا (للتجربة)
+    console.log("OTP CODE =", code);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("SEND OTP ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
+/* ======================================================
+   ✅ التحقق من OTP
+====================================================== */
+router.post("/verify-otp", async (req, res) => {
+  try {
+    const { phone, code } = req.body;
+
+    if (!phone || !code) {
+      return res.json({ success: false, message: "بيانات ناقصة" });
     }
 
     const [rows] = await db.query(
+      `
+      SELECT *
+      FROM otp_codes
+      WHERE phone = ?
+      ORDER BY id DESC
+      LIMIT 1
+      `,
+      [phone]
+    );
+
+    if (!rows.length) {
+      return res.json({ success: false, message: "الكود غير موجود" });
+    }
+
+    const otp = rows[0];
+
+    if (new Date(otp.expires_at) < new Date()) {
+      return res.json({ success: false, message: "انتهت صلاحية الكود" });
+    }
+
+    if (hashOtp(code) !== otp.code_hash) {
+      return res.json({ success: false, message: "الكود غير صحيح" });
+    }
+
+    // 🔍 تحقق / إنشاء العميل
+    const [users] = await db.query(
       "SELECT * FROM customers WHERE phone = ? LIMIT 1",
       [phone]
     );
 
     let customer;
+    let needProfile = false;
 
-    if (rows.length) {
-      customer = rows[0];
+    if (users.length) {
+      customer = users[0];
+      needProfile = customer.is_profile_complete === 0;
     } else {
       const [result] = await db.query(
-        "INSERT INTO customers (phone, is_profile_complete) VALUES (?, 0)",
+        `
+        INSERT INTO customers (phone, is_profile_complete)
+        VALUES (?, 0)
+        `,
         [phone]
       );
 
@@ -171,16 +216,16 @@ router.post("/phone", async (req, res) => {
         phone,
         is_profile_complete: 0,
       };
+      needProfile = true;
     }
 
     res.json({
       success: true,
       customer,
-      needProfile: customer.is_profile_complete === 0,
+      needProfile,
     });
-
   } catch (err) {
-    console.error("PHONE AUTH ERROR:", err);
+    console.error("VERIFY OTP ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
