@@ -4,16 +4,11 @@ import express from "express";
 import db from "../db.js";
 import { OAuth2Client } from "google-auth-library";
 
-
-
 const router = express.Router();
-
-const googleClient = new OAuth2Client(
-  process.env.GOOGLE_CLIENT_ID
-);
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 /* ======================================================
-   🔐 تسجيل دخول لوحة التحكم (موجود – لم نلمسه)
+   🔐 تسجيل دخول لوحة التحكم (Admins / Staff)
 ====================================================== */
 router.post("/login", async (req, res) => {
   const { identifier, password } = req.body;
@@ -44,10 +39,7 @@ router.post("/login", async (req, res) => {
 
     delete user.password;
 
-    res.json({
-      success: true,
-      user,
-    });
+    res.json({ success: true, user });
   } catch (err) {
     console.error("LOGIN ERROR:", err);
     res.status(500).json({ success: false });
@@ -68,9 +60,7 @@ router.post("/google", async (req, res) => {
       });
     }
 
-    /* =========================
-       Verify Google Token
-    ========================= */
+    // 🔐 Verify Google token
     const ticket = await googleClient.verifyIdToken({
       idToken: token,
       audience: process.env.GOOGLE_CLIENT_ID,
@@ -87,9 +77,7 @@ router.post("/google", async (req, res) => {
       });
     }
 
-    /* =========================
-       Search in customers only
-    ========================= */
+    // 🔍 Search customer
     const [rows] = await db.query(
       `
       SELECT
@@ -109,16 +97,16 @@ router.post("/google", async (req, res) => {
     );
 
     let customer;
+    let needProfile = false;
 
     if (rows.length) {
-      // ✅ موجود
       customer = rows[0];
+      needProfile = customer.is_profile_complete === 0;
     } else {
-      // 🆕 مستخدم Google جديد
+      // 🆕 New Google customer
       const [result] = await db.query(
         `
-        INSERT INTO customers
-        (name, email, is_profile_complete)
+        INSERT INTO customers (name, email, is_profile_complete)
         VALUES (?, ?, 0)
         `,
         [name, email]
@@ -134,17 +122,15 @@ router.post("/google", async (req, res) => {
         neighborhood_id: null,
         is_profile_complete: 0,
       };
+
+      needProfile = true;
     }
 
-    /* =========================
-       Response
-    ========================= */
     return res.json({
       success: true,
       customer,
-      needProfile: customer.is_profile_complete === 0,
+      needProfile,
     });
-
   } catch (err) {
     console.error("GOOGLE LOGIN ERROR:", err);
     return res.status(401).json({
@@ -154,5 +140,81 @@ router.post("/google", async (req, res) => {
   }
 });
 
+/* ======================================================
+   📱 تسجيل الدخول برقم الهاتف (OTP – Customers)
+   ⚠️ التحقق من OTP يتم في Firebase (Frontend)
+====================================================== */
+router.post("/phone-login", async (req, res) => {
+  try {
+    const { phone } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({
+        success: false,
+        message: "رقم الهاتف مطلوب",
+      });
+    }
+
+    const [rows] = await db.query(
+      `
+      SELECT
+        id,
+        name,
+        phone,
+        email,
+        backup_phone,
+        city_id,
+        neighborhood_id,
+        is_profile_complete
+      FROM customers
+      WHERE phone = ?
+      LIMIT 1
+      `,
+      [phone]
+    );
+
+    let customer;
+    let needProfile = false;
+
+    if (rows.length) {
+      customer = rows[0];
+      needProfile = customer.is_profile_complete === 0;
+    } else {
+      // 🆕 New phone customer
+      const [result] = await db.query(
+        `
+        INSERT INTO customers (phone, is_profile_complete)
+        VALUES (?, 0)
+        `,
+        [phone]
+      );
+
+      customer = {
+        id: result.insertId,
+        name: null,
+        phone,
+        email: null,
+        backup_phone: null,
+        city_id: null,
+        neighborhood_id: null,
+        is_profile_complete: 0,
+      };
+
+      needProfile = true;
+    }
+
+    res.json({
+      success: true,
+      customer,
+      needProfile,
+    });
+  } catch (err) {
+    console.error("PHONE LOGIN ERROR:", err);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+});
 
 export default router;
