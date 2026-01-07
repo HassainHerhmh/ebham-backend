@@ -55,7 +55,7 @@ router.post("/login", async (req, res) => {
 });
 
 /* ======================================================
-   🔵 تسجيل الدخول عبر Google (جديد)
+   🔵 تسجيل الدخول عبر Google (Customers فقط)
 ====================================================== */
 router.post("/google", async (req, res) => {
   try {
@@ -69,62 +69,72 @@ router.post("/google", async (req, res) => {
     }
 
     // التحقق من Google
-  const ticket = await googleClient.verifyIdToken({
-  idToken: token,
-  audience: [process.env.GOOGLE_CLIENT_ID],
-});
-
+    const ticket = await googleClient.verifyIdToken({
+      idToken: token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
 
     const payload = ticket.getPayload();
     const email = payload.email;
-    const name = payload.name;
 
-    // البحث عن المستخدم
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email not provided by Google",
+      });
+    }
+
+    // 🔍 البحث في جدول customers فقط
     const [rows] = await db.query(
       `
-      SELECT id, name, email, phone, role, status
-      FROM users
+      SELECT
+        id,
+        name,
+        email,
+        phone,
+        backup_phone,
+        city_id,
+        neighborhood_id,
+        is_profile_complete
+      FROM customers
       WHERE email = ?
       `,
       [email]
     );
 
-    let user;
+    let customer;
 
     if (rows.length) {
-      // مستخدم موجود
-      user = rows[0];
-
-      if (user.status !== "active") {
-        return res.json({
-          success: false,
-          message: "الحساب معطل",
-        });
-      }
+      // ✅ مستخدم موجود
+      customer = rows[0];
     } else {
-      // مستخدم جديد
+      // 🆕 مستخدم جديد (Google)
       const [result] = await db.query(
         `
-        INSERT INTO users (name, email, role, status)
-        VALUES (?, ?, 'customer', 'active')
+        INSERT INTO customers (email, is_profile_complete)
+        VALUES (?, 0)
         `,
-        [name, email]
+        [email]
       );
 
-      user = {
+      customer = {
         id: result.insertId,
-        name,
         email,
+        name: null,
         phone: null,
-        role: "customer",
-        status: "active",
+        backup_phone: null,
+        city_id: null,
+        neighborhood_id: null,
+        is_profile_complete: 0,
       };
     }
 
     res.json({
       success: true,
-      user,
+      customer,
+      needProfile: customer.is_profile_complete === 0,
     });
+
   } catch (err) {
     console.error("GOOGLE LOGIN ERROR:", err);
     res.status(401).json({
@@ -133,5 +143,6 @@ router.post("/google", async (req, res) => {
     });
   }
 });
+
 
 export default router;
