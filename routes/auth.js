@@ -68,14 +68,17 @@ router.post("/google", async (req, res) => {
       });
     }
 
-    // التحقق من Google
+    /* =========================
+       Verify Google Token
+    ========================= */
     const ticket = await googleClient.verifyIdToken({
       idToken: token,
       audience: process.env.GOOGLE_CLIENT_ID,
     });
 
     const payload = ticket.getPayload();
-    const email = payload.email;
+    const email = payload?.email || null;
+    const name = payload?.name || null;
 
     if (!email) {
       return res.status(400).json({
@@ -84,7 +87,9 @@ router.post("/google", async (req, res) => {
       });
     }
 
-    // 🔍 البحث في جدول customers فقط
+    /* =========================
+       Search in customers only
+    ========================= */
     const [rows] = await db.query(
       `
       SELECT
@@ -98,6 +103,7 @@ router.post("/google", async (req, res) => {
         is_profile_complete
       FROM customers
       WHERE email = ?
+      LIMIT 1
       `,
       [email]
     );
@@ -105,22 +111,23 @@ router.post("/google", async (req, res) => {
     let customer;
 
     if (rows.length) {
-      // ✅ مستخدم موجود
+      // ✅ موجود
       customer = rows[0];
     } else {
-      // 🆕 مستخدم جديد (Google)
+      // 🆕 مستخدم Google جديد
       const [result] = await db.query(
         `
-        INSERT INTO customers (email, is_profile_complete)
-        VALUES (?, 0)
+        INSERT INTO customers
+        (name, email, is_profile_complete)
+        VALUES (?, ?, 0)
         `,
-        [email]
+        [name, email]
       );
 
       customer = {
         id: result.insertId,
+        name,
         email,
-        name: null,
         phone: null,
         backup_phone: null,
         city_id: null,
@@ -129,7 +136,10 @@ router.post("/google", async (req, res) => {
       };
     }
 
-    res.json({
+    /* =========================
+       Response
+    ========================= */
+    return res.json({
       success: true,
       customer,
       needProfile: customer.is_profile_complete === 0,
@@ -137,7 +147,7 @@ router.post("/google", async (req, res) => {
 
   } catch (err) {
     console.error("GOOGLE LOGIN ERROR:", err);
-    res.status(401).json({
+    return res.status(401).json({
       success: false,
       message: "Google authentication failed",
     });
