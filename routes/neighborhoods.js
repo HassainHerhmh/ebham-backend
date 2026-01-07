@@ -106,5 +106,26 @@ router.delete("/:id", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+/* =========================
+   GET /neighborhoods/by-city/:cityId
+========================= */
+router.get("/by-city/:cityId", async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT id, name, delivery_fee, city_id
+      FROM neighborhoods
+      WHERE city_id = ?
+      ORDER BY id DESC
+      `,
+      [req.params.cityId]
+    );
+
+    res.json({ success: true, neighborhoods: rows });
+  } catch (err) {
+    console.error("GET NEIGHBORHOODS BY CITY ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
 
 export default router;
