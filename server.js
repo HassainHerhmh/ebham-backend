@@ -49,7 +49,7 @@ app.use("/uploads", express.static("uploads"));
 /* =========================
    Auth Routes
 ========================= */
-const authRoutes = require("./routes/auth.js");
+import authRoutes from "./routes/auth.js";
 
 app.use("/api/auth", authRoutes);
 
