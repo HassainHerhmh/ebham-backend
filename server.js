@@ -47,7 +47,8 @@ app.use("/uploads", express.static("uploads"));
 ========================= */
 import authRoutes from "./routes/auth.js";
 
-api.post("/api/auth/send-otp", { phone })
+app.use("/api/auth", authRoutes);
+
 
 
 
