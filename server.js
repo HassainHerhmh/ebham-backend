@@ -16,16 +16,12 @@ app.use((req, res, next) => {
 /* =========================
    Middlewares
 ========================= */
+app.use(cors({ origin: "*" }));
+
 app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // ⭐⭐⭐ هذا هو الحل
 
-app.use(
-  cors({
-    origin: "*",
-  })
-);
-
-
-// مهم جدًا
+// مهم جدًا للـ preflight
 app.options("*", cors());
 
 /* =========================
