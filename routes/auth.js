@@ -124,29 +124,34 @@ function hashOtp(code) {
 }
 
 /* ======================================================
-   🔢 التحقق من OTP
+   🔢 التحقق من OTP (نسخة مستقرة)
 ====================================================== */
 router.post("/verify-otp", async (req, res) => {
   try {
     let { phone, code } = req.body;
 
     if (!phone || !code) {
-      return res.json({ success: false, message: "بيانات ناقصة" });
+      return res.json({
+        success: false,
+        message: "بيانات ناقصة",
+      });
     }
 
+    // توحيد رقم الهاتف
     const normalizedPhone = phone.replace(/\s+/g, "").trim();
     const codeHash = hashOtp(code);
 
     /* =========================
-       تحقق من الرمز
+       1️⃣ التحقق من الرمز
     ========================= */
     const [otpRows] = await db.query(
       `
-      SELECT *
+      SELECT id
       FROM otp_codes
       WHERE phone = ?
         AND code_hash = ?
         AND expires_at > NOW()
+      LIMIT 1
       `,
       [normalizedPhone, codeHash]
     );
@@ -158,14 +163,16 @@ router.post("/verify-otp", async (req, res) => {
       });
     }
 
-    // 🧹 حذف الرمز
+    /* =========================
+       2️⃣ حذف الرمز بعد الاستخدام
+    ========================= */
     await db.query(
       "DELETE FROM otp_codes WHERE phone = ?",
       [normalizedPhone]
     );
 
     /* =========================
-       جلب أو إنشاء العميل
+       3️⃣ جلب أو إنشاء العميل
     ========================= */
     const [customers] = await db.query(
       `
@@ -203,18 +210,23 @@ router.post("/verify-otp", async (req, res) => {
     }
 
     /* =========================
-       الرد النهائي
+       4️⃣ الرد النهائي
     ========================= */
-    res.json({
+    return res.json({
       success: true,
       customer,
       needProfile,
     });
+
   } catch (err) {
-    console.error("VERIFY OTP ERROR:", err);
-    res.status(500).json({ success: false });
+    console.error("❌ VERIFY OTP ERROR:", err);
+    return res.status(500).json({
+      success: false,
+      message: "SERVER_ERROR",
+    });
   }
 });
+
 
 
 export default router;
