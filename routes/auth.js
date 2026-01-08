@@ -52,6 +52,7 @@ router.post("/login", async (req, res) => {
 router.post("/google", async (req, res) => {
   try {
     const { token } = req.body;
+
     if (!token) {
       return res.json({ success: false, message: "Google token missing" });
     }
@@ -139,7 +140,7 @@ router.post("/send-otp", async (req, res) => {
     const code = generateOtp();
     const codeHash = hashOtp(code);
 
-    // 🧹 حذف أي OTP قديم
+    // 🧹 حذف أي رمز سابق
     await db.query(
       "DELETE FROM otp_codes WHERE phone = ?",
       [normalizedPhone]
@@ -160,6 +161,55 @@ router.post("/send-otp", async (req, res) => {
   } catch (err) {
     console.error("SEND OTP ERROR:", err);
     res.status(500).json({ success: false, message: "SERVER_ERROR" });
+  }
+});
+
+/* ======================================================
+   🔢 التحقق من OTP  ✅ (الجزء الناقص عندك)
+====================================================== */
+router.post("/verify-otp", async (req, res) => {
+  try {
+    let { phone, code } = req.body;
+
+    if (!phone || !code) {
+      return res.json({ success: false, message: "بيانات ناقصة" });
+    }
+
+    const normalizedPhone = phone.replace(/\s+/g, "").trim();
+    const codeHash = hashOtp(code);
+
+    const [rows] = await db.query(
+      `
+      SELECT *
+      FROM otp_codes
+      WHERE phone = ?
+        AND code_hash = ?
+        AND expires_at > NOW()
+      `,
+      [normalizedPhone, codeHash]
+    );
+
+    if (!rows.length) {
+      return res.json({
+        success: false,
+        message: "رمز غير صحيح أو منتهي",
+      });
+    }
+
+    // 🧹 حذف الرمز بعد نجاح التحقق
+    await db.query(
+      "DELETE FROM otp_codes WHERE phone = ?",
+      [normalizedPhone]
+    );
+
+    res.json({
+      success: true,
+      customer: { phone: normalizedPhone },
+      needProfile: true,
+    });
+  } catch (err) {
+    console.error("VERIFY OTP ERROR:", err);
+    res.status(500).json({ success: false });
   }
 });
 
