@@ -137,13 +137,9 @@ router.post("/verify-otp", async (req, res) => {
       });
     }
 
-    // توحيد رقم الهاتف
     const normalizedPhone = phone.replace(/\s+/g, "").trim();
     const codeHash = hashOtp(code);
 
-    /* =========================
-       1️⃣ التحقق من الرمز
-    ========================= */
     const [otpRows] = await db.query(
       `
       SELECT id
@@ -163,17 +159,8 @@ router.post("/verify-otp", async (req, res) => {
       });
     }
 
-    /* =========================
-       2️⃣ حذف الرمز بعد الاستخدام
-    ========================= */
-    await db.query(
-      "DELETE FROM otp_codes WHERE phone = ?",
-      [normalizedPhone]
-    );
+    await db.query("DELETE FROM otp_codes WHERE phone = ?", [normalizedPhone]);
 
-    /* =========================
-       3️⃣ جلب أو إنشاء العميل
-    ========================= */
     const [customers] = await db.query(
       `
       SELECT id, name, phone, is_profile_complete
@@ -205,20 +192,25 @@ router.post("/verify-otp", async (req, res) => {
         name: null,
         is_profile_complete: 0,
       };
-
       needProfile = true;
     }
 
-    /* =========================
-       4️⃣ الرد النهائي
-    ========================= */
     return res.json({
       success: true,
       customer,
       needProfile,
     });
+  } catch (err) {
+    console.error("❌ VERIFY OTP ERROR:", err);
+    return res.status(500).json({
+      success: false,
+      message: "SERVER_ERROR",
+    });
+  }
+}); // ← هنا نغلق verify-otp بالكامل ✅
 
- /* ======================================================
+
+/* ======================================================
    🔢 إرسال OTP (نسخة متوافقة مع التطبيق)
 ====================================================== */
 router.post("/send-otp", async (req, res) => {
@@ -232,17 +224,11 @@ router.post("/send-otp", async (req, res) => {
       });
     }
 
-    // توحيد رقم الهاتف
     const normalizedPhone = phone.replace(/\s+/g, "").trim();
-
-    // توليد الرمز وتجزئته
     const code = generateOtp();
     const codeHash = hashOtp(code);
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // منتهي بعد 5 دقائق
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-    /* =========================
-       حفظ الرمز في قاعدة البيانات
-    ========================= */
     await db.query(
       `
       INSERT INTO otp_codes (phone, code_hash, expires_at)
@@ -254,10 +240,6 @@ router.post("/send-otp", async (req, res) => {
       [normalizedPhone, codeHash, expiresAt]
     );
 
-    /* =========================
-       إرسال الرمز (اختياري)
-       يمكنك ربطه لاحقًا مع مزود SMS حقيقي مثل Twilio أو Vonage
-    ========================= */
     console.log(`📲 OTP for ${normalizedPhone}: ${code}`);
 
     return res.json({
@@ -272,5 +254,6 @@ router.post("/send-otp", async (req, res) => {
     });
   }
 });
+
 
 module.exports = router;
