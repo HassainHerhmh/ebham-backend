@@ -273,5 +273,4 @@ router.post("/send-otp", async (req, res) => {
   }
 });
 
-
-export default router;
+module.exports = router;
