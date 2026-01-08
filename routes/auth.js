@@ -218,15 +218,60 @@ router.post("/verify-otp", async (req, res) => {
       needProfile,
     });
 
+ /* ======================================================
+   🔢 إرسال OTP (نسخة متوافقة مع التطبيق)
+====================================================== */
+router.post("/send-otp", async (req, res) => {
+  try {
+    const { phone } = req.body;
+
+    if (!phone) {
+      return res.json({
+        success: false,
+        message: "رقم الهاتف مطلوب",
+      });
+    }
+
+    // توحيد رقم الهاتف
+    const normalizedPhone = phone.replace(/\s+/g, "").trim();
+
+    // توليد الرمز وتجزئته
+    const code = generateOtp();
+    const codeHash = hashOtp(code);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // منتهي بعد 5 دقائق
+
+    /* =========================
+       حفظ الرمز في قاعدة البيانات
+    ========================= */
+    await db.query(
+      `
+      INSERT INTO otp_codes (phone, code_hash, expires_at)
+      VALUES (?, ?, ?)
+      ON DUPLICATE KEY UPDATE 
+        code_hash = VALUES(code_hash),
+        expires_at = VALUES(expires_at)
+      `,
+      [normalizedPhone, codeHash, expiresAt]
+    );
+
+    /* =========================
+       إرسال الرمز (اختياري)
+       يمكنك ربطه لاحقًا مع مزود SMS حقيقي مثل Twilio أو Vonage
+    ========================= */
+    console.log(`📲 OTP for ${normalizedPhone}: ${code}`);
+
+    return res.json({
+      success: true,
+      message: "تم إرسال رمز التحقق بنجاح",
+    });
   } catch (err) {
-    console.error("❌ VERIFY OTP ERROR:", err);
+    console.error("❌ SEND OTP ERROR:", err);
     return res.status(500).json({
       success: false,
       message: "SERVER_ERROR",
     });
   }
 });
-
 
 
 export default router;
