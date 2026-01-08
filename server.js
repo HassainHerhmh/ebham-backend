@@ -55,7 +55,6 @@ app.use("/uploads", express.static("uploads"));
 ========================= */
 import authRoutes from "./routes/auth.js";
 app.use("/api/auth", authRoutes);
-app.use("/auth", authRoutes);
 /* =========================
    Users Routes
 ========================= */
