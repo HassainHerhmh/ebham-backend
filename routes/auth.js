@@ -111,6 +111,7 @@ router.post("/google", async (req, res) => {
   }
 });
 
+
 /* ======================================================
    📱 OTP HELPERS
 ====================================================== */
@@ -123,7 +124,7 @@ function hashOtp(code) {
 }
 
 /* ======================================================
-   📤 إرسال OTP (Phone Login)
+   📤 إرسال OTP
 ====================================================== */
 router.post("/send-otp", async (req, res) => {
   try {
@@ -136,6 +137,9 @@ router.post("/send-otp", async (req, res) => {
     const code = generateOtp();
     const codeHash = hashOtp(code);
 
+    // 🧹 حذف أي OTP قديم
+    await db.query("DELETE FROM otp_codes WHERE phone = ?", [phone]);
+
     await db.query(
       `
       INSERT INTO otp_codes (phone, code_hash, expires_at)
@@ -144,90 +148,13 @@ router.post("/send-otp", async (req, res) => {
       [phone, codeHash]
     );
 
-    // ⛔ مؤقتًا (للتجربة)
+    // ⛔ مؤقتًا
     console.log("OTP CODE =", code);
 
     res.json({ success: true });
   } catch (err) {
     console.error("SEND OTP ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, message: "SERVER_ERROR" });
   }
 });
-
-/* ======================================================
-   ✅ التحقق من OTP
-====================================================== */
-router.post("/verify-otp", async (req, res) => {
-  try {
-    const { phone, code } = req.body;
-
-    if (!phone || !code) {
-      return res.json({ success: false, message: "بيانات ناقصة" });
-    }
-
-    const [rows] = await db.query(
-      `
-      SELECT *
-      FROM otp_codes
-      WHERE phone = ?
-      ORDER BY id DESC
-      LIMIT 1
-      `,
-      [phone]
-    );
-
-    if (!rows.length) {
-      return res.json({ success: false, message: "الكود غير موجود" });
-    }
-
-    const otp = rows[0];
-
-    if (new Date(otp.expires_at) < new Date()) {
-      return res.json({ success: false, message: "انتهت صلاحية الكود" });
-    }
-
-    if (hashOtp(code) !== otp.code_hash) {
-      return res.json({ success: false, message: "الكود غير صحيح" });
-    }
-
-    // 🔍 تحقق / إنشاء العميل
-    const [users] = await db.query(
-      "SELECT * FROM customers WHERE phone = ? LIMIT 1",
-      [phone]
-    );
-
-    let customer;
-    let needProfile = false;
-
-    if (users.length) {
-      customer = users[0];
-      needProfile = customer.is_profile_complete === 0;
-    } else {
-      const [result] = await db.query(
-        `
-        INSERT INTO customers (phone, is_profile_complete)
-        VALUES (?, 0)
-        `,
-        [phone]
-      );
-
-      customer = {
-        id: result.insertId,
-        phone,
-        is_profile_complete: 0,
-      };
-      needProfile = true;
-    }
-
-    res.json({
-      success: true,
-      customer,
-      needProfile,
-    });
-  } catch (err) {
-    console.error("VERIFY OTP ERROR:", err);
-    res.status(500).json({ success: false });
-  }
-});
-
 export default router;
