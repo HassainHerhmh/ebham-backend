@@ -124,48 +124,7 @@ function hashOtp(code) {
 }
 
 /* ======================================================
-   📤 إرسال OTP
-====================================================== */
-router.post("/send-otp", async (req, res) => {
-  try {
-    let { phone } = req.body;
-
-    if (!phone) {
-      return res.json({ success: false, message: "رقم الهاتف مطلوب" });
-    }
-
-    // ✅ توحيد رقم الهاتف
-    const normalizedPhone = phone.replace(/\s+/g, "").trim();
-
-    const code = generateOtp();
-    const codeHash = hashOtp(code);
-
-    // 🧹 حذف أي رمز سابق
-    await db.query(
-      "DELETE FROM otp_codes WHERE phone = ?",
-      [normalizedPhone]
-    );
-
-    await db.query(
-      `
-      INSERT INTO otp_codes (phone, code_hash, expires_at)
-      VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 2 MINUTE))
-      `,
-      [normalizedPhone, codeHash]
-    );
-
-    // ⛔ مؤقتًا (للتجربة)
-    console.log("OTP CODE =", code);
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error("SEND OTP ERROR:", err);
-    res.status(500).json({ success: false, message: "SERVER_ERROR" });
-  }
-});
-
-/* ======================================================
-   🔢 التحقق من OTP  ✅ (الجزء الناقص عندك)
+   🔢 التحقق من OTP
 ====================================================== */
 router.post("/verify-otp", async (req, res) => {
   try {
@@ -178,7 +137,10 @@ router.post("/verify-otp", async (req, res) => {
     const normalizedPhone = phone.replace(/\s+/g, "").trim();
     const codeHash = hashOtp(code);
 
-    const [rows] = await db.query(
+    /* =========================
+       تحقق من الرمز
+    ========================= */
+    const [otpRows] = await db.query(
       `
       SELECT *
       FROM otp_codes
@@ -189,28 +151,70 @@ router.post("/verify-otp", async (req, res) => {
       [normalizedPhone, codeHash]
     );
 
-    if (!rows.length) {
+    if (!otpRows.length) {
       return res.json({
         success: false,
         message: "رمز غير صحيح أو منتهي",
       });
     }
 
-    // 🧹 حذف الرمز بعد نجاح التحقق
+    // 🧹 حذف الرمز
     await db.query(
       "DELETE FROM otp_codes WHERE phone = ?",
       [normalizedPhone]
     );
 
+    /* =========================
+       جلب أو إنشاء العميل
+    ========================= */
+    const [customers] = await db.query(
+      `
+      SELECT id, name, phone, is_profile_complete
+      FROM customers
+      WHERE phone = ?
+      LIMIT 1
+      `,
+      [normalizedPhone]
+    );
+
+    let customer;
+    let needProfile = false;
+
+    if (customers.length) {
+      customer = customers[0];
+      needProfile = customer.is_profile_complete === 0;
+    } else {
+      const [result] = await db.query(
+        `
+        INSERT INTO customers (phone, is_profile_complete)
+        VALUES (?, 0)
+        `,
+        [normalizedPhone]
+      );
+
+      customer = {
+        id: result.insertId,
+        phone: normalizedPhone,
+        name: null,
+        is_profile_complete: 0,
+      };
+
+      needProfile = true;
+    }
+
+    /* =========================
+       الرد النهائي
+    ========================= */
     res.json({
       success: true,
-      customer: { phone: normalizedPhone },
-      needProfile: true,
+      customer,
+      needProfile,
     });
   } catch (err) {
     console.error("VERIFY OTP ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
+
 
 export default router;
