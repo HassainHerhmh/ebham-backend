@@ -111,7 +111,6 @@ router.post("/google", async (req, res) => {
   }
 });
 
-
 /* ======================================================
    📱 OTP HELPERS
 ====================================================== */
@@ -128,27 +127,33 @@ function hashOtp(code) {
 ====================================================== */
 router.post("/send-otp", async (req, res) => {
   try {
-    const { phone } = req.body;
+    let { phone } = req.body;
 
     if (!phone) {
       return res.json({ success: false, message: "رقم الهاتف مطلوب" });
     }
 
+    // ✅ توحيد رقم الهاتف
+    const normalizedPhone = phone.replace(/\s+/g, "").trim();
+
     const code = generateOtp();
     const codeHash = hashOtp(code);
 
     // 🧹 حذف أي OTP قديم
-    await db.query("DELETE FROM otp_codes WHERE phone = ?", [phone]);
+    await db.query(
+      "DELETE FROM otp_codes WHERE phone = ?",
+      [normalizedPhone]
+    );
 
     await db.query(
       `
       INSERT INTO otp_codes (phone, code_hash, expires_at)
       VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 2 MINUTE))
       `,
-      [phone, codeHash]
+      [normalizedPhone, codeHash]
     );
 
-    // ⛔ مؤقتًا
+    // ⛔ مؤقتًا (للتجربة)
     console.log("OTP CODE =", code);
 
     res.json({ success: true });
@@ -157,4 +162,5 @@ router.post("/send-otp", async (req, res) => {
     res.status(500).json({ success: false, message: "SERVER_ERROR" });
   }
 });
+
 export default router;
