@@ -54,20 +54,37 @@ router.post("/google", async (req, res) => {
     const { token } = req.body;
 
     if (!token) {
-      return res.json({ success: false, message: "Google token missing" });
+      return res.json({
+        success: false,
+        message: "Google token missing",
+      });
     }
 
     const ticket = await googleClient.verifyIdToken({
       idToken: token,
-      audience: process.env.GOOGLE_CLIENT_ID,
+      audience: [
+        process.env.GOOGLE_ANDROID_CLIENT_ID, // ✅ Android
+        process.env.GOOGLE_WEB_CLIENT_ID,     // (اختياري)
+      ],
     });
 
     const payload = ticket.getPayload();
-    const email = payload?.email;
-    const name = payload?.name;
+
+    if (!payload) {
+      return res.json({
+        success: false,
+        message: "Invalid Google token",
+      });
+    }
+
+    const email = payload.email;
+    const name = payload.name;
 
     if (!email) {
-      return res.json({ success: false, message: "Email not provided" });
+      return res.json({
+        success: false,
+        message: "Email not provided by Google",
+      });
     }
 
     const [rows] = await db.query(
@@ -102,15 +119,24 @@ router.post("/google", async (req, res) => {
         phone: null,
         is_profile_complete: 0,
       };
+
       needProfile = true;
     }
 
-    res.json({ success: true, customer, needProfile });
+    return res.json({
+      success: true,
+      customer,
+      needProfile,
+    });
   } catch (err) {
-    console.error("GOOGLE LOGIN ERROR:", err);
-    res.json({ success: false, message: "Google auth failed" });
+    console.error("❌ GOOGLE LOGIN ERROR:", err);
+    return res.json({
+      success: false,
+      message: "Google auth failed",
+    });
   }
 });
+
 
 /* ======================================================
    📱 OTP HELPERS
