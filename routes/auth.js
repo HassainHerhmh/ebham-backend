@@ -65,14 +65,7 @@ const ticket = await googleClient.verifyIdToken({
     "311071752502-8hnevefef391jf08aarlubbmjgb24mc8.apps.googleusercontent.com"
   ],
 });
-     
-
-const ticket = await googleClient.verifyIdToken({
-  idToken: token,
-  audience: [
-    "311071752502-8hnevefef391jf08aarlubbmjgb24mc8.apps.googleusercontent.com"
-  ],
-});
+   
 
 
     const payload = ticket.getPayload();
