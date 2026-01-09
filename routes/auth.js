@@ -60,13 +60,11 @@ router.post("/google", async (req, res) => {
       });
     }
 
-    const ticket = await googleClient.verifyIdToken({
-      idToken: token,
-      audience: [
-        process.env.GOOGLE_CLIENT_ID,
-        process.env.GOOGLE_WEB_CLIENT_ID,
-      ],
-    });
+   const ticket = await googleClient.verifyIdToken({
+  idToken: token,
+  audience: process.env.GOOGLE_CLIENT_ID,
+});
+
 
     const payload = ticket.getPayload();
 
