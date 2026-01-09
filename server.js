@@ -16,15 +16,7 @@ app.use((req, res, next) => {
 /* =========================
    Middlewares
 ========================= */
-
-
-app.use(
-  cors({
-    origin: "*",
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
+app.use(cors({ origin: "*" }));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true })); // ⭐⭐⭐ هذا هو الحل
@@ -94,4 +86,5 @@ app.use("/customer-addresses", customerAddresses);
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () =>
   console.log(`🚀 Server running on ${PORT}`)
-);
+           
+);جربت اعمل طلب مافي وصل للسيرفر مع انه اول عبر كود تحقق شغال بدون مشاكل يمكن الواجههة مخبوطة
