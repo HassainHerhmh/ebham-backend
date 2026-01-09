@@ -66,8 +66,6 @@ const ticket = await googleClient.verifyIdToken({
   ],
 });
      
-     console.log("GOOGLE TOKEN RECEIVED:", token);
-      console.log("GOOGLE PAYLOAD:", payload);
 
 const ticket = await googleClient.verifyIdToken({
   idToken: token,
