@@ -58,15 +58,24 @@ router.post("/google", async (req, res) => {
         success: false,
         message: "Google token missing",
       });
-    }
+    }  
+const ticket = await googleClient.verifyIdToken({
+  idToken: token,
+  audience: [
+    "311071752502-8hnevefef391jf08aarlubbmjgb24mc8.apps.googleusercontent.com"
+  ],
+});
+     
+     console.log("GOOGLE TOKEN RECEIVED:", token);
+      console.log("GOOGLE PAYLOAD:", payload);
 
-    const ticket = await googleClient.verifyIdToken({
-      idToken: token,
-      audience: [
-        process.env.GOOGLE_ANDROID_CLIENT_ID, // ✅ Android
-        process.env.GOOGLE_WEB_CLIENT_ID,     // (اختياري)
-      ],
-    });
+const ticket = await googleClient.verifyIdToken({
+  idToken: token,
+  audience: [
+    "311071752502-8hnevefef391jf08aarlubbmjgb24mc8.apps.googleusercontent.com"
+  ],
+});
+
 
     const payload = ticket.getPayload();
 
