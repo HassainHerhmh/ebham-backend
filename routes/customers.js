@@ -25,27 +25,28 @@ router.get("/", async (req, res) => {
 /* =========================
    POST /customers
 ========================= */
-router.post("/", async (req, res) => {
-  const { name, phone, email, password } = req.body;
-
-  if (!name || !phone || !password) {
-    return res.json({ success: false, message: "بيانات ناقصة" });
-  }
+router.put("/:id", async (req, res) => {
+  const { name, phone, email, is_profile_complete } = req.body;
 
   try {
-    const hashed = await bcrypt.hash(password, 10);
-
     await db.query(
       `
-      INSERT INTO customers (name, phone, email, password)
-      VALUES (?,?,?,?)
+      UPDATE customers
+      SET name = ?, phone = ?, email = ?, is_profile_complete = ?
+      WHERE id = ?
       `,
-      [name, phone, email || null, hashed]
+      [
+        name,
+        phone,
+        email || null,
+        is_profile_complete ?? 0,
+        req.params.id,
+      ]
     );
 
     res.json({ success: true });
   } catch (err) {
-    console.error("ADD CUSTOMER ERROR:", err);
+    console.error("UPDATE CUSTOMER ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
