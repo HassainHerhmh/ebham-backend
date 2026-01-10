@@ -81,6 +81,13 @@ import customerAddresses from "./routes/customerAddresses.js";
 app.use("/api/customer-addresses", customerAddresses);
 
 /* =========================
+   عناوين العملاء
+========================= */
+import typesRoutes from "./routes/types.js";
+app.use("/api/types", typesRoutes);
+
+
+/* =========================
    Start Server
 ========================= */
 const PORT = process.env.PORT || 8080;
