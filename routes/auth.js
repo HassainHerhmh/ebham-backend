@@ -8,7 +8,8 @@ import { OAuth2Client } from "google-auth-library";
 import crypto from "crypto";
 
 const router = express.Router();
-const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const googleClient = new OAuth2Client();
+
 
 /* ======================================================
    🔐 تسجيل دخول لوحة التحكم (Admins / Staff)
@@ -108,10 +109,11 @@ router.post("/google", async (req, res) => {
       needProfile: true,
     });
 
-  } catch (err) {
-    console.error("❌ GOOGLE LOGIN ERROR:", err);
-    return res.json({ success: false, message: "Google auth failed" });
-  }
+ } catch (err) {
+  console.error("❌ GOOGLE LOGIN ERROR FULL:", err?.message || err);
+  return res.json({ success: false, message: "Google auth failed" });
+}
+
 });
 
 
