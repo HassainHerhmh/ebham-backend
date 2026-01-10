@@ -54,84 +54,57 @@ router.post("/google", async (req, res) => {
     const { token } = req.body;
 
     if (!token) {
-      return res.json({
-        success: false,
-        message: "Google token missing",
-      });
+      return res.json({ success: false, message: "Google token missing" });
     }
 
-   const ticket = await googleClient.verifyIdToken({
-  idToken: token,
-  audience: process.env.GOOGLE_CLIENT_ID,
-});
-
+    const ticket = await googleClient.verifyIdToken({
+      idToken: token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
 
     const payload = ticket.getPayload();
 
-    if (!payload) {
-      return res.json({
-        success: false,
-        message: "Invalid Google token",
-      });
+    if (!payload || !payload.email) {
+      return res.json({ success: false, message: "Invalid Google token" });
     }
 
     const email = payload.email;
-    const name = payload.name;
-
-    if (!email) {
-      return res.json({
-        success: false,
-        message: "Email not provided by Google",
-      });
-    }
 
     const [rows] = await db.query(
-      `
-      SELECT id, name, email, phone, is_profile_complete
-      FROM customers
-      WHERE email = ?
-      LIMIT 1
-      `,
+      `SELECT id, email, name, phone, is_profile_complete
+       FROM customers WHERE email = ? LIMIT 1`,
       [email]
     );
 
     let customer;
-    let needProfile = false;
 
     if (rows.length) {
       customer = rows[0];
-      needProfile = customer.is_profile_complete === 0;
     } else {
       const [result] = await db.query(
-        `
-        INSERT INTO customers (name, email, is_profile_complete)
-        VALUES (?, ?, 0)
-        `,
-        [name, email]
+        `INSERT INTO customers (email, is_profile_complete)
+         VALUES (?, 0)`,
+        [email]
       );
 
       customer = {
         id: result.insertId,
-        name,
         email,
+        name: null,
         phone: null,
         is_profile_complete: 0,
       };
-
-      needProfile = true;
     }
 
     return res.json({
       success: true,
       customer,
-      needProfile,
+      needProfile: true,
     });
+
   } catch (err) {
     console.error("❌ GOOGLE LOGIN ERROR:", err);
-    return res.json({
-      success: false,
-      message: "Google auth failed",
-    });
+    return res.json({ success: false, message: "Google auth failed" });
   }
 });
 
