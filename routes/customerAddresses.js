@@ -28,8 +28,8 @@ router.get("/", async (req, res) => {
         ca.created_at
       FROM customer_addresses ca
       JOIN customers c ON c.id = ca.customer_id
-      JOIN cities ci ON ci.id = ca.province
-      JOIN neighborhoods n ON n.id = ca.district
+      LEFT JOIN cities ci ON ci.id = ca.province
+      LEFT JOIN neighborhoods n ON n.id = ca.district
       ORDER BY ca.id DESC
     `);
 
