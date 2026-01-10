@@ -51,19 +51,20 @@ app.use("/uploads", express.static("uploads"));
 ========================= */
 import authRoutes from "./routes/auth.js";
 
-app.use("/auth", authRoutes);
+app.use("/api/auth", authRoutes);
 
 /* =========================
    Users Routes
 ========================= */
 import usersRoutes from "./routes/users.js";
-app.use("/users", usersRoutes);
+app.use("/api/users", usersRoutes);
+
 
 /* =========================
    العملاء
 ========================= */
 import customersRoutes from "./routes/customers.js";
-app.use("/customers", customersRoutes);
+app.use("/api/customers", customersRoutes);
 
 /* =========================
    مدن + أحياء
@@ -71,14 +72,13 @@ app.use("/customers", customersRoutes);
 import citiesRoutes from "./routes/cities.js";
 import neighborhoodsRoutes from "./routes/neighborhoods.js";
 
-app.use("/cities", citiesRoutes);
-app.use("/neighborhoods", neighborhoodsRoutes);
-
+app.use("/api/cities", citiesRoutes);
+app.use("/api/neighborhoods", neighborhoodsRoutes);
 /* =========================
    عناوين العملاء
 ========================= */
 import customerAddresses from "./routes/customerAddresses.js";
-app.use("/customer-addresses", customerAddresses);
+app.use("/api/customer-addresses", customerAddresses);
 
 /* =========================
    Start Server
