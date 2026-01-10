@@ -6,32 +6,37 @@ const router = express.Router();
 /* =========================
    GET /customer-addresses
 ========================= */
+
 router.get("/", async (req, res) => {
+  const { customer_id } = req.query;
+
+  if (!customer_id) {
+    return res.status(400).json({
+      success: false,
+      message: "customer_id is required",
+    });
+  }
+
   try {
-    const [rows] = await db.query(`
+    const [rows] = await db.query(
+      `
       SELECT
         ca.id,
         ca.customer_id,
-        c.name AS customer_name,
-
-        ca.province,
-        ca.district,
-
         ci.name AS city_name,
         n.name AS neighborhood_name,
-
         ca.location_type,
         ca.address,
-        ca.gps_link,
         ca.latitude,
-        ca.longitude,
-        ca.created_at
+        ca.longitude
       FROM customer_addresses ca
-      JOIN customers c ON c.id = ca.customer_id
       JOIN cities ci ON ci.id = ca.province
       JOIN neighborhoods n ON n.id = ca.district
+      WHERE ca.customer_id = ?
       ORDER BY ca.id DESC
-    `);
+    `,
+      [customer_id]
+    );
 
     res.json({ success: true, addresses: rows });
   } catch (err) {
@@ -39,6 +44,7 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 
 /* =========================
