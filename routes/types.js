@@ -1,4 +1,13 @@
-// 🟢 جلب جميع الأنواع
+import express from "express";
+import db from "../db.js";
+
+const router = express.Router();
+
+
+
+
+// 🟢 
+جلب جميع الأنواع
 app.get("/types", async (_, res) => {
   try {
     const [rows] = await db.query(`
