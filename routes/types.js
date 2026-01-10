@@ -1,13 +1,13 @@
 import express from "express";
 import db from "../db.js";
-import upload from "../middlewares/upload.js"; // تأكد أن هذا الملف موجود
+import upload from "../middlewares/upload.js";
 
 const router = express.Router();
 
 /* ======================================================
    🟢 جلب جميع الأنواع
 ====================================================== */
-router.get("/types", async (_, res) => {
+router.get("/", async (_, res) => {
   try {
     const [rows] = await db.query(`
       SELECT id, name, image_url, sort_order, created_at
@@ -25,7 +25,7 @@ router.get("/types", async (_, res) => {
 /* ======================================================
    ✅ إضافة نوع جديد
 ====================================================== */
-router.post("/types", upload.single("image"), async (req, res) => {
+router.post("/", upload.single("image"), async (req, res) => {
   try {
     const { name, sort_order } = req.body;
 
@@ -53,7 +53,7 @@ router.post("/types", upload.single("image"), async (req, res) => {
 /* ======================================================
    ✏️ تعديل نوع
 ====================================================== */
-router.put("/types/:id", upload.single("image"), async (req, res) => {
+router.put("/:id", upload.single("image"), async (req, res) => {
   try {
     const { name, sort_order } = req.body;
     const updates = [];
@@ -98,7 +98,7 @@ router.put("/types/:id", upload.single("image"), async (req, res) => {
 /* ======================================================
    🗑️ حذف نوع
 ====================================================== */
-router.delete("/types/:id", async (req, res) => {
+router.delete("/:id", async (req, res) => {
   try {
     const [exists] = await db.query(
       "SELECT id FROM types WHERE id=?",
