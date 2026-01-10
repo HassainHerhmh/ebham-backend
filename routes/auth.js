@@ -14,10 +14,8 @@ const googleClient = new OAuth2Client();
 /* ======================================================
    🔐 تسجيل دخول لوحة التحكم (Admins / Staff)
 ====================================================== */
-const res = await api.post("/auth/login", {
-  identifier,
-  password,
-});
+router.post("/login", async (req, res) => 
+   { const { identifier, password } = req.body;
                
   try {
     const [rows] = await db.query(
