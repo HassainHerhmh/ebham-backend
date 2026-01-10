@@ -84,3 +84,6 @@ app.delete("/types/:id", async (req, res) => {
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
 });
+
+
+export default router;
