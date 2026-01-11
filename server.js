@@ -86,6 +86,13 @@ app.use("/api/customer-addresses", customerAddresses);
 import typesRoutes from "./routes/types.js";
 app.use("/api/types", typesRoutes);
 
+/* =========================
+الواحدات
+========================= */
+import unitsRoutes from "./routes/units.js";
+
+app.use("/api/units", unitsRoutes);
+
 
 /* =========================
    Start Server
