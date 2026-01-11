@@ -19,7 +19,8 @@ router.get("/", async (_, res) => {
       LEFT JOIN restaurant_categories rc ON r.id = rc.restaurant_id
       LEFT JOIN categories c ON rc.category_id = c.id
       GROUP BY r.id
-      ORDER BY r.id DESC
+      ORDER BY r.sort_order ASC
+
     `);
 
     for (const r of rows) {
