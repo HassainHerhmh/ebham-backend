@@ -32,9 +32,8 @@ router.get("/", async (_, res) => {
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
 });
-
 /* ======================================================
-   ✅ إضافة منتج جديد
+   ✅ إضافة منتج جديد (بعدة فئات)
 ====================================================== */
 router.post("/", upload.single("image"), async (req, res) => {
   try {
@@ -42,10 +41,10 @@ router.post("/", upload.single("image"), async (req, res) => {
       name,
       price,
       notes,
-      category_id,
       unit_id,
       restaurant_id,
       status,
+      category_ids = [],
     } = req.body;
 
     if (!name || !price) {
@@ -57,21 +56,36 @@ router.post("/", upload.single("image"), async (req, res) => {
 
     const image_url = req.file ? `/uploads/${req.file.filename}` : null;
 
-    await db.query(
+    const [result] = await db.query(
       `INSERT INTO products
-       (name, price, image_url, notes, category_id, unit_id, restaurant_id, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+       (name, price, image_url, notes, unit_id, restaurant_id, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
       [
         name,
         price,
         image_url,
         notes || "",
-        category_id || null,
         unit_id || null,
         restaurant_id || null,
         status || "active",
       ]
     );
+
+    const productId = result.insertId;
+
+    let cats = [];
+    try {
+      cats = typeof category_ids === "string"
+        ? JSON.parse(category_ids)
+        : category_ids;
+    } catch {}
+
+    for (const cid of cats) {
+      await db.query(
+        "INSERT INTO product_categories (product_id, category_id) VALUES (?, ?)",
+        [productId, cid]
+      );
+    }
 
     res.json({ success: true, message: "✅ تم إضافة المنتج بنجاح" });
   } catch (err) {
@@ -81,7 +95,7 @@ router.post("/", upload.single("image"), async (req, res) => {
 });
 
 /* ======================================================
-   ✏️ تعديل منتج
+   ✏️ تعديل منتج (مع تحديث الفئات)
 ====================================================== */
 router.put("/:id", upload.single("image"), async (req, res) => {
   try {
@@ -89,10 +103,10 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       name,
       price,
       notes,
-      category_id,
       unit_id,
       restaurant_id,
       status,
+      category_ids,
     } = req.body;
 
     const updates = [];
@@ -109,10 +123,6 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     if (notes !== undefined) {
       updates.push("notes=?");
       params.push(notes);
-    }
-    if (category_id !== undefined) {
-      updates.push("category_id=?");
-      params.push(category_id || null);
     }
     if (unit_id !== undefined) {
       updates.push("unit_id=?");
@@ -131,19 +141,42 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       params.push(`/uploads/${req.file.filename}`);
     }
 
-    if (!updates.length) {
+    if (!updates.length && category_ids === undefined) {
       return res.status(400).json({
         success: false,
         message: "❌ لا توجد بيانات لتحديثها",
       });
     }
 
-    params.push(req.params.id);
+    if (updates.length) {
+      params.push(req.params.id);
+      await db.query(
+        `UPDATE products SET ${updates.join(", ")} WHERE id=?`,
+        params
+      );
+    }
 
-    await db.query(
-      `UPDATE products SET ${updates.join(", ")} WHERE id=?`,
-      params
-    );
+    // تحديث الفئات
+    if (category_ids !== undefined) {
+      await db.query(
+        "DELETE FROM product_categories WHERE product_id=?",
+        [req.params.id]
+      );
+
+      let cats = [];
+      try {
+        cats = typeof category_ids === "string"
+          ? JSON.parse(category_ids)
+          : category_ids;
+      } catch {}
+
+      for (const cid of cats) {
+        await db.query(
+          "INSERT INTO product_categories (product_id, category_id) VALUES (?, ?)",
+          [req.params.id, cid]
+        );
+      }
+    }
 
     res.json({ success: true, message: "✅ تم تعديل المنتج" });
   } catch (err) {
@@ -153,7 +186,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
 });
 
 /* ======================================================
-   🗑️ حذف منتج
+   🗑️ حذف منتج (مع تنظيف الفئات)
 ====================================================== */
 router.delete("/:id", async (req, res) => {
   try {
@@ -169,6 +202,11 @@ router.delete("/:id", async (req, res) => {
       });
     }
 
+    await db.query(
+      "DELETE FROM product_categories WHERE product_id=?",
+      [req.params.id]
+    );
+
     await db.query("DELETE FROM products WHERE id=?", [req.params.id]);
 
     res.json({ success: true, message: "🗑️ تم حذف المنتج" });
@@ -177,5 +215,6 @@ router.delete("/:id", async (req, res) => {
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
 });
+
 
 export default router;
