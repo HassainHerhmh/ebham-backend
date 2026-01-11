@@ -107,6 +107,13 @@ import productsRoutes from "./routes/products.js";
 app.use("/api/products", productsRoutes);
 
 /* =========================
+المطعم
+========================= */
+import restaurantsRoutes from "./routes/restaurants.js";
+app.use("/api/restaurants", restaurantsRoutes);
+
+
+/* =========================
    Start Server
 ========================= */
 const PORT = process.env.PORT || 8080;
