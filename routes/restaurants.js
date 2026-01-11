@@ -13,7 +13,8 @@ router.get("/", async (_, res) => {
       SELECT 
         r.id, r.name, r.address, r.phone, r.image_url,
         r.latitude, r.longitude, r.created_at,
-        GROUP_CONCAT(c.name SEPARATOR ', ') AS categories
+        GROUP_CONCAT(c.name SEPARATOR ', ') AS categories,
+        GROUP_CONCAT(c.id SEPARATOR ',') AS category_ids
       FROM restaurants r
       LEFT JOIN restaurant_categories rc ON r.id = rc.restaurant_id
       LEFT JOIN categories c ON rc.category_id = c.id
@@ -24,9 +25,10 @@ router.get("/", async (_, res) => {
     res.json({ success: true, restaurants: rows });
   } catch (err) {
     console.error("❌ خطأ في جلب المطاعم:", err);
-    res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
+    res.status(500).json({ success: false });
   }
 });
+
 
 /* ======================================================
    ✅ إضافة مطعم جديد
