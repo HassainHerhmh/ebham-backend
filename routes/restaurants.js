@@ -5,7 +5,7 @@ import upload from "../middlewares/upload.js";
 const router = express.Router();
 
 /* ======================================================
-   🟢 جلب جميع المطاعم
+   🟢 جلب جميع المطاعم مع الفئات + التوقيت
 ====================================================== */
 router.get("/", async (_, res) => {
   try {
@@ -13,8 +13,8 @@ router.get("/", async (_, res) => {
       SELECT 
         r.id, r.name, r.address, r.phone, r.image_url,
         r.latitude, r.longitude, r.created_at,
-        GROUP_CONCAT(c.name SEPARATOR ', ') AS categories,
-        GROUP_CONCAT(c.id SEPARATOR ',') AS category_ids
+        GROUP_CONCAT(DISTINCT c.name SEPARATOR ', ') AS categories,
+        GROUP_CONCAT(DISTINCT c.id SEPARATOR ',') AS category_ids
       FROM restaurants r
       LEFT JOIN restaurant_categories rc ON r.id = rc.restaurant_id
       LEFT JOIN categories c ON rc.category_id = c.id
@@ -22,13 +22,20 @@ router.get("/", async (_, res) => {
       ORDER BY r.id DESC
     `);
 
+    for (const r of rows) {
+      const [schedule] = await db.query(
+        "SELECT day, start_time, end_time, closed FROM restaurant_schedule WHERE restaurant_id=?",
+        [r.id]
+      );
+      r.schedule = schedule;
+    }
+
     res.json({ success: true, restaurants: rows });
   } catch (err) {
     console.error("❌ خطأ في جلب المطاعم:", err);
     res.status(500).json({ success: false });
   }
 });
-
 
 /* ======================================================
    ✅ إضافة مطعم جديد
@@ -42,6 +49,7 @@ router.post("/", upload.single("image"), async (req, res) => {
       latitude = null,
       longitude = null,
       category_ids = [],
+      schedule = "[]",
     } = req.body;
 
     if (!name) {
@@ -59,6 +67,7 @@ router.post("/", upload.single("image"), async (req, res) => {
 
     const restaurantId = result.insertId;
 
+    // الفئات
     let cats = [];
     try {
       cats = typeof category_ids === "string" ? JSON.parse(category_ids) : category_ids;
@@ -68,6 +77,21 @@ router.post("/", upload.single("image"), async (req, res) => {
       await db.query(
         "INSERT INTO restaurant_categories (restaurant_id, category_id) VALUES (?, ?)",
         [restaurantId, cid]
+      );
+    }
+
+    // التوقيت
+    let sch = [];
+    try {
+      sch = JSON.parse(schedule);
+    } catch {}
+
+    for (const d of sch) {
+      await db.query(
+        `INSERT INTO restaurant_schedule
+         (restaurant_id, day, start_time, end_time, closed)
+         VALUES (?, ?, ?, ?, ?)`,
+        [restaurantId, d.day, d.start || null, d.end || null, d.closed ? 1 : 0]
       );
     }
 
@@ -90,55 +114,29 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       latitude,
       longitude,
       category_ids,
+      schedule,
     } = req.body;
 
     const updates = [];
     const params = [];
 
-    if (name !== undefined) {
-      updates.push("name=?");
-      params.push(name);
-    }
-    if (address !== undefined) {
-      updates.push("address=?");
-      params.push(address);
-    }
-    if (phone !== undefined) {
-      updates.push("phone=?");
-      params.push(phone);
-    }
-    if (latitude !== undefined) {
-      updates.push("latitude=?");
-      params.push(latitude || null);
-    }
-    if (longitude !== undefined) {
-      updates.push("longitude=?");
-      params.push(longitude || null);
-    }
+    if (name !== undefined) { updates.push("name=?"); params.push(name); }
+    if (address !== undefined) { updates.push("address=?"); params.push(address); }
+    if (phone !== undefined) { updates.push("phone=?"); params.push(phone); }
+    if (latitude !== undefined) { updates.push("latitude=?"); params.push(latitude || null); }
+    if (longitude !== undefined) { updates.push("longitude=?"); params.push(longitude || null); }
     if (req.file) {
       updates.push("image_url=?");
       params.push(`/uploads/${req.file.filename}`);
     }
 
-    if (!updates.length) {
-      return res.status(400).json({
-        success: false,
-        message: "❌ لا توجد بيانات لتحديثها",
-      });
+    if (updates.length) {
+      params.push(req.params.id);
+      await db.query(`UPDATE restaurants SET ${updates.join(", ")} WHERE id=?`, params);
     }
 
-    params.push(req.params.id);
-
-    await db.query(
-      `UPDATE restaurants SET ${updates.join(", ")} WHERE id=?`,
-      params
-    );
-
     if (category_ids !== undefined) {
-      await db.query(
-        "DELETE FROM restaurant_categories WHERE restaurant_id=?",
-        [req.params.id]
-      );
+      await db.query("DELETE FROM restaurant_categories WHERE restaurant_id=?", [req.params.id]);
 
       let cats = [];
       try {
@@ -149,6 +147,24 @@ router.put("/:id", upload.single("image"), async (req, res) => {
         await db.query(
           "INSERT INTO restaurant_categories (restaurant_id, category_id) VALUES (?, ?)",
           [req.params.id, cid]
+        );
+      }
+    }
+
+    if (schedule !== undefined) {
+      await db.query("DELETE FROM restaurant_schedule WHERE restaurant_id=?", [req.params.id]);
+
+      let sch = [];
+      try {
+        sch = JSON.parse(schedule);
+      } catch {}
+
+      for (const d of sch) {
+        await db.query(
+          `INSERT INTO restaurant_schedule
+           (restaurant_id, day, start_time, end_time, closed)
+           VALUES (?, ?, ?, ?, ?)`,
+          [req.params.id, d.day, d.start || null, d.end || null, d.closed ? 1 : 0]
         );
       }
     }
@@ -165,10 +181,8 @@ router.put("/:id", upload.single("image"), async (req, res) => {
 ====================================================== */
 router.delete("/:id", async (req, res) => {
   try {
-    await db.query(
-      "DELETE FROM restaurant_categories WHERE restaurant_id=?",
-      [req.params.id]
-    );
+    await db.query("DELETE FROM restaurant_categories WHERE restaurant_id=?", [req.params.id]);
+    await db.query("DELETE FROM restaurant_schedule WHERE restaurant_id=?", [req.params.id]);
     await db.query("DELETE FROM restaurants WHERE id=?", [req.params.id]);
 
     res.json({ success: true, message: "🗑️ تم حذف المطعم" });
