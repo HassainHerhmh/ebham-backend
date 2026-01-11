@@ -5,14 +5,14 @@ import upload from "../middlewares/upload.js";
 const router = express.Router();
 
 /* ======================================================
-   🟢 جلب جميع المطاعم مع الفئات + التوقيت
+   🟢 جلب جميع المطاعم مع الفئات + التوقيت + الترتيب
 ====================================================== */
 router.get("/", async (_, res) => {
   try {
     const [rows] = await db.query(`
       SELECT 
         r.id, r.name, r.address, r.phone, r.image_url,
-        r.latitude, r.longitude, r.created_at,
+        r.latitude, r.longitude, r.created_at, r.sort_order,
         GROUP_CONCAT(DISTINCT c.name SEPARATOR ', ') AS categories,
         GROUP_CONCAT(DISTINCT c.id SEPARATOR ',') AS category_ids
       FROM restaurants r
@@ -20,7 +20,6 @@ router.get("/", async (_, res) => {
       LEFT JOIN categories c ON rc.category_id = c.id
       GROUP BY r.id
       ORDER BY r.sort_order ASC
-
     `);
 
     for (const r of rows) {
@@ -59,11 +58,16 @@ router.post("/", upload.single("image"), async (req, res) => {
 
     const image_url = req.file ? `/uploads/${req.file.filename}` : null;
 
+    // نجيب أعلى ترتيب حالي
+    const [[{ maxOrder }]] = await db.query(
+      "SELECT COALESCE(MAX(sort_order), 0) AS maxOrder FROM restaurants"
+    );
+
     const [result] = await db.query(
       `INSERT INTO restaurants
-       (name, address, phone, image_url, latitude, longitude, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-      [name, address, phone, image_url, latitude || null, longitude || null]
+       (name, address, phone, image_url, latitude, longitude, sort_order, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [name, address, phone, image_url, latitude || null, longitude || null, maxOrder + 1]
     );
 
     const restaurantId = result.insertId;
@@ -174,6 +178,28 @@ router.put("/:id", upload.single("image"), async (req, res) => {
   } catch (err) {
     console.error("❌ خطأ في تعديل المطعم:", err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
+  }
+});
+
+/* ======================================================
+   🔀 تحديث ترتيب المطاعم (بعد السحب)
+====================================================== */
+router.post("/reorder", async (req, res) => {
+  try {
+    const { order } = req.body;
+    // order = [{ id: 5, sort_order: 1 }, { id: 2, sort_order: 2 }, ...]
+
+    for (const item of order) {
+      await db.query(
+        "UPDATE restaurants SET sort_order=? WHERE id=?",
+        [item.sort_order, item.id]
+      );
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ خطأ في إعادة الترتيب:", err);
+    res.status(500).json({ success: false });
   }
 });
 
