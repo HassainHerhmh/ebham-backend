@@ -9,29 +9,37 @@ const router = express.Router();
 ====================================================== */
 router.get("/", async (_, res) => {
   try {
-  const [rows] = await db.query(`
-  SELECT 
-    p.id, p.name, p.price, p.image_url, p.notes, p.created_at, p.status,
-    GROUP_CONCAT(c.id) AS category_ids,
-    GROUP_CONCAT(c.name SEPARATOR ', ') AS category_names,
-    u.name AS unit_name,
-    r.name AS restaurant_name
-  FROM products p
-  LEFT JOIN product_categories pc ON p.id = pc.product_id
-  LEFT JOIN categories c ON pc.category_id = c.id
-  LEFT JOIN units u ON p.unit_id = u.id
-  LEFT JOIN restaurants r ON p.restaurant_id = r.id
-  GROUP BY p.id
-  ORDER BY p.id DESC
-`);
+    const [rows] = await db.query(`
+      SELECT 
+        p.id,
+        p.name,
+        p.price,
+        p.image_url,
+        p.notes,
+        p.created_at,
+        p.status,
 
+        p.category_id,
+        p.unit_id,
+        p.restaurant_id,
+
+        c.name AS category_name,
+        u.name AS unit_name,
+        r.name AS restaurant_name
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.id
+      LEFT JOIN units u ON p.unit_id = u.id
+      LEFT JOIN restaurants r ON p.restaurant_id = r.id
+      ORDER BY p.id DESC
+    `);
 
     res.json({ success: true, products: rows });
   } catch (err) {
-    console.error("❌ خطأ في جلب المنتجات:", err);
-    res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
+    console.error(err);
+    res.status(500).json({ success: false });
   }
 });
+
 /* ======================================================
    ✅ إضافة منتج جديد (بعدة فئات)
 ====================================================== */
