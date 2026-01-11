@@ -18,18 +18,18 @@ router.get("/", async (_, res) => {
         p.notes,
         p.created_at,
         p.status,
-
-        p.category_id,
-        p.unit_id,
-        p.restaurant_id,
-
-        c.name AS category_name,
+        GROUP_CONCAT(c.id) AS category_ids,
+        GROUP_CONCAT(c.name SEPARATOR ', ') AS categories,
+        u.id AS unit_id,
         u.name AS unit_name,
+        r.id AS restaurant_id,
         r.name AS restaurant_name
       FROM products p
-      LEFT JOIN categories c ON p.category_id = c.id
+      LEFT JOIN product_categories pc ON p.id = pc.product_id
+      LEFT JOIN categories c ON pc.category_id = c.id
       LEFT JOIN units u ON p.unit_id = u.id
       LEFT JOIN restaurants r ON p.restaurant_id = r.id
+      GROUP BY p.id
       ORDER BY p.id DESC
     `);
 
