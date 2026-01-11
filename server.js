@@ -99,7 +99,12 @@ app.use("/api/units", unitsRoutes);
 import categoriesRoutes from "./routes/categories.js";
 
 app.use("/api/categories", categoriesRoutes);
+/* =========================
+المنتجات
+========================= */
+import productsRoutes from "./routes/products.js";
 
+app.use("/api/products", productsRoutes);
 
 /* =========================
    Start Server
