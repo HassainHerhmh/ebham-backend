@@ -93,6 +93,13 @@ import unitsRoutes from "./routes/units.js";
 
 app.use("/api/units", unitsRoutes);
 
+/* =========================
+الفئات
+========================= */
+import categoriesRoutes from "./routes/categories.js";
+
+app.use("/api/categories", categoriesRoutes);
+
 
 /* =========================
    Start Server
