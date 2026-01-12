@@ -64,6 +64,7 @@ router.post("/", upload.single("image"), async (req, res) => {
       longitude = null,
       category_ids = [],
       schedule = "[]",
+         type_id = null
     } = req.body;
 
     if (!name) {
@@ -138,6 +139,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       longitude,
       category_ids,
       schedule,
+         type_id = null
     } = req.body;
 
     const updates = [];
