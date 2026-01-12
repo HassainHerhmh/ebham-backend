@@ -83,12 +83,13 @@ router.post("/", upload.single("image"), async (req, res) => {
       "SELECT COALESCE(MAX(sort_order), 0) AS maxOrder FROM restaurants"
     );
 
-    const [result] = await db.query(
-      `INSERT INTO restaurants
-       (name, address, phone, image_url, latitude, longitude, sort_order, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [name, address, phone, image_url, latitude || null, longitude || null, maxOrder + 1]
-    );
+   const [result] = await db.query(
+  `INSERT INTO restaurants
+   (name, type_id, address, phone, image_url, latitude, longitude, sort_order, created_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+  [name, type_id || null, address, phone, image_url, latitude || null, longitude || null, maxOrder + 1]
+);
+
 
     const restaurantId = result.insertId;
 
@@ -158,6 +159,12 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       params.push(result.secure_url);
     }
 
+    if (type_id !== undefined) {
+  updates.push("type_id=?");
+  params.push(type_id || null);
+}
+
+     
     if (updates.length) {
       params.push(req.params.id);
       await db.query(`UPDATE restaurants SET ${updates.join(", ")} WHERE id=?`, params);
