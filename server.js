@@ -112,6 +112,11 @@ app.use("/api/products", productsRoutes);
 import restaurantsRoutes from "./routes/restaurants.js";
 app.use("/api/restaurants", restaurantsRoutes);
 
+/* =========================
+   الكباتن
+========================= */
+import captainsRoutes from "./routes/captains.js";
+app.use("/api/captains", captainsRoutes);
 
 /* =========================
    Start Server
