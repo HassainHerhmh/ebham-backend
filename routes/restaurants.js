@@ -239,6 +239,11 @@ router.get("/app", async (_, res) => {
         r.address,
         r.image_url,
         r.sort_order,
+
+        -- الأنواع الخاصة بالمطعم
+        GROUP_CONCAT(c.id)   AS category_ids,
+        GROUP_CONCAT(c.name) AS categories,
+
         -- هل المطعم مفتوح الآن؟
         CASE 
           WHEN EXISTS (
@@ -252,11 +257,17 @@ router.get("/app", async (_, res) => {
           THEN 1 ELSE 0
         END AS is_open,
 
-        -- التقييم (مؤقتًا صفر – نربطه لاحقًا)
+        -- التقييم (مؤقتًا)
         0 AS rating,
         0 AS reviews_count
 
       FROM restaurants r
+      LEFT JOIN restaurant_categories rc 
+        ON rc.restaurant_id = r.id
+      LEFT JOIN categories c 
+        ON c.id = rc.category_id
+
+      GROUP BY r.id
       ORDER BY r.sort_order ASC
     `);
 
