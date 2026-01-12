@@ -18,6 +18,7 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
    "google-auth-library": "^9.9.0",
+    "cloudinary": "^2.0.3",
     "pg": "^8.11.5"
   }
 }
