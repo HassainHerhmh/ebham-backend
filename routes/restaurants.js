@@ -21,6 +21,7 @@ router.get("/", async (_, res) => {
         r.longitude,
         r.created_at,
         r.sort_order,
+          r.type_id,
 
         COALESCE(GROUP_CONCAT(DISTINCT c.name SEPARATOR ', '), '') AS categories,
         COALESCE(GROUP_CONCAT(DISTINCT c.id SEPARATOR ','), '')    AS category_ids
