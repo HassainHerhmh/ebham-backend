@@ -119,6 +119,13 @@ import captainsRoutes from "./routes/captains.js";
 app.use("/api/captains", captainsRoutes);
 
 /* =========================
+   طرق الدفع
+========================= */
+import paymentMethodsRoutes from "./routes/payment-methods.js";
+
+app.use("/api/payment-methods", paymentMethodsRoutes);
+
+/* =========================
    Start Server
 ========================= */
 const PORT = process.env.PORT || 8080;
