@@ -1,6 +1,7 @@
 import express from "express";
 import db from "../db.js";
-import upload from "../middlewares/upload.js";
+import upload, { uploadToCloudinary } from "../middlewares/upload.js";
+
 
 const router = express.Router();
 
