@@ -12,13 +12,25 @@ router.get("/", async (_, res) => {
   try {
     const [rows] = await db.query(`
       SELECT 
-        r.id, r.name, r.address, r.phone, r.image_url,
-        r.latitude, r.longitude, r.created_at, r.sort_order,
-        GROUP_CONCAT(DISTINCT c.name SEPARATOR ', ') AS categories,
-        GROUP_CONCAT(DISTINCT c.id SEPARATOR ',') AS category_ids
+        r.id,
+        r.name,
+        r.address,
+        r.phone,
+        r.image_url,
+        r.latitude,
+        r.longitude,
+        r.created_at,
+        r.sort_order,
+
+        COALESCE(GROUP_CONCAT(DISTINCT c.name SEPARATOR ', '), '') AS categories,
+        COALESCE(GROUP_CONCAT(DISTINCT c.id SEPARATOR ','), '')    AS category_ids
+
       FROM restaurants r
-      LEFT JOIN restaurant_categories rc ON r.id = rc.restaurant_id
-      LEFT JOIN categories c ON rc.category_id = c.id
+      LEFT JOIN restaurant_categories rc 
+        ON r.id = rc.restaurant_id
+      LEFT JOIN categories c 
+        ON rc.category_id = c.id
+
       GROUP BY r.id
       ORDER BY r.sort_order ASC
     `);
@@ -37,6 +49,7 @@ router.get("/", async (_, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 /* ======================================================
    ✅ إضافة مطعم جديد
