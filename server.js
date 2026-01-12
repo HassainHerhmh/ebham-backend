@@ -124,6 +124,12 @@ app.use("/api/captains", captainsRoutes);
 import paymentMethodsRoutes from "./routes/payment-methods.js";
 
 app.use("/api/payment-methods", paymentMethodsRoutes);
+/* =========================
+ الفروع
+========================= */
+
+import branchesRoutes from "./routes/branches.js";
+app.use("/api/branches", branchesRoutes);
 
 /* =========================
    Start Server
