@@ -202,6 +202,45 @@ router.post("/reorder", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+/* ======================================================
+   🟢 جلب المطاعم للتطبيق (خفيف – بدون هاتف)
+====================================================== */
+router.get("/app", async (_, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT 
+        r.id,
+        r.name,
+        r.address,
+        r.image_url,
+        r.sort_order,
+        -- هل المطعم مفتوح الآن؟
+        CASE 
+          WHEN EXISTS (
+            SELECT 1
+            FROM restaurant_schedule s
+            WHERE s.restaurant_id = r.id
+              AND s.day = DAYOFWEEK(NOW())
+              AND s.closed = 0
+              AND CURTIME() BETWEEN s.start_time AND s.end_time
+          )
+          THEN 1 ELSE 0
+        END AS is_open,
+
+        -- التقييم (مؤقتًا صفر – نربطه لاحقًا)
+        0 AS rating,
+        0 AS reviews_count
+
+      FROM restaurants r
+      ORDER BY r.sort_order ASC
+    `);
+
+    res.json({ success: true, restaurants: rows });
+  } catch (err) {
+    console.error("❌ خطأ في جلب المطاعم للتطبيق:", err);
+    res.status(500).json({ success: false });
+  }
+});
 
 /* ======================================================
    🗑️ حذف مطعم
