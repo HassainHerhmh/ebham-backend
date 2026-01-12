@@ -147,8 +147,64 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       await db.query(`UPDATE restaurants SET ${updates.join(", ")} WHERE id=?`, params);
     }
 
-    // الباقي كما هو (الفئات + التوقيت)
-    ...
+    // الفئات
+    if (category_ids !== undefined) {
+      await db.query(
+        "DELETE FROM restaurant_categories WHERE restaurant_id=?",
+        [req.params.id]
+      );
+
+      let cats = [];
+      try {
+        cats = typeof category_ids === "string"
+          ? JSON.parse(category_ids)
+          : category_ids;
+      } catch {}
+
+      for (const cid of cats) {
+        await db.query(
+          "INSERT INTO restaurant_categories (restaurant_id, category_id) VALUES (?, ?)",
+          [req.params.id, cid]
+        );
+      }
+    }
+
+    // التوقيت
+    if (schedule !== undefined) {
+      await db.query(
+        "DELETE FROM restaurant_schedule WHERE restaurant_id=?",
+        [req.params.id]
+      );
+
+      let sch = [];
+      try {
+        sch = typeof schedule === "string"
+          ? JSON.parse(schedule)
+          : schedule;
+      } catch {}
+
+      for (const d of sch) {
+        await db.query(
+          `INSERT INTO restaurant_schedule
+           (restaurant_id, day, start_time, end_time, closed)
+           VALUES (?, ?, ?, ?, ?)`,
+          [
+            req.params.id,
+            d.day,
+            d.start || null,
+            d.end || null,
+            d.closed ? 1 : 0,
+          ]
+        );
+      }
+    }
+
+    res.json({ success: true, message: "✅ تم تعديل المطعم" });
+  } catch (err) {
+    console.error("❌ خطأ في تعديل المطعم:", err);
+    res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
+  }
+});
 
 /* ======================================================
    🔀 تحديث ترتيب المطاعم (بعد السحب)
