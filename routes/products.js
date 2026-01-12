@@ -144,10 +144,18 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       updates.push("status=?");
       params.push(status);
     }
-    if (req.file) {
-      updates.push("image_url=?");
-      params.push(`/uploads/${req.file.filename}`);
-    }
+     
+ if (req.file) {
+  console.log("📸 تم استلام ملف:", req.file.path);
+
+  const result = await uploadToCloudinary(req.file.path, "restaurants");
+
+  console.log("☁️ Cloudinary URL:", result.secure_url);
+
+  updates.push("image_url=?");
+  params.push(result.secure_url);
+}
+
 
     if (!updates.length && category_ids === undefined) {
       return res.status(400).json({
