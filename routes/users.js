@@ -103,10 +103,11 @@ router.post("/", upload.single("image"), async (req, res) => {
       return res.status(400).json({ message: "بيانات ناقصة" });
     }
 
-    // مستخدم فرع → نفرض فرعه
-    if (!(authUser.role === "admin" && authUser.is_admin_branch === true)) {
-      branch_id = authUser.branch_id;
-    }
+    // إذا لم يكن من الإدارة العامة، نفرض فرعه تلقائيًا
+if (!authUser.is_admin_branch) {
+  branch_id = authUser.branch_id;
+}
+
 
     const hashed = await bcrypt.hash(password, 10);
 
