@@ -6,6 +6,7 @@ import express from "express";
 import db from "../db.js";
 import { OAuth2Client } from "google-auth-library";
 import crypto from "crypto";
+import bcrypt from "bcrypt";
 
 const router = express.Router();
 const googleClient = new OAuth2Client();
@@ -49,10 +50,11 @@ router.post("/login", async (req, res) => {
       return res.json({ success: false, message: "الحساب معطل" });
     }
 
-    const ok = await bcrypt.compare(password, user.password);
-    if (!ok) {
-      return res.json({ success: false, message: "كلمة المرور غير صحيحة" });
-    }
+  const match = await bcrypt.compare(password, user.password);
+if (!match) {
+  return res.json({ success: false, message: "كلمة المرور غير صحيحة" });
+}
+
 
     delete user.password;
 
