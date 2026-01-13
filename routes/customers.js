@@ -1,19 +1,53 @@
 import express from "express";
 import db from "../db.js";
 import bcrypt from "bcrypt";
+import auth from "../middlewares/auth.js";
 
 const router = express.Router();
+
+// حماية كل المسارات
+router.use(auth);
 
 /* =========================
    GET /customers
 ========================= */
 router.get("/", async (req, res) => {
   try {
-    const [rows] = await db.query(`
-      SELECT id, name, phone, email, created_at
-      FROM customers
-      ORDER BY id DESC
-    `);
+    const authUser = req.user;
+    const headerBranch = req.headers["x-branch-id"];
+
+    let where = "";
+    const params = [];
+
+    if (authUser.is_admin_branch === true) {
+      // إدارة عامة
+      if (headerBranch) {
+        where = "WHERE c.branch_id = ?";
+        params.push(headerBranch);
+      }
+    } else {
+      // مستخدم فرع
+      where = "WHERE c.branch_id = ?";
+      params.push(authUser.branch_id);
+    }
+
+    const [rows] = await db.query(
+      `
+      SELECT 
+        c.id,
+        c.name,
+        c.phone,
+        c.email,
+        c.created_at,
+        c.branch_id,
+        b.name AS branch_name
+      FROM customers c
+      LEFT JOIN branches b ON b.id = c.branch_id
+      ${where}
+      ORDER BY c.id DESC
+      `,
+      params
+    );
 
     res.json({ success: true, customers: rows });
   } catch (err) {
@@ -23,7 +57,7 @@ router.get("/", async (req, res) => {
 });
 
 /* =========================
-   POST /customers
+   PUT /customers/:id
 ========================= */
 router.put("/:id", async (req, res) => {
   const { name, phone, email, is_profile_complete } = req.body;
@@ -42,29 +76,6 @@ router.put("/:id", async (req, res) => {
         is_profile_complete ?? 0,
         req.params.id,
       ]
-    );
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error("UPDATE CUSTOMER ERROR:", err);
-    res.status(500).json({ success: false });
-  }
-});
-
-/* =========================
-   PUT /customers/:id
-========================= */
-router.put("/:id", async (req, res) => {
-  const { name, phone, email } = req.body;
-
-  try {
-    await db.query(
-      `
-      UPDATE customers
-      SET name=?, phone=?, email=?
-      WHERE id=?
-      `,
-      [name, phone, email || null, req.params.id]
     );
 
     res.json({ success: true });
