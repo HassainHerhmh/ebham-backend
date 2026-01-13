@@ -39,10 +39,14 @@ router.get("/", async (req, res) => {
   try {
     const user = req.user;
 
+    if (!user) {
+      return res.status(401).json({ success: false, message: "غير مصرح" });
+    }
+
     let rows;
 
-    // الإدارة العامة فقط
-    if (user.role === "admin" && user.is_admin_branch === true) {
+    if (user.is_admin_branch === true) {
+      // الإدارة العامة → كل المستخدمين
       [rows] = await pool.query(`
         SELECT 
           u.id,
@@ -85,6 +89,7 @@ router.get("/", async (req, res) => {
 
     const users = rows.map((u) => {
       let perms = {};
+
       if (typeof u.permissions === "string" && u.permissions) {
         try {
           perms = JSON.parse(u.permissions);
@@ -92,7 +97,11 @@ router.get("/", async (req, res) => {
           perms = {};
         }
       }
-      return { ...u, permissions: perms };
+
+      return {
+        ...u,
+        permissions: perms,
+      };
     });
 
     res.json({ success: true, users });
