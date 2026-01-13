@@ -1,7 +1,13 @@
 import express from "express";
 import db from "../db.js";
+import auth from "../middlewares/auth.js";
 
 const router = express.Router();
+
+/* =========================
+   حماية كل المسارات
+========================= */
+router.use(auth);
 
 /* =========================
    GET Neighborhoods
