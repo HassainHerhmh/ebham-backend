@@ -1,14 +1,37 @@
 import express from "express";
 import db from "../db.js";
+import auth from "../middlewares/auth.js";
 
 const router = express.Router();
+
+// حماية كل المسارات
+router.use(auth);
 
 /* =========================
    GET /customer-addresses
 ========================= */
 router.get("/", async (req, res) => {
   try {
-    const [rows] = await db.query(`
+    const authUser = req.user;
+    const headerBranch = req.headers["x-branch-id"];
+
+    let where = "";
+    const params = [];
+
+    if (authUser.is_admin_branch === true) {
+      // إدارة عامة
+      if (headerBranch) {
+        where = "WHERE c.branch_id = ?";
+        params.push(headerBranch);
+      }
+    } else {
+      // مستخدم فرع
+      where = "WHERE c.branch_id = ?";
+      params.push(authUser.branch_id);
+    }
+
+    const [rows] = await db.query(
+      `
       SELECT
         ca.id,
         ca.customer_id,
@@ -25,13 +48,20 @@ router.get("/", async (req, res) => {
         ca.gps_link,
         ca.latitude,
         ca.longitude,
-        ca.created_at
+        ca.created_at,
+
+        c.branch_id,
+        b.name AS branch_name
       FROM customer_addresses ca
       JOIN customers c ON c.id = ca.customer_id
+      LEFT JOIN branches b ON b.id = c.branch_id
       LEFT JOIN cities ci ON ci.id = ca.province
       LEFT JOIN neighborhoods n ON n.id = ca.district
+      ${where}
       ORDER BY ca.id DESC
-    `);
+      `,
+      params
+    );
 
     res.json({ success: true, addresses: rows });
   } catch (err) {
@@ -39,7 +69,6 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-
 
 /* =========================
    POST /customer-addresses
@@ -57,20 +86,23 @@ router.post("/", async (req, res) => {
   } = req.body;
 
   try {
-    await db.query(`
+    await db.query(
+      `
       INSERT INTO customer_addresses
       (customer_id, province, district, location_type, address, gps_link, latitude, longitude)
       VALUES (?,?,?,?,?,?,?,?)
-    `, [
-      customer_id,
-      province,
-      district,
-      location_type,
-      address,
-      gps_link,
-      latitude,
-      longitude
-    ]);
+      `,
+      [
+        customer_id,
+        province,
+        district,
+        location_type,
+        address,
+        gps_link,
+        latitude,
+        longitude
+      ]
+    );
 
     res.json({ success: true });
   } catch (err) {
@@ -78,7 +110,6 @@ router.post("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-
 
 /* =========================
    DELETE /customer-addresses/:id
@@ -98,5 +129,3 @@ router.delete("/:id", async (req, res) => {
 });
 
 export default router;
-
-
