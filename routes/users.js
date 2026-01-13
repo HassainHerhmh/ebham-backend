@@ -30,22 +30,51 @@ const upload = multer({ storage });
 ====================================================== */
 router.get("/", async (req, res) => {
   try {
-    const [rows] = await pool.query(`
-      SELECT 
-        u.id,
-        u.name,
-        u.email,
-        u.phone,
-        u.role,
-        u.permissions,
-        u.status,
-        u.image_url,
-        u.branch_id,
-        b.name AS branch_name
-      FROM users u
-      LEFT JOIN branches b ON b.id = u.branch_id
-      ORDER BY u.id DESC
-    `);
+    const user = req.user;
+
+    let rows;
+
+    if (user.role === "admin" || user.is_admin_branch === 1) {
+      // إدارة عامة → كل المستخدمين
+      [rows] = await pool.query(`
+        SELECT 
+          u.id,
+          u.name,
+          u.email,
+          u.phone,
+          u.role,
+          u.permissions,
+          u.status,
+          u.image_url,
+          u.branch_id,
+          b.name AS branch_name
+        FROM users u
+        LEFT JOIN branches b ON b.id = u.branch_id
+        ORDER BY u.id DESC
+      `);
+    } else {
+      // مستخدم فرع → مستخدمي فرعه فقط
+      [rows] = await pool.query(
+        `
+        SELECT 
+          u.id,
+          u.name,
+          u.email,
+          u.phone,
+          u.role,
+          u.permissions,
+          u.status,
+          u.image_url,
+          u.branch_id,
+          b.name AS branch_name
+        FROM users u
+        LEFT JOIN branches b ON b.id = u.branch_id
+        WHERE u.branch_id = ?
+        ORDER BY u.id DESC
+        `,
+        [user.branch_id]
+      );
+    }
 
     const users = rows.map((u) => ({
       ...u,
@@ -55,7 +84,7 @@ router.get("/", async (req, res) => {
           : {},
     }));
 
-    res.json(users);
+    res.json({ success: true, users });
   } catch (err) {
     console.error("GET USERS ERROR:", err);
     res.status(500).json({ success: false });
@@ -67,10 +96,16 @@ router.get("/", async (req, res) => {
 ====================================================== */
 router.post("/", upload.single("image"), async (req, res) => {
   try {
-    const { name, email, password, role, permissions, branch_id } = req.body;
+    const authUser = req.user;
+    let { name, email, phone, password, role, permissions, branch_id } = req.body;
 
     if (!name || !email || !password) {
       return res.status(400).json({ message: "بيانات ناقصة" });
+    }
+
+    // مستخدم فرع لا يختار فرع → نفرض فرعه
+    if (!(authUser.role === "admin" || authUser.is_admin_branch === 1)) {
+      branch_id = authUser.branch_id;
     }
 
     const hashed = await bcrypt.hash(password, 10);
@@ -82,13 +117,14 @@ router.post("/", upload.single("image"), async (req, res) => {
     await pool.query(
       `
       INSERT INTO users
-        (name, email, password, role, permissions, status, image_url, branch_id)
+        (name, email, phone, password, role, permissions, status, image_url, branch_id)
       VALUES
-        (?, ?, ?, ?, ?, 'active', ?, ?)
+        (?, ?, ?, ?, ?, ?, 'active', ?, ?)
       `,
       [
         name,
         email,
+        phone || null,
         hashed,
         role || "section",
         permissions ? permissions : "{}",
@@ -109,7 +145,13 @@ router.post("/", upload.single("image"), async (req, res) => {
 ====================================================== */
 router.put("/:id", upload.single("image"), async (req, res) => {
   try {
-    const { name, role, permissions, branch_id } = req.body;
+    const authUser = req.user;
+    let { name, role, permissions, branch_id } = req.body;
+
+    // مستخدم فرع لا يغير الفرع
+    if (!(authUser.role === "admin" || authUser.is_admin_branch === 1)) {
+      branch_id = authUser.branch_id;
+    }
 
     const image_url = req.file
       ? `/uploads/users/${req.file.filename}`
