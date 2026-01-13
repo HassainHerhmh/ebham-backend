@@ -43,8 +43,8 @@ router.get("/", async (req, res) => {
     let rows;
 
     if (is_admin_branch) {
-      if (selectedBranch) {
-        // الإدارة العامة + فرع مختار
+      if (selectedBranch && selectedBranch !== "all") {
+        // الإدارة العامة + فرع محدد
         [rows] = await pool.query(
           `
           SELECT u.*, b.name AS branch_name
@@ -56,7 +56,7 @@ router.get("/", async (req, res) => {
           [selectedBranch]
         );
       } else {
-        // الإدارة العامة بدون اختيار فرع → الكل
+        // الإدارة العامة بدون فلترة (كل المستخدمين)
         [rows] = await pool.query(`
           SELECT u.*, b.name AS branch_name
           FROM users u
@@ -65,7 +65,7 @@ router.get("/", async (req, res) => {
         `);
       }
     } else {
-      // فرع عادي
+      // مستخدم فرع عادي
       [rows] = await pool.query(
         `
         SELECT u.*, b.name AS branch_name
@@ -84,7 +84,6 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-
 
 
 
