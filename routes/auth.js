@@ -13,7 +13,6 @@ const router = express.Router();
 const googleClient = new OAuth2Client();
 
 
-
 /* ======================================================
    🔐 تسجيل دخول لوحة التحكم (Admins / Staff)
 ====================================================== */
@@ -74,7 +73,14 @@ router.post("/login", async (req, res) => {
     res.json({
       success: true,
       user: {
-        ...user,
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        status: user.status,
+        branch_id: user.branch_id,
+        branch_name: user.branch_name,
         is_admin_branch: user.is_admin_branch === 1,
         token,
       },
@@ -84,6 +90,7 @@ router.post("/login", async (req, res) => {
     res.status(500).json({ success: false, message: "SERVER_ERROR" });
   }
 });
+
 
 
 /* ======================================================
