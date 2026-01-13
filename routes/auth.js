@@ -45,20 +45,26 @@ router.post("/login", async (req, res) => {
   }
 
   const token = jwt.sign(
-    {
-      id: user.id,
-      role: user.role,
-      branch_id: user.branch_id,
-      is_admin_branch: user.branch_id === 3, // مثال: الإدارة العامة
-    },
-    process.env.JWT_SECRET,
-    { expiresIn: "7d" }
-  );
+  {
+    id: user.id,
+    role: user.role,
+    branch_id: user.branch_id,
+    is_admin_branch: user.branch_id === 3, // أو حسب فرع الإدارة العامة عندك
+  },
+  process.env.JWT_SECRET,
+  { expiresIn: "7d" }
+);
 
-  delete user.password;
+delete user.password;
 
-  res.json({ success: true, user, token });
+res.json({
+  success: true,
+  user: {
+    ...user,
+    token,
+  },
 });
+
 
 /* ======================================================
    🔵 تسجيل الدخول عبر Google (Customers)
