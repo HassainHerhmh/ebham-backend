@@ -38,107 +38,60 @@ const upload = multer({ storage });
 router.get("/", async (req, res) => {
   try {
     const user = req.user;
+    const selectedBranch = req.query.branch_id
+      ? Number(req.query.branch_id)
+      : null;
 
     if (!user) {
       return res.status(401).json({ success: false, message: "غير مصرح" });
     }
 
     let rows;
-if (user.is_admin_branch === 1) {
-  // الإدارة العامة → كل المستخدمين
-  [rows] = await pool.query(`
-    SELECT u.*, b.name AS branch_name
-    FROM users u
-    LEFT JOIN branches b ON b.id = u.branch_id
-    ORDER BY u.id DESC
-  `);
-} else {
-  // أي فرع → فقط المستخدمين الذين أُنشئوا من نفس الفرع
-  [rows] = await pool.query(
-    `
-    SELECT u.*, b.name AS branch_name
-    FROM users u
-    LEFT JOIN branches b ON b.id = u.branch_id
-    WHERE u.branch_id = ?
-    ORDER BY u.id DESC
-    `,
-    [user.branch_id]
-  );
-}
 
-
-    const users = rows.map((u) => {
-      let perms = {};
-
-      if (typeof u.permissions === "string" && u.permissions) {
-        try {
-          perms = JSON.parse(u.permissions);
-        } catch {
-          perms = {};
-        }
+    // إدارة عامة
+    if (user.is_admin_branch) {
+      if (selectedBranch) {
+        // تم اختيار فرع من الهيدر → نفلتر عليه
+        [rows] = await pool.query(
+          `
+          SELECT u.*, b.name AS branch_name
+          FROM users u
+          LEFT JOIN branches b ON b.id = u.branch_id
+          WHERE u.branch_id = ?
+          ORDER BY u.id DESC
+          `,
+          [selectedBranch]
+        );
+      } else {
+        // الإدارة العامة بدون تحديد فرع → كل المستخدمين
+        [rows] = await pool.query(`
+          SELECT u.*, b.name AS branch_name
+          FROM users u
+          LEFT JOIN branches b ON b.id = u.branch_id
+          ORDER BY u.id DESC
+        `);
       }
+    } else {
+      // مستخدم فرع عادي → فقط فرعه
+      [rows] = await pool.query(
+        `
+        SELECT u.*, b.name AS branch_name
+        FROM users u
+        LEFT JOIN branches b ON b.id = u.branch_id
+        WHERE u.branch_id = ?
+        ORDER BY u.id DESC
+        `,
+        [user.branch_id]
+      );
+    }
 
-      return {
-        ...u,
-        permissions: perms,
-      };
-    });
-
-    res.json({ success: true, users });
+    res.json({ success: true, users: rows });
   } catch (err) {
     console.error("GET USERS ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
 
-/* ======================================================
-   POST /users
-====================================================== */
-router.post("/", upload.single("image"), async (req, res) => {
-  try {
-    const authUser = req.user;
-    let { name, email, phone, password, role, permissions, branch_id } = req.body;
-
-    if (!name || !email || !password) {
-      return res.status(400).json({ message: "بيانات ناقصة" });
-    }
-
-    // إذا لم يكن من الإدارة العامة، نفرض فرعه تلقائيًا
-if (!authUser.is_admin_branch) {
-  branch_id = authUser.branch_id;
-}
-
-
-    const hashed = await bcrypt.hash(password, 10);
-
-    const image_url = req.file
-      ? `/uploads/users/${req.file.filename}`
-      : null;
-
-    await pool.query(
-      `
-      INSERT INTO users
-        (name, email, phone, password, role, permissions, status, image_url, branch_id)
-      VALUES
-        (?, ?, ?, ?, ?, ?, 'active', ?, ?)
-      `,
-      [
-        name,
-        email,
-        phone || null,
-        hashed,
-        role || "section",
-        permissions || "{}",
-        image_url,
-        branch_id || null,
-      ]
-    );
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error("ADD USER ERROR:", err);
-    res.status(500).json({ success: false });
-  }
 });
 
 /* ======================================================
