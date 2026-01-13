@@ -127,9 +127,11 @@ app.use("/api/payment-methods", paymentMethodsRoutes);
 /* =========================
  الفروع
 ========================= */
+import auth from "./middlewares/auth.js";
+import branchesRouter from "./routes/branches.js";
 
-import branchesRoutes from "./routes/branches.js";
-app.use("/api/branches", branchesRoutes);
+app.use("/api/branches", auth, branchesRouter);
+
 
 /* =========================
    Start Server
