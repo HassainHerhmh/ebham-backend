@@ -14,15 +14,27 @@ const googleClient = new OAuth2Client();
 /* ======================================================
    🔐 تسجيل دخول لوحة التحكم (Admins / Staff)
 ====================================================== */
-router.post("/login", async (req, res) => 
-   { const { identifier, password } = req.body;
-               
+router.post("/login", async (req, res) => {
+  const { identifier, password } = req.body;
+
   try {
     const [rows] = await db.query(
       `
-      SELECT id, name, email, phone, password, role, status
-      FROM users
-      WHERE email = ? OR phone = ?
+      SELECT 
+        u.id,
+        u.name,
+        u.email,
+        u.phone,
+        u.password,
+        u.role,
+        u.status,
+        u.branch_id,
+        b.is_admin AS is_admin_branch,
+        b.name AS branch_name
+      FROM users u
+      LEFT JOIN branches b ON u.branch_id = b.id
+      WHERE u.email = ? OR u.phone = ?
+      LIMIT 1
       `,
       [identifier, identifier]
     );
@@ -37,17 +49,26 @@ router.post("/login", async (req, res) =>
       return res.json({ success: false, message: "الحساب معطل" });
     }
 
-    if (user.password !== password) {
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok) {
       return res.json({ success: false, message: "كلمة المرور غير صحيحة" });
     }
 
     delete user.password;
-    res.json({ success: true, user });
+
+    res.json({
+      success: true,
+      user: {
+        ...user,
+        is_admin_branch: Number(user.is_admin_branch || 0),
+      },
+    });
   } catch (err) {
     console.error("LOGIN ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
+
 
 /* ======================================================
    🔵 تسجيل الدخول عبر Google (Customers)
