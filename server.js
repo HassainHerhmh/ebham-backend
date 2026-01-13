@@ -63,8 +63,11 @@ app.use("/api/auth", authRoutes);
 /* =========================
    Users Routes
 ========================= */
+import auth from "./middlewares/auth.js";
 import usersRoutes from "./routes/users.js";
-app.use("/api/users", usersRoutes);
+
+app.use("/api/users", auth, usersRoutes);
+
 
 
 /* =========================
