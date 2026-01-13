@@ -24,13 +24,16 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage });
-
 /* ======================================================
    GET /users
 ====================================================== */
 router.get("/", async (req, res) => {
   try {
     const user = req.user;
+
+    if (!user) {
+      return res.status(401).json({ success: false, message: "غير مصرح" });
+    }
 
     let rows;
 
@@ -76,13 +79,23 @@ router.get("/", async (req, res) => {
       );
     }
 
-    const users = rows.map((u) => ({
-      ...u,
-      permissions:
-        typeof u.permissions === "string" && u.permissions
-          ? JSON.parse(u.permissions)
-          : {},
-    }));
+    const users = rows.map((u) => {
+      let perms = {};
+
+      if (typeof u.permissions === "string" && u.permissions) {
+        try {
+          perms = JSON.parse(u.permissions);
+        } catch (e) {
+          console.warn("INVALID PERMISSIONS JSON:", u.id, u.permissions);
+          perms = {};
+        }
+      }
+
+      return {
+        ...u,
+        permissions: perms,
+      };
+    });
 
     res.json({ success: true, users });
   } catch (err) {
@@ -90,6 +103,7 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 /* ======================================================
    POST /users
