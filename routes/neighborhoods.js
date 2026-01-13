@@ -4,26 +4,72 @@ import db from "../db.js";
 const router = express.Router();
 
 /* =========================
-   SEARCH Neighborhoods
+   GET Neighborhoods
 ========================= */
 router.get("/", async (req, res) => {
   const search = req.query.search || "";
+  const { is_admin_branch, branch_id } = req.user;
+  const selectedBranch = req.headers["x-branch-id"];
 
   try {
-    const [rows] = await db.query(
-      `
-      SELECT 
-        n.id,
-        n.name,
-        n.delivery_fee,
-        c.name AS city_name
-      FROM neighborhoods n
-      JOIN cities c ON c.id = n.city_id
-      WHERE n.name LIKE ?
-      ORDER BY n.id DESC
-      `,
-      [`%${search}%`]
-    );
+    let rows;
+
+    if (is_admin_branch) {
+      // إدارة عامة
+      if (selectedBranch) {
+        [rows] = await db.query(
+          `
+          SELECT 
+            n.id,
+            n.name,
+            n.delivery_fee,
+            b.name AS branch_name,
+            n.branch_id
+          FROM neighborhoods n
+          LEFT JOIN branches b ON b.id = n.branch_id
+          WHERE n.branch_id = ?
+            AND n.name LIKE ?
+          ORDER BY n.id DESC
+          `,
+          [selectedBranch, `%${search}%`]
+        );
+      } else {
+        // بدون اختيار فرع → كل الأحياء
+        [rows] = await db.query(
+          `
+          SELECT 
+            n.id,
+            n.name,
+            n.delivery_fee,
+            b.name AS branch_name,
+            n.branch_id
+          FROM neighborhoods n
+          LEFT JOIN branches b ON b.id = n.branch_id
+          WHERE n.name LIKE ?
+          ORDER BY n.id DESC
+          `,
+          [`%${search}%`]
+        );
+      }
+    } else {
+      // مستخدم فرع → يرى أحياء فرعه فقط
+      [rows] = await db.query(
+        `
+        SELECT 
+          n.id,
+          n.name,
+          n.delivery_fee,
+          b.name AS branch_name,
+          n.branch_id
+        FROM neighborhoods n
+        LEFT JOIN branches b ON b.id = n.branch_id
+        WHERE n.branch_id = ?
+          AND n.name LIKE ?
+        ORDER BY n.id DESC
+        `,
+        [branch_id, `%${search}%`]
+      );
+    }
 
     res.json({
       success: true,
@@ -40,18 +86,18 @@ router.get("/", async (req, res) => {
 ========================= */
 router.post("/", async (req, res) => {
   try {
-    const { city_id, name, delivery_fee } = req.body;
+    const { branch_id, name, delivery_fee } = req.body;
 
-    if (!city_id || !name) {
+    if (!branch_id || !name) {
       return res.json({ success: false, message: "البيانات ناقصة" });
     }
 
     await db.query(
       `
-      INSERT INTO neighborhoods (city_id, name, delivery_fee)
+      INSERT INTO neighborhoods (branch_id, name, delivery_fee)
       VALUES (?, ?, ?)
       `,
-      [city_id, name, delivery_fee || 0]
+      [branch_id, name, delivery_fee || 0]
     );
 
     res.json({ success: true });
@@ -65,9 +111,9 @@ router.post("/", async (req, res) => {
    UPDATE Neighborhood
 ========================= */
 router.put("/:id", async (req, res) => {
-  const { city_id, name, delivery_fee } = req.body;
+  const { branch_id, name, delivery_fee } = req.body;
 
-  if (!city_id || !name) {
+  if (!branch_id || !name) {
     return res.status(400).json({
       success: false,
       message: "بيانات ناقصة",
@@ -78,10 +124,10 @@ router.put("/:id", async (req, res) => {
     await db.query(
       `
       UPDATE neighborhoods
-      SET city_id = ?, name = ?, delivery_fee = ?
+      SET branch_id = ?, name = ?, delivery_fee = ?
       WHERE id = ?
       `,
-      [city_id, name, delivery_fee || 0, req.params.id]
+      [branch_id, name, delivery_fee || 0, req.params.id]
     );
 
     res.json({ success: true });
@@ -106,24 +152,25 @@ router.delete("/:id", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 /* =========================
-   GET /neighborhoods/by-city/:cityId
+   GET /neighborhoods/by-branch/:branchId
 ========================= */
-router.get("/by-city/:cityId", async (req, res) => {
+router.get("/by-branch/:branchId", async (req, res) => {
   try {
     const [rows] = await db.query(
       `
-      SELECT id, name, delivery_fee, city_id
+      SELECT id, name, delivery_fee, branch_id
       FROM neighborhoods
-      WHERE city_id = ?
+      WHERE branch_id = ?
       ORDER BY id DESC
       `,
-      [req.params.cityId]
+      [req.params.branchId]
     );
 
     res.json({ success: true, neighborhoods: rows });
   } catch (err) {
-    console.error("GET NEIGHBORHOODS BY CITY ERROR:", err);
+    console.error("GET NEIGHBORHOODS BY BRANCH ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
