@@ -91,43 +91,43 @@ router.get("/", async (req, res) => {
 /* ======================================================
    PUT /users/:id
 ====================================================== */
-router.put("/:id", upload.single("image"), async (req, res) => {
+router.post("/", upload.single("image"), async (req, res) => {
   try {
     const authUser = req.user;
-    let { name, role, permissions, branch_id } = req.body;
+    let { name, email, phone, password, role, permissions, branch_id } = req.body;
 
-    // مستخدم فرع لا يغير الفرع
+    // لو المستخدم ليس من الإدارة العامة
+    // نربطه تلقائيًا بفرعه ولا نسمح بتغيير الفرع
     if (!(authUser.role === "admin" && authUser.is_admin_branch === true)) {
       branch_id = authUser.branch_id;
     }
+
+    const hashed = await bcrypt.hash(password, 10);
 
     const image_url = req.file
       ? `/uploads/users/${req.file.filename}`
       : null;
 
-    if (image_url) {
-      await pool.query(
-        `
-        UPDATE users
-        SET name=?, role=?, permissions=?, image_url=?, branch_id=?
-        WHERE id=?
-        `,
-        [name, role, permissions || "{}", image_url, branch_id || null, req.params.id]
-      );
-    } else {
-      await pool.query(
-        `
-        UPDATE users
-        SET name=?, role=?, permissions=?, branch_id=?
-        WHERE id=?
-        `,
-        [name, role, permissions || "{}", branch_id || null, req.params.id]
-      );
-    }
+    await pool.query(
+      `
+      INSERT INTO users (name, email, phone, password, role, permissions, branch_id, image_url, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
+      `,
+      [
+        name,
+        email,
+        phone,
+        hashed,
+        role,
+        permissions || "{}",
+        branch_id || null,
+        image_url,
+      ]
+    );
 
     res.json({ success: true });
   } catch (err) {
-    console.error("UPDATE USER ERROR:", err);
+    console.error("ADD USER ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
