@@ -37,42 +37,22 @@ const upload = multer({ storage });
 ====================================================== */
 router.get("/", async (req, res) => {
   try {
-    const user = req.user;
-    const selectedBranch = req.query.branch_id
-      ? Number(req.query.branch_id)
-      : null;
-
-    if (!user) {
-      return res.status(401).json({ success: false, message: "غير مصرح" });
-    }
+    const authUser = req.user;
+    const selectedBranch = req.headers["x-branch-id"];
 
     let rows;
 
-    // إدارة عامة
-    if (user.is_admin_branch) {
-      if (selectedBranch) {
-        // تم اختيار فرع من الهيدر → نفلتر عليه
-        [rows] = await pool.query(
-          `
-          SELECT u.*, b.name AS branch_name
-          FROM users u
-          LEFT JOIN branches b ON b.id = u.branch_id
-          WHERE u.branch_id = ?
-          ORDER BY u.id DESC
-          `,
-          [selectedBranch]
-        );
-      } else {
-        // الإدارة العامة بدون تحديد فرع → كل المستخدمين
-        [rows] = await pool.query(`
-          SELECT u.*, b.name AS branch_name
-          FROM users u
-          LEFT JOIN branches b ON b.id = u.branch_id
-          ORDER BY u.id DESC
-        `);
-      }
+    // إدارة عامة + مختار "الإدارة العامة"
+    if (authUser.is_admin_branch && (!selectedBranch || selectedBranch == 3)) {
+      [rows] = await pool.query(`
+        SELECT u.*, b.name AS branch_name
+        FROM users u
+        LEFT JOIN branches b ON b.id = u.branch_id
+        ORDER BY u.id DESC
+      `);
     } else {
-      // مستخدم فرع عادي → فقط فرعه
+      const branchId = selectedBranch || authUser.branch_id;
+
       [rows] = await pool.query(
         `
         SELECT u.*, b.name AS branch_name
@@ -81,7 +61,7 @@ router.get("/", async (req, res) => {
         WHERE u.branch_id = ?
         ORDER BY u.id DESC
         `,
-        [user.branch_id]
+        [branchId]
       );
     }
 
