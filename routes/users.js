@@ -32,6 +32,7 @@ const upload = multer({ storage });
 /* ======================================================
    GET /users
 ====================================================== */
+
 router.get("/", async (req, res) => {
   try {
     const [rows] = await pool.query(`
@@ -43,12 +44,12 @@ router.get("/", async (req, res) => {
         role,
         permissions,
         status,
-        image_url
+        image_url,
+        branch_id
       FROM users
       ORDER BY id DESC
     `);
 
-    // تحويل permissions من string إلى JSON
     const users = rows.map((u) => ({
       ...u,
       permissions:
@@ -64,12 +65,14 @@ router.get("/", async (req, res) => {
   }
 });
 
+
 /* ======================================================
    POST /users (Add User)
 ====================================================== */
+// POST /users
 router.post("/", upload.single("image"), async (req, res) => {
   try {
-    const { name, email, password, role, permissions } = req.body;
+    const { name, email, password, role, permissions, branch_id } = req.body;
 
     if (!name || !email || !password) {
       return res.status(400).json({ message: "بيانات ناقصة" });
@@ -84,9 +87,9 @@ router.post("/", upload.single("image"), async (req, res) => {
     await pool.query(
       `
       INSERT INTO users
-        (name, email, password, role, permissions, status, image_url)
+        (name, email, password, role, permissions, status, image_url, branch_id)
       VALUES
-        (?, ?, ?, ?, ?, 'active', ?)
+        (?, ?, ?, ?, ?, 'active', ?, ?)
       `,
       [
         name,
@@ -95,6 +98,7 @@ router.post("/", upload.single("image"), async (req, res) => {
         role || "section",
         permissions ? permissions : "{}",
         image_url,
+        branch_id || null,
       ]
     );
 
@@ -105,12 +109,14 @@ router.post("/", upload.single("image"), async (req, res) => {
   }
 });
 
+
 /* ======================================================
    PUT /users/:id (Update User)
 ====================================================== */
+
 router.put("/:id", upload.single("image"), async (req, res) => {
   try {
-    const { name, role, permissions } = req.body;
+    const { name, role, permissions, branch_id } = req.body;
 
     const image_url = req.file
       ? `/uploads/users/${req.file.filename}`
@@ -120,19 +126,19 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       await pool.query(
         `
         UPDATE users
-        SET name=?, role=?, permissions=?, image_url=?
+        SET name=?, role=?, permissions=?, image_url=?, branch_id=?
         WHERE id=?
         `,
-        [name, role, permissions || "{}", image_url, req.params.id]
+        [name, role, permissions || "{}", image_url, branch_id || null, req.params.id]
       );
     } else {
       await pool.query(
         `
         UPDATE users
-        SET name=?, role=?, permissions=?
+        SET name=?, role=?, permissions=?, branch_id=?
         WHERE id=?
         `,
-        [name, role, permissions || "{}", req.params.id]
+        [name, role, permissions || "{}", branch_id || null, req.params.id]
       );
     }
 
