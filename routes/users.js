@@ -37,13 +37,12 @@ const upload = multer({ storage });
 ====================================================== */
 router.get("/", async (req, res) => {
   try {
-    const authUser = req.user;
-    const selectedBranch = req.headers["x-branch-id"];
+    const { is_admin_branch, branch_id } = req.user;
 
     let rows;
 
-    // إدارة عامة + مختار "الإدارة العامة"
-    if (authUser.is_admin_branch && (!selectedBranch || selectedBranch == 3)) {
+    if (is_admin_branch) {
+      // الإدارة العامة → كل المستخدمين
       [rows] = await pool.query(`
         SELECT u.*, b.name AS branch_name
         FROM users u
@@ -51,8 +50,7 @@ router.get("/", async (req, res) => {
         ORDER BY u.id DESC
       `);
     } else {
-      const branchId = selectedBranch || authUser.branch_id;
-
+      // فرع عادي → فقط مستخدمي نفس الفرع
       [rows] = await pool.query(
         `
         SELECT u.*, b.name AS branch_name
@@ -61,7 +59,7 @@ router.get("/", async (req, res) => {
         WHERE u.branch_id = ?
         ORDER BY u.id DESC
         `,
-        [branchId]
+        [branch_id]
       );
     }
 
@@ -71,6 +69,7 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 
 /* ======================================================
