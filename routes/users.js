@@ -1,11 +1,18 @@
+
 import express from "express";
 import pool from "../db.js";
 import bcrypt from "bcrypt";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import auth from "../middlewares/auth.js";
 
 const router = express.Router();
+
+/* ======================================================
+   حماية كل المسارات
+====================================================== */
+router.use(auth);
 
 /* ======================================================
    📸 Multer Config
@@ -24,6 +31,7 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage });
+
 /* ======================================================
    GET /users
 ====================================================== */
@@ -31,14 +39,10 @@ router.get("/", async (req, res) => {
   try {
     const user = req.user;
 
-    if (!user) {
-      return res.status(401).json({ success: false, message: "غير مصرح" });
-    }
-
     let rows;
 
-    if (user.role === "admin" || user.is_admin_branch === 1) {
-      // إدارة عامة → كل المستخدمين
+    // الإدارة العامة فقط
+    if (user.role === "admin" && user.is_admin_branch === true) {
       [rows] = await pool.query(`
         SELECT 
           u.id,
@@ -81,20 +85,14 @@ router.get("/", async (req, res) => {
 
     const users = rows.map((u) => {
       let perms = {};
-
       if (typeof u.permissions === "string" && u.permissions) {
         try {
           perms = JSON.parse(u.permissions);
-        } catch (e) {
-          console.warn("INVALID PERMISSIONS JSON:", u.id, u.permissions);
+        } catch {
           perms = {};
         }
       }
-
-      return {
-        ...u,
-        permissions: perms,
-      };
+      return { ...u, permissions: perms };
     });
 
     res.json({ success: true, users });
@@ -103,7 +101,6 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-
 
 /* ======================================================
    POST /users
@@ -117,8 +114,8 @@ router.post("/", upload.single("image"), async (req, res) => {
       return res.status(400).json({ message: "بيانات ناقصة" });
     }
 
-    // مستخدم فرع لا يختار فرع → نفرض فرعه
-    if (!(authUser.role === "admin" || authUser.is_admin_branch === 1)) {
+    // مستخدم فرع → نفرض فرعه
+    if (!(authUser.role === "admin" && authUser.is_admin_branch === true)) {
       branch_id = authUser.branch_id;
     }
 
@@ -141,7 +138,7 @@ router.post("/", upload.single("image"), async (req, res) => {
         phone || null,
         hashed,
         role || "section",
-        permissions ? permissions : "{}",
+        permissions || "{}",
         image_url,
         branch_id || null,
       ]
@@ -163,7 +160,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     let { name, role, permissions, branch_id } = req.body;
 
     // مستخدم فرع لا يغير الفرع
-    if (!(authUser.role === "admin" || authUser.is_admin_branch === 1)) {
+    if (!(authUser.role === "admin" && authUser.is_admin_branch === true)) {
       branch_id = authUser.branch_id;
     }
 
@@ -197,6 +194,8 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
+
 
 /* ======================================================
    PUT /users/:id/disable
