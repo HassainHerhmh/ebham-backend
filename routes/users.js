@@ -10,17 +10,13 @@ const router = express.Router();
 /* ======================================================
    📸 Multer Config
 ====================================================== */
-
-// إنشاء مجلد uploads لو مش موجود
 const uploadDir = "uploads/users";
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
+  destination: (req, file, cb) => cb(null, uploadDir),
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname);
     cb(null, Date.now() + ext);
@@ -32,22 +28,23 @@ const upload = multer({ storage });
 /* ======================================================
    GET /users
 ====================================================== */
-
 router.get("/", async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT
-        id,
-        name,
-        email,
-        phone,
-        role,
-        permissions,
-        status,
-        image_url,
-        branch_id
-      FROM users
-      ORDER BY id DESC
+      SELECT 
+        u.id,
+        u.name,
+        u.email,
+        u.phone,
+        u.role,
+        u.permissions,
+        u.status,
+        u.image_url,
+        u.branch_id,
+        b.name AS branch_name
+      FROM users u
+      LEFT JOIN branches b ON b.id = u.branch_id
+      ORDER BY u.id DESC
     `);
 
     const users = rows.map((u) => ({
@@ -65,11 +62,9 @@ router.get("/", async (req, res) => {
   }
 });
 
-
 /* ======================================================
-   POST /users (Add User)
+   POST /users
 ====================================================== */
-// POST /users
 router.post("/", upload.single("image"), async (req, res) => {
   try {
     const { name, email, password, role, permissions, branch_id } = req.body;
@@ -109,11 +104,9 @@ router.post("/", upload.single("image"), async (req, res) => {
   }
 });
 
-
 /* ======================================================
-   PUT /users/:id (Update User)
+   PUT /users/:id
 ====================================================== */
-
 router.put("/:id", upload.single("image"), async (req, res) => {
   try {
     const { name, role, permissions, branch_id } = req.body;
@@ -158,7 +151,6 @@ router.put("/:id/disable", async (req, res) => {
       `UPDATE users SET status='disabled' WHERE id=?`,
       [req.params.id]
     );
-
     res.json({ success: true });
   } catch (err) {
     console.error("DISABLE USER ERROR:", err);
