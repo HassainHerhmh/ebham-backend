@@ -21,21 +21,9 @@ router.post("/login", async (req, res) => {
   try {
     const [rows] = await db.query(
       `
-      SELECT 
-        u.id,
-        u.name,
-        u.email,
-        u.phone,
-        u.password,
-        u.role,
-        u.status,
-        u.branch_id,
-        b.is_admin AS is_admin_branch,
-        b.name AS branch_name
-      FROM users u
-      LEFT JOIN branches b ON u.branch_id = b.id
-      WHERE u.email = ? OR u.phone = ?
-      LIMIT 1
+      SELECT id, name, email, phone, password, role, status, branch_id
+      FROM users
+      WHERE email = ? OR phone = ?
       `,
       [identifier, identifier]
     );
@@ -50,26 +38,19 @@ router.post("/login", async (req, res) => {
       return res.json({ success: false, message: "الحساب معطل" });
     }
 
-  const match = await bcrypt.compare(password, user.password);
-if (!match) {
-  return res.json({ success: false, message: "كلمة المرور غير صحيحة" });
-}
-
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok) {
+      return res.json({ success: false, message: "كلمة المرور غير صحيحة" });
+    }
 
     delete user.password;
-
-    res.json({
-      success: true,
-      user: {
-        ...user,
-        is_admin_branch: Number(user.is_admin_branch || 0),
-      },
-    });
+    res.json({ success: true, user });
   } catch (err) {
     console.error("LOGIN ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
+
 
 
 /* ======================================================
