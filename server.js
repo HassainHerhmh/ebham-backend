@@ -4,6 +4,8 @@ import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import pool from "./db.js";
+import auth from "./middlewares/auth.js";
+
 
 dotenv.config();
 const app = express();
@@ -63,7 +65,6 @@ app.use("/api/auth", authRoutes);
 /* =========================
    Users Routes
 ========================= */
-import auth from "./middlewares/auth.js";
 import usersRoutes from "./routes/users.js";
 
 app.use("/api/users", auth, usersRoutes);
@@ -137,7 +138,7 @@ app.use("/api/payment-methods", paymentMethodsRoutes);
 /* =========================
  الفروع
 ========================= */
-import auth from "./middlewares/auth.js";
+
 import branchesRouter from "./routes/branches.js";
 
 app.use("/api/branches", auth, branchesRouter);
