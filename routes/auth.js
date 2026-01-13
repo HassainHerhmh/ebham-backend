@@ -22,9 +22,20 @@ router.post("/login", async (req, res) => {
   try {
     const [rows] = await db.query(
       `
-      SELECT id, name, email, phone, password, role, status, branch_id
-      FROM users
-      WHERE email = ? OR phone = ?
+      SELECT 
+        u.id,
+        u.name,
+        u.email,
+        u.phone,
+        u.password,
+        u.role,
+        u.status,
+        u.branch_id,
+        b.name AS branch_name,
+        b.is_admin AS is_admin_branch
+      FROM users u
+      LEFT JOIN branches b ON u.branch_id = b.id
+      WHERE u.email = ? OR u.phone = ?
       LIMIT 1
       `,
       [identifier, identifier]
@@ -53,8 +64,6 @@ router.post("/login", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-
-
 /* ======================================================
    🔵 تسجيل الدخول عبر Google (Customers)
 ====================================================== */
