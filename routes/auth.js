@@ -7,6 +7,7 @@ import db from "../db.js";
 import { OAuth2Client } from "google-auth-library";
 import crypto from "crypto";
 import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
 
 const router = express.Router();
 const googleClient = new OAuth2Client();
@@ -16,54 +17,49 @@ const googleClient = new OAuth2Client();
 /* ======================================================
    🔐 تسجيل دخول لوحة التحكم (Admins / Staff)
 ====================================================== */
+
+
 router.post("/login", async (req, res) => {
   const { identifier, password } = req.body;
 
-  try {
-    const [rows] = await db.query(
-      `
-      SELECT 
-        u.id,
-        u.name,
-        u.email,
-        u.phone,
-        u.password,
-        u.role,
-        u.status,
-        u.branch_id,
-        b.name AS branch_name,
-        b.is_admin AS is_admin_branch
-      FROM users u
-      LEFT JOIN branches b ON u.branch_id = b.id
-      WHERE u.email = ? OR u.phone = ?
-      LIMIT 1
-      `,
-      [identifier, identifier]
-    );
+  const [rows] = await db.query(`
+    SELECT id, name, email, phone, password, role, status, branch_id
+    FROM users
+    WHERE email = ? OR phone = ?
+    LIMIT 1
+  `, [identifier, identifier]);
 
-    if (!rows.length) {
-      return res.json({ success: false, message: "المستخدم غير موجود" });
-    }
-
-    const user = rows[0];
-
-    if (user.status !== "active") {
-      return res.json({ success: false, message: "الحساب معطل" });
-    }
-
-    // 🔐 التحقق من كلمة المرور المشفرة
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.json({ success: false, message: "كلمة المرور غير صحيحة" });
-    }
-
-    delete user.password;
-    res.json({ success: true, user });
-  } catch (err) {
-    console.error("LOGIN ERROR:", err);
-    res.status(500).json({ success: false });
+  if (!rows.length) {
+    return res.json({ success: false, message: "المستخدم غير موجود" });
   }
+
+  const user = rows[0];
+
+  if (user.status !== "active") {
+    return res.json({ success: false, message: "الحساب معطل" });
+  }
+
+  const isMatch = await bcrypt.compare(password, user.password);
+  if (!isMatch) {
+    return res.json({ success: false, message: "كلمة المرور غير صحيحة" });
+  }
+
+  const token = jwt.sign(
+    {
+      id: user.id,
+      role: user.role,
+      branch_id: user.branch_id,
+      is_admin_branch: user.branch_id === 3, // مثال: الإدارة العامة
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: "7d" }
+  );
+
+  delete user.password;
+
+  res.json({ success: true, user, token });
 });
+
 /* ======================================================
    🔵 تسجيل الدخول عبر Google (Customers)
 ====================================================== */
