@@ -4,14 +4,13 @@ import pool from "../db.js";
 const router = express.Router();
 
 /*
-  ملاحظة:
-  نفترض أن عندك ميدلوير مصادقة يضيف:
+  نفترض وجود middleware مصادقة يضيف:
   req.user = { id, role, branch_id, is_admin_branch }
 */
 
 /* =========================
    GET /branches
-   جلب الفروع حسب نوع المستخدم
+   جلب الفروع + عدد الأحياء لكل فرع
 ========================= */
 router.get("/", async (req, res) => {
   try {
@@ -19,24 +18,40 @@ router.get("/", async (req, res) => {
 
     let rows;
 
-    // إدارة عامة → كل الفروع
-    if (user.role === "admin" || user.is_admin_branch === 1) {
+    // الإدارة العامة → كل الفروع
+    if (user.role === "admin" || user.is_admin_branch === 1 || user.is_admin_branch === true) {
       [rows] = await pool.query(`
-        SELECT id, name
-        FROM branches
-        ORDER BY id ASC
+        SELECT 
+          b.id,
+          b.name,
+          b.address,
+          b.phone,
+          b.is_admin,
+          COUNT(n.id) AS neighborhoods_count
+        FROM branches b
+        LEFT JOIN neighborhoods n ON n.branch_id = b.id
+        GROUP BY b.id
+        ORDER BY b.id ASC
       `);
     } else {
-      // مستخدم عادي → فرعه فقط
+      // مستخدم فرع عادي → فرعه فقط
       if (!user.branch_id) {
         return res.json({ success: true, branches: [] });
       }
 
       [rows] = await pool.query(
         `
-        SELECT id, name
-        FROM branches
-        WHERE id = ?
+        SELECT 
+          b.id,
+          b.name,
+          b.address,
+          b.phone,
+          b.is_admin,
+          COUNT(n.id) AS neighborhoods_count
+        FROM branches b
+        LEFT JOIN neighborhoods n ON n.branch_id = b.id
+        WHERE b.id = ?
+        GROUP BY b.id
         `,
         [user.branch_id]
       );
