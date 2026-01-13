@@ -16,7 +16,14 @@ app.use((req, res, next) => {
 /* =========================
    Middlewares
 ========================= */
-app.use(cors({ origin: "*" }));
+app.use(cors({
+  origin: [
+    "https://ebham-dashboard2.vercel.app",
+    "http://localhost:5173"
+  ],
+  credentials: true,
+}));
+
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true })); // ⭐⭐⭐ هذا هو الحل
