@@ -44,48 +44,28 @@ router.get("/", async (req, res) => {
     }
 
     let rows;
+if (user.is_admin_branch === 1) {
+  // الإدارة العامة → كل المستخدمين
+  [rows] = await pool.query(`
+    SELECT u.*, b.name AS branch_name
+    FROM users u
+    LEFT JOIN branches b ON b.id = u.branch_id
+    ORDER BY u.id DESC
+  `);
+} else {
+  // أي فرع → فقط المستخدمين الذين أُنشئوا من نفس الفرع
+  [rows] = await pool.query(
+    `
+    SELECT u.*, b.name AS branch_name
+    FROM users u
+    LEFT JOIN branches b ON b.id = u.branch_id
+    WHERE u.branch_id = ?
+    ORDER BY u.id DESC
+    `,
+    [user.branch_id]
+  );
+}
 
-    if (user.is_admin_branch === true) {
-      // الإدارة العامة → كل المستخدمين
-      [rows] = await pool.query(`
-        SELECT 
-          u.id,
-          u.name,
-          u.email,
-          u.phone,
-          u.role,
-          u.permissions,
-          u.status,
-          u.image_url,
-          u.branch_id,
-          b.name AS branch_name
-        FROM users u
-        LEFT JOIN branches b ON b.id = u.branch_id
-        ORDER BY u.id DESC
-      `);
-    } else {
-      // مستخدم فرع → مستخدمي فرعه فقط
-      [rows] = await pool.query(
-        `
-        SELECT 
-          u.id,
-          u.name,
-          u.email,
-          u.phone,
-          u.role,
-          u.permissions,
-          u.status,
-          u.image_url,
-          u.branch_id,
-          b.name AS branch_name
-        FROM users u
-        LEFT JOIN branches b ON b.id = u.branch_id
-        WHERE u.branch_id = ?
-        ORDER BY u.id DESC
-        `,
-        [user.branch_id]
-      );
-    }
 
     const users = rows.map((u) => {
       let perms = {};
