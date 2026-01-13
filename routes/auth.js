@@ -24,9 +24,20 @@ router.post("/login", async (req, res) => {
 
     const [rows] = await db.query(
       `
-      SELECT id, name, email, phone, password, role, status, branch_id
-      FROM users
-      WHERE email = ? OR phone = ?
+      SELECT 
+        u.id,
+        u.name,
+        u.email,
+        u.phone,
+        u.password,
+        u.role,
+        u.status,
+        u.branch_id,
+        b.name AS branch_name,
+        b.is_admin AS is_admin_branch
+      FROM users u
+      LEFT JOIN branches b ON b.id = u.branch_id
+      WHERE u.email = ? OR u.phone = ?
       LIMIT 1
       `,
       [identifier, identifier]
@@ -52,7 +63,7 @@ router.post("/login", async (req, res) => {
         id: user.id,
         role: user.role,
         branch_id: user.branch_id,
-        is_admin_branch: user.branch_id === 3, // الإدارة العامة
+        is_admin_branch: user.is_admin_branch === 1,
       },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
@@ -64,6 +75,7 @@ router.post("/login", async (req, res) => {
       success: true,
       user: {
         ...user,
+        is_admin_branch: user.is_admin_branch === 1,
         token,
       },
     });
