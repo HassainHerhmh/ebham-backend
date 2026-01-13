@@ -1,73 +1,113 @@
 import express from "express";
-import db from "../db.js"; // نفس ملف الاتصال المستخدم عندك
+import pool from "../db.js";
 
 const router = express.Router();
 
+/*
+  ملاحظة:
+  نفترض أن عندك ميدلوير مصادقة يضيف:
+  req.user = { id, role, branch_id, is_admin_branch }
+*/
+
 /* =========================
-   GET ALL BRANCHES
+   GET /branches
+   جلب الفروع حسب نوع المستخدم
 ========================= */
 router.get("/", async (req, res) => {
   try {
-    const [rows] = await db.query(
-      "SELECT id, name, created_at FROM branches ORDER BY id ASC"
-    );
-    res.json({ branches: rows });
+    const user = req.user || {};
+
+    let rows;
+
+    // إدارة عامة → كل الفروع
+    if (user.role === "admin" || user.is_admin_branch === 1) {
+      [rows] = await pool.query(`
+        SELECT id, name
+        FROM branches
+        ORDER BY id ASC
+      `);
+    } else {
+      // مستخدم عادي → فرعه فقط
+      if (!user.branch_id) {
+        return res.json({ success: true, branches: [] });
+      }
+
+      [rows] = await pool.query(
+        `
+        SELECT id, name
+        FROM branches
+        WHERE id = ?
+        `,
+        [user.branch_id]
+      );
+    }
+
+    res.json({ success: true, branches: rows });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "فشل جلب الفروع" });
+    console.error("GET BRANCHES ERROR:", err);
+    res.status(500).json({ success: false });
   }
 });
 
 /* =========================
-   ADD BRANCH
+   POST /branches (إضافة فرع)
 ========================= */
 router.post("/", async (req, res) => {
-  const { name } = req.body;
-  if (!name) return res.status(400).json({ message: "اسم الفرع مطلوب" });
-
   try {
-    const [result] = await db.query(
-      "INSERT INTO branches (name) VALUES (?)",
-      [name]
+    const { name, address, phone, is_admin } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ success: false, message: "اسم الفرع مطلوب" });
+    }
+
+    await pool.query(
+      `
+      INSERT INTO branches (name, address, phone, is_admin)
+      VALUES (?, ?, ?, ?)
+      `,
+      [name, address || null, phone || null, is_admin ? 1 : 0]
     );
-    res.json({
-      message: "تم إضافة الفرع",
-      id: result.insertId,
-    });
+
+    res.json({ success: true, message: "تم إضافة الفرع" });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "فشل إضافة الفرع" });
+    console.error("ADD BRANCH ERROR:", err);
+    res.status(500).json({ success: false });
   }
 });
 
 /* =========================
-   UPDATE BRANCH
+   PUT /branches/:id (تعديل)
 ========================= */
 router.put("/:id", async (req, res) => {
-  const { name } = req.body;
-  const { id } = req.params;
-
   try {
-    await db.query("UPDATE branches SET name = ? WHERE id = ?", [name, id]);
-    res.json({ message: "تم تعديل الفرع" });
+    const { name, address, phone } = req.body;
+
+    await pool.query(
+      `
+      UPDATE branches
+      SET name=?, address=?, phone=?
+      WHERE id=?
+      `,
+      [name, address || null, phone || null, req.params.id]
+    );
+
+    res.json({ success: true, message: "تم التعديل" });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "فشل تعديل الفرع" });
+    console.error("UPDATE BRANCH ERROR:", err);
+    res.status(500).json({ success: false });
   }
 });
 
 /* =========================
-   DELETE BRANCH
+   DELETE /branches/:id
 ========================= */
 router.delete("/:id", async (req, res) => {
-  const { id } = req.params;
-
   try {
-    await db.query("DELETE FROM branches WHERE id = ?", [id]);
-    res.json({ message: "تم حذف الفرع" });
+    await pool.query(`DELETE FROM branches WHERE id=?`, [req.params.id]);
+    res.json({ success: true, message: "تم الحذف" });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "فشل حذف الفرع" });
+    console.error("DELETE BRANCH ERROR:", err);
+    res.status(500).json({ success: false });
   }
 });
 
