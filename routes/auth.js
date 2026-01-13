@@ -38,10 +38,10 @@ router.post("/login", async (req, res) => {
       return res.json({ success: false, message: "الحساب معطل" });
     }
 
-    const ok = await bcrypt.compare(password, user.password);
-    if (!ok) {
-      return res.json({ success: false, message: "كلمة المرور غير صحيحة" });
-    }
+   if (user.password !== password) {
+  return res.json({ success: false, message: "كلمة المرور غير صحيحة" });
+}
+
 
     delete user.password;
     res.json({ success: true, user });
