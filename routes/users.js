@@ -38,19 +38,34 @@ const upload = multer({ storage });
 router.get("/", async (req, res) => {
   try {
     const { is_admin_branch, branch_id } = req.user;
+    const selectedBranch = req.headers["x-branch-id"];
 
     let rows;
 
     if (is_admin_branch) {
-      // الإدارة العامة → كل المستخدمين
-      [rows] = await pool.query(`
-        SELECT u.*, b.name AS branch_name
-        FROM users u
-        LEFT JOIN branches b ON b.id = u.branch_id
-        ORDER BY u.id DESC
-      `);
+      if (selectedBranch) {
+        // الإدارة العامة + فرع مختار
+        [rows] = await pool.query(
+          `
+          SELECT u.*, b.name AS branch_name
+          FROM users u
+          LEFT JOIN branches b ON b.id = u.branch_id
+          WHERE u.branch_id = ?
+          ORDER BY u.id DESC
+          `,
+          [selectedBranch]
+        );
+      } else {
+        // الإدارة العامة بدون اختيار فرع → الكل
+        [rows] = await pool.query(`
+          SELECT u.*, b.name AS branch_name
+          FROM users u
+          LEFT JOIN branches b ON b.id = u.branch_id
+          ORDER BY u.id DESC
+        `);
+      }
     } else {
-      // فرع عادي → فقط مستخدمي نفس الفرع
+      // فرع عادي
       [rows] = await pool.query(
         `
         SELECT u.*, b.name AS branch_name
@@ -69,6 +84,7 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 
 
