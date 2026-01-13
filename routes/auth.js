@@ -12,6 +12,7 @@ const router = express.Router();
 const googleClient = new OAuth2Client();
 
 
+
 /* ======================================================
    🔐 تسجيل دخول لوحة التحكم (Admins / Staff)
 ====================================================== */
@@ -24,6 +25,7 @@ router.post("/login", async (req, res) => {
       SELECT id, name, email, phone, password, role, status, branch_id
       FROM users
       WHERE email = ? OR phone = ?
+      LIMIT 1
       `,
       [identifier, identifier]
     );
@@ -38,10 +40,11 @@ router.post("/login", async (req, res) => {
       return res.json({ success: false, message: "الحساب معطل" });
     }
 
-   if (user.password !== password) {
-  return res.json({ success: false, message: "كلمة المرور غير صحيحة" });
-}
-
+    // 🔐 التحقق من كلمة المرور المشفرة
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.json({ success: false, message: "كلمة المرور غير صحيحة" });
+    }
 
     delete user.password;
     res.json({ success: true, user });
@@ -50,7 +53,6 @@ router.post("/login", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-
 
 
 /* ======================================================
