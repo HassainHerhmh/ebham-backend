@@ -9,9 +9,6 @@ const router = express.Router();
 ========================= */
 router.use(auth);
 
-/* ======================================================
-   🟢 جلب جميع الحسابات (مع الشجرة)
-====================================================== */
 router.get("/", async (req, res) => {
   try {
     const { is_admin_branch, branch_id } = req.user;
@@ -21,9 +18,13 @@ router.get("/", async (req, res) => {
 
     if (!is_admin_branch) {
       // الفرع يرى:
-      // - الحسابات العامة (branch_id IS NULL)
-      // - حساباته فقط
-      where = "WHERE (a.branch_id IS NULL OR a.branch_id = ?)";
+      // - كل الحسابات الرئيسية (parent_id IS NULL)
+      // - حساباته الفرعية فقط
+      where = `
+        WHERE 
+          a.parent_id IS NULL
+          OR a.branch_id = ?
+      `;
       params.push(branch_id);
     }
 
