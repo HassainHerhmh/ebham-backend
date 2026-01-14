@@ -4,7 +4,7 @@ import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 
-// حماية المسارات
+// حماية كل المسارات
 router.use(auth);
 
 /* =========================
@@ -12,7 +12,7 @@ router.use(auth);
 ========================= */
 
 // GET /account-groups
-app.get("/account-groups", auth, async (req, res) => {
+router.get("/", async (req, res) => {
   try {
     const search = req.query.search || "";
     const { is_admin_branch, branch_id } = req.user;
@@ -68,9 +68,8 @@ app.get("/account-groups", auth, async (req, res) => {
   }
 });
 
-
 // POST /account-groups
-app.post("/account-groups", auth, async (req, res) => {
+router.post("/", async (req, res) => {
   try {
     const { name_ar, name_en, code } = req.body;
     const { id: user_id, branch_id } = req.user;
@@ -109,13 +108,6 @@ app.post("/account-groups", auth, async (req, res) => {
       success: false,
       message: "خطأ في إضافة مجموعة الحساب",
     });
-  }
-});
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error("❌ Add account group error:", err);
-    res.status(500).json({ success: false });
   }
 });
 
