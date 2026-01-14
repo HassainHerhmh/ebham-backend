@@ -1,47 +1,125 @@
 import express from "express";
 import db from "../db.js";
 import upload from "../middlewares/upload.js";
+import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 
+/* =========================
+   حماية كل المسارات
+========================= */
+router.use(auth);
+
 /* ======================================================
-   🟢 جلب جميع المنتجات
+   🟢 جلب جميع المنتجات (مع فلترة حسب الفرع)
 ====================================================== */
-router.get("/", async (_, res) => {
+router.get("/", async (req, res) => {
+  const user = req.user || {};
+  const { is_admin_branch, branch_id } = user;
+
+  let selectedBranch = req.headers["x-branch-id"];
+
+  if (selectedBranch === "all") {
+    selectedBranch = null;
+  }
+
   try {
-    const [rows] = await db.query(`
-      SELECT 
-        p.id,
-        p.name,
-        p.price,
-        p.image_url,
-        p.notes,
-        p.created_at,
-        p.status,
-        GROUP_CONCAT(c.id) AS category_ids,
-        GROUP_CONCAT(c.name SEPARATOR ', ') AS categories,
-        u.id AS unit_id,
-        u.name AS unit_name,
-        r.id AS restaurant_id,
-        r.name AS restaurant_name
-      FROM products p
-      LEFT JOIN product_categories pc ON p.id = pc.product_id
-      LEFT JOIN categories c ON pc.category_id = c.id
-      LEFT JOIN units u ON p.unit_id = u.id
-      LEFT JOIN restaurants r ON p.restaurant_id = r.id
-      GROUP BY p.id
-      ORDER BY p.id DESC
-    `);
+    let rows;
+
+    if (is_admin_branch) {
+      // إدارة عامة
+      if (selectedBranch) {
+        // إدارة عامة + فرع محدد من الهيدر
+        [rows] = await db.query(`
+          SELECT 
+            p.id,
+            p.name,
+            p.price,
+            p.image_url,
+            p.notes,
+            p.created_at,
+            p.status,
+            GROUP_CONCAT(c.id) AS category_ids,
+            GROUP_CONCAT(c.name SEPARATOR ', ') AS categories,
+            u.id AS unit_id,
+            u.name AS unit_name,
+            r.id AS restaurant_id,
+            r.name AS restaurant_name,
+            r.branch_id
+          FROM products p
+          LEFT JOIN product_categories pc ON p.id = pc.product_id
+          LEFT JOIN categories c ON pc.category_id = c.id
+          LEFT JOIN units u ON p.unit_id = u.id
+          LEFT JOIN restaurants r ON p.restaurant_id = r.id
+          WHERE r.branch_id = ?
+          GROUP BY p.id
+          ORDER BY p.id DESC
+        `, [selectedBranch]);
+      } else {
+        // إدارة عامة بدون تحديد فرع → كل المنتجات
+        [rows] = await db.query(`
+          SELECT 
+            p.id,
+            p.name,
+            p.price,
+            p.image_url,
+            p.notes,
+            p.created_at,
+            p.status,
+            GROUP_CONCAT(c.id) AS category_ids,
+            GROUP_CONCAT(c.name SEPARATOR ', ') AS categories,
+            u.id AS unit_id,
+            u.name AS unit_name,
+            r.id AS restaurant_id,
+            r.name AS restaurant_name,
+            r.branch_id
+          FROM products p
+          LEFT JOIN product_categories pc ON p.id = pc.product_id
+          LEFT JOIN categories c ON pc.category_id = c.id
+          LEFT JOIN units u ON p.unit_id = u.id
+          LEFT JOIN restaurants r ON p.restaurant_id = r.id
+          GROUP BY p.id
+          ORDER BY p.id DESC
+        `);
+      }
+    } else {
+      // مستخدم فرع → منتجات مطاعمه فقط
+      [rows] = await db.query(`
+        SELECT 
+          p.id,
+          p.name,
+          p.price,
+          p.image_url,
+          p.notes,
+          p.created_at,
+          p.status,
+          GROUP_CONCAT(c.id) AS category_ids,
+          GROUP_CONCAT(c.name SEPARATOR ', ') AS categories,
+          u.id AS unit_id,
+          u.name AS unit_name,
+          r.id AS restaurant_id,
+          r.name AS restaurant_name,
+          r.branch_id
+        FROM products p
+        LEFT JOIN product_categories pc ON p.id = pc.product_id
+        LEFT JOIN categories c ON pc.category_id = c.id
+        LEFT JOIN units u ON p.unit_id = u.id
+        LEFT JOIN restaurants r ON p.restaurant_id = r.id
+        WHERE r.branch_id = ?
+        GROUP BY p.id
+        ORDER BY p.id DESC
+      `, [branch_id]);
+    }
 
     res.json({ success: true, products: rows });
   } catch (err) {
-    console.error(err);
+    console.error("GET PRODUCTS ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
 
 /* ======================================================
-   ✅ إضافة منتج جديد (بعدة فئات)
+   ✅ إضافة منتج جديد
 ====================================================== */
 router.post("/", upload.single("image"), async (req, res) => {
   try {
@@ -55,10 +133,10 @@ router.post("/", upload.single("image"), async (req, res) => {
       category_ids = [],
     } = req.body;
 
-    if (!name || !price) {
+    if (!name || !price || !restaurant_id) {
       return res.status(400).json({
         success: false,
-        message: "❌ اسم المنتج والسعر مطلوبان",
+        message: "اسم المنتج، السعر، والمطعم مطلوبة",
       });
     }
 
@@ -74,7 +152,7 @@ router.post("/", upload.single("image"), async (req, res) => {
         image_url,
         notes || "",
         unit_id || null,
-        restaurant_id || null,
+        restaurant_id,
         status || "active",
       ]
     );
@@ -95,142 +173,11 @@ router.post("/", upload.single("image"), async (req, res) => {
       );
     }
 
-    res.json({ success: true, message: "✅ تم إضافة المنتج بنجاح" });
+    res.json({ success: true });
   } catch (err) {
-    console.error("❌ خطأ في إضافة المنتج:", err);
-    res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
+    console.error("ADD PRODUCT ERROR:", err);
+    res.status(500).json({ success: false });
   }
 });
-
-/* ======================================================
-   ✏️ تعديل منتج (مع تحديث الفئات)
-====================================================== */
-router.put("/:id", upload.single("image"), async (req, res) => {
-  try {
-    const {
-      name,
-      price,
-      notes,
-      unit_id,
-      restaurant_id,
-      status,
-      category_ids,
-    } = req.body;
-
-    const updates = [];
-    const params = [];
-
-    if (name !== undefined) {
-      updates.push("name=?");
-      params.push(name);
-    }
-    if (price !== undefined) {
-      updates.push("price=?");
-      params.push(price);
-    }
-    if (notes !== undefined) {
-      updates.push("notes=?");
-      params.push(notes);
-    }
-    if (unit_id !== undefined) {
-      updates.push("unit_id=?");
-      params.push(unit_id || null);
-    }
-    if (restaurant_id !== undefined) {
-      updates.push("restaurant_id=?");
-      params.push(restaurant_id || null);
-    }
-    if (status !== undefined) {
-      updates.push("status=?");
-      params.push(status);
-    }
-     
- if (req.file) {
-  console.log("📸 تم استلام ملف:", req.file.path);
-
-  const result = await uploadToCloudinary(req.file.path, "restaurants");
-
-  console.log("☁️ Cloudinary URL:", result.secure_url);
-
-  updates.push("image_url=?");
-  params.push(result.secure_url);
-}
-
-
-    if (!updates.length && category_ids === undefined) {
-      return res.status(400).json({
-        success: false,
-        message: "❌ لا توجد بيانات لتحديثها",
-      });
-    }
-
-    if (updates.length) {
-      params.push(req.params.id);
-      await db.query(
-        `UPDATE products SET ${updates.join(", ")} WHERE id=?`,
-        params
-      );
-    }
-
-    // تحديث الفئات
-    if (category_ids !== undefined) {
-      await db.query(
-        "DELETE FROM product_categories WHERE product_id=?",
-        [req.params.id]
-      );
-
-      let cats = [];
-      try {
-        cats = typeof category_ids === "string"
-          ? JSON.parse(category_ids)
-          : category_ids;
-      } catch {}
-
-      for (const cid of cats) {
-        await db.query(
-          "INSERT INTO product_categories (product_id, category_id) VALUES (?, ?)",
-          [req.params.id, cid]
-        );
-      }
-    }
-
-    res.json({ success: true, message: "✅ تم تعديل المنتج" });
-  } catch (err) {
-    console.error("❌ خطأ في تعديل المنتج:", err);
-    res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
-  }
-});
-
-/* ======================================================
-   🗑️ حذف منتج (مع تنظيف الفئات)
-====================================================== */
-router.delete("/:id", async (req, res) => {
-  try {
-    const [exists] = await db.query(
-      "SELECT id FROM products WHERE id=?",
-      [req.params.id]
-    );
-
-    if (!exists.length) {
-      return res.status(404).json({
-        success: false,
-        message: "❌ المنتج غير موجود",
-      });
-    }
-
-    await db.query(
-      "DELETE FROM product_categories WHERE product_id=?",
-      [req.params.id]
-    );
-
-    await db.query("DELETE FROM products WHERE id=?", [req.params.id]);
-
-    res.json({ success: true, message: "🗑️ تم حذف المنتج" });
-  } catch (err) {
-    console.error("❌ خطأ في حذف المنتج:", err);
-    res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
-  }
-});
-
 
 export default router;
