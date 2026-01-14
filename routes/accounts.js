@@ -23,13 +23,10 @@ router.get("/", async (req, res) => {
 
     if (is_admin_branch) {
       if (selectedBranch) {
-        // الإدارة اختارت فرع من الهيدر
         where = "WHERE (a.branch_id IS NULL OR a.branch_id = ?)";
         params.push(selectedBranch);
       }
-      // لو ما اختارت شيء → تشوف الكل
     } else {
-      // مستخدم فرع
       where = "WHERE (a.branch_id IS NULL OR a.branch_id = ?)";
       params.push(userBranch);
     }
@@ -45,11 +42,20 @@ router.get("/", async (req, res) => {
         a.branch_id,
         a.account_level,
         a.created_at,
+
         b.name AS branch_name,
-        p.name_ar AS parent_name
+        p.name_ar AS parent_name,
+        u.name AS created_by,
+        fs.name AS financial_statement,
+        g.name AS group_name
+
       FROM accounts a
       LEFT JOIN branches b ON b.id = a.branch_id
       LEFT JOIN accounts p ON p.id = a.parent_id
+      LEFT JOIN users u ON u.id = a.created_by
+      LEFT JOIN financial_statements fs ON fs.id = a.financial_statement_id
+      LEFT JOIN account_groups g ON g.id = a.group_id
+
       ${where}
       ORDER BY a.code ASC
       `,
@@ -68,12 +74,17 @@ router.get("/", async (req, res) => {
       }
     });
 
-    res.json({ success: true, tree, list: rows });
+    res.json({
+      success: true,
+      tree,
+      list: rows,
+    });
   } catch (err) {
     console.error("GET ACCOUNTS ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
+
 
 /* ======================================================
    ✅ إضافة حساب
