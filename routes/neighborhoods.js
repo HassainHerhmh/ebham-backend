@@ -96,18 +96,24 @@ router.get("/", async (req, res) => {
 ========================= */
 router.post("/", async (req, res) => {
   try {
-    const { branch_id, name, delivery_fee } = req.body;
+    const { name, delivery_fee } = req.body;
+    const { is_admin_branch, branch_id } = req.user;
 
-    if (!branch_id || !name) {
+    const selectedBranch = req.headers["x-branch-id"];
+
+    let finalBranchId = branch_id;
+    if (is_admin_branch && selectedBranch) {
+      finalBranchId = selectedBranch;
+    }
+
+    if (!finalBranchId || !name) {
       return res.json({ success: false, message: "البيانات ناقصة" });
     }
 
     await db.query(
-      `
-      INSERT INTO neighborhoods (branch_id, name, delivery_fee)
-      VALUES (?, ?, ?)
-      `,
-      [branch_id, name, delivery_fee || 0]
+      `INSERT INTO neighborhoods (branch_id, name, delivery_fee)
+       VALUES (?, ?, ?)`,
+      [finalBranchId, name, delivery_fee || 0]
     );
 
     res.json({ success: true });
@@ -121,9 +127,17 @@ router.post("/", async (req, res) => {
    UPDATE Neighborhood
 ========================= */
 router.put("/:id", async (req, res) => {
-  const { branch_id, name, delivery_fee } = req.body;
+  const { name, delivery_fee } = req.body;
+  const { is_admin_branch, branch_id } = req.user;
 
-  if (!branch_id || !name) {
+  const selectedBranch = req.headers["x-branch-id"];
+
+  let finalBranchId = branch_id;
+  if (is_admin_branch && selectedBranch) {
+    finalBranchId = selectedBranch;
+  }
+
+  if (!finalBranchId || !name) {
     return res.status(400).json({
       success: false,
       message: "بيانات ناقصة",
@@ -132,12 +146,10 @@ router.put("/:id", async (req, res) => {
 
   try {
     await db.query(
-      `
-      UPDATE neighborhoods
-      SET branch_id = ?, name = ?, delivery_fee = ?
-      WHERE id = ?
-      `,
-      [branch_id, name, delivery_fee || 0, req.params.id]
+      `UPDATE neighborhoods
+       SET branch_id = ?, name = ?, delivery_fee = ?
+       WHERE id = ?`,
+      [finalBranchId, name, delivery_fee || 0, req.params.id]
     );
 
     res.json({ success: true });
