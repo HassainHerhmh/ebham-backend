@@ -4,85 +4,86 @@ import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 
-/* =========================
-   حماية كل المسارات
-========================= */
+// حماية كل المسارات
 router.use(auth);
 
-
-/*======================
-جلب الحسابات
-========================*/
+/* ======================================================
+   📥 جلب الحسابات
+====================================================== */
 router.get("/", async (req, res) => {
   try {
-    const { is_admin_branch, branch_id: userBranchId } = req.user;
-
-    const headerBranch = req.headers["x-branch-id"];
-    const activeBranchId = headerBranch ? Number(headerBranch) : userBranchId;
+    const { is_admin_branch, branch_id } = req.user;
 
     let where = "";
-    let params = [];
+    const params = [];
 
-    if (is_admin_branch) {
-      if (headerBranch) {
-        // الإدارة اختارت فرعًا من الهيدر
-        where = "WHERE (a.branch_id IS NULL OR a.branch_id = ?)";
-        params.push(activeBranchId);
-      }
-      // غير ذلك: الإدارة ترى الكل
-    } else {
-      // فرع عادي دائمًا مقيد بفرعه
-      where = "WHERE (a.branch_id IS NULL OR a.branch_id = ?)";
-      params.push(activeBranchId);
+    // الفرع: يرى الرئيسي + حساباته الفرعية فقط
+    if (!is_admin_branch) {
+      where = `
+        WHERE (
+          a.account_level = 'رئيسي'
+          OR a.branch_id = ?
+        )
+      `;
+      params.push(branch_id);
     }
+    // الإدارة العامة: لا WHERE (ترى الجميع)
 
     const [rows] = await db.query(
       `
-      SELECT 
+      SELECT
         a.id,
         a.code,
         a.name_ar,
         a.name_en,
         a.parent_id,
-        a.branch_id,
         a.account_level,
+        a.branch_id,
         a.created_at,
-        b.name AS branch_name,
+
         p.name_ar AS parent_name,
+        b.name AS branch_name,
         u.name AS created_by,
         fs.name AS financial_statement
+
       FROM accounts a
-      LEFT JOIN branches b ON b.id = a.branch_id
       LEFT JOIN accounts p ON p.id = a.parent_id
+      LEFT JOIN branches b ON b.id = a.branch_id
       LEFT JOIN users u ON u.id = a.created_by
       LEFT JOIN financial_statements fs ON fs.id = a.financial_statement_id
+
       ${where}
       ORDER BY a.code ASC
       `,
       params
     );
 
+    // بناء الشجرة
     const map = {};
-    rows.forEach((r) => (map[r.id] = { ...r, children: [] }));
+    const roots = [];
 
-    const tree = [];
+    rows.forEach((r) => {
+      map[r.id] = { ...r, children: [] };
+    });
+
     rows.forEach((r) => {
       if (r.parent_id && map[r.parent_id]) {
         map[r.parent_id].children.push(map[r.id]);
       } else {
-        tree.push(map[r.id]);
+        roots.push(map[r.id]);
       }
     });
 
-    res.json({ success: true, tree, list: rows });
+    res.json({
+      success: true,
+      list: rows,
+      tree: roots,
+    });
   } catch (err) {
     console.error("GET ACCOUNTS ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
-
-
-
 
 /* ======================================================
    ✅ إضافة حساب
@@ -90,8 +91,7 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     const { name_ar, name_en, parent_id, account_level } = req.body;
-    const { id: user_id, is_admin_branch, branch_id: userBranch } = req.user;
-    const selectedBranch = req.headers["x-branch-id"];
+    const { id: user_id, branch_id } = req.user;
 
     if (!name_ar) {
       return res.json({ success: false, message: "اسم الحساب مطلوب" });
@@ -110,19 +110,17 @@ router.post("/", async (req, res) => {
         return res.json({ success: false, message: "الحساب الأب غير موجود" });
       }
 
-      // يرث من الأب
       finalBranchId = parent.branch_id;
       finalFinancialId = parent.financial_statement_id;
     } else {
-      // حساب جذري
-      if (is_admin_branch) {
-        // الإدارة: يعتمد على الفرع المختار من الهيدر
-        if (selectedBranch) {
-          finalBranchId = selectedBranch;
-        }
-      } else {
-        // مستخدم فرع
-        finalBranchId = userBranch;
+      // الحساب الرئيسي عام
+      if (account_level === "رئيسي") {
+        finalBranchId = null;
+      }
+
+      // الحساب الفرعي دائمًا يتبع فرع المنشئ
+      if (account_level === "فرعي") {
+        finalBranchId = branch_id;
       }
 
       // تحديد الحساب الختامي للجذور
@@ -163,8 +161,6 @@ router.post("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-;
-
 
 /* ======================================================
    ✏️ تعديل حساب
@@ -199,20 +195,6 @@ router.put("/:id", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error("UPDATE ACCOUNT ERROR:", err);
-    res.status(500).json({ success: false });
-  }
-});
-
-
-/* ======================================================
-   🗑️ حذف حساب
-====================================================== */
-router.delete("/:id", async (req, res) => {
-  try {
-    await db.query("DELETE FROM accounts WHERE id=?", [req.params.id]);
-    res.json({ success: true });
-  } catch (err) {
-    console.error("DELETE ACCOUNT ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
