@@ -12,10 +12,10 @@ router.use(auth);
 ========================= */
 
 // GET /account-groups
-router.get("/", async (req, res) => {
+app.get("/account-groups", auth, async (req, res) => {
   try {
     const search = req.query.search || "";
-    const { branch_id, is_admin_branch } = req.user;
+    const { is_admin_branch, branch_id } = req.user;
 
     let sql = `
       SELECT 
@@ -23,21 +23,20 @@ router.get("/", async (req, res) => {
         ag.code,
         ag.name_ar,
         ag.name_en,
-        ag.branch_id,
         ag.created_at,
         u.name AS user_name,
-        b.name AS branch_name
+        b.name AS branch
       FROM account_groups ag
       LEFT JOIN users u ON u.id = ag.created_by
       LEFT JOIN branches b ON b.id = ag.branch_id
-      WHERE ag.is_active = 1
+      WHERE 1=1
     `;
 
     const params = [];
 
-    // لو ليس إدارة عامة → يشوف العام + فرعه فقط
+    // لو المستخدم ليس إدارة عامة → نشوف فقط مجموعات فرعه
     if (!is_admin_branch) {
-      sql += ` AND (ag.branch_id IS NULL OR ag.branch_id = ?) `;
+      sql += ` AND ag.branch_id = ? `;
       params.push(branch_id);
     }
 
@@ -56,25 +55,32 @@ router.get("/", async (req, res) => {
 
     const [rows] = await db.query(sql, params);
 
-    res.json({ success: true, groups: rows });
+    res.json({
+      success: true,
+      groups: rows,
+    });
   } catch (err) {
-    console.error("❌ Get account groups error:", err);
-    res.status(500).json({ success: false });
+    console.error("Get account groups error:", err);
+    res.status(500).json({
+      success: false,
+      message: "خطأ في جلب مجموعات الحسابات",
+    });
   }
 });
 
+
 // POST /account-groups
-router.post("/", async (req, res) => {
+app.post("/account-groups", auth, async (req, res) => {
   try {
     const { name_ar, name_en, code } = req.body;
-    const { id: user_id, branch_id, is_admin_branch } = req.user;
+    const { id: user_id, branch_id } = req.user;
 
     if (!name_ar || !code) {
-      return res.json({ success: false, message: "الاسم والرقم مطلوبان" });
+      return res.status(400).json({
+        success: false,
+        message: "الاسم والرقم مطلوبان",
+      });
     }
-
-    // الفرع: الإدارة العامة فقط تقدر تنشئ عام (NULL)
-    const finalBranchId = is_admin_branch ? null : branch_id;
 
     await db.query(
       `
@@ -82,8 +88,29 @@ router.post("/", async (req, res) => {
       (code, name_ar, name_en, branch_id, created_by, created_at)
       VALUES (?, ?, ?, ?, ?, NOW())
       `,
-      [code, name_ar, name_en || null, finalBranchId, user_id]
+      [code, name_ar, name_en || null, branch_id, user_id]
     );
+
+    res.json({
+      success: true,
+      message: "تمت الإضافة بنجاح",
+    });
+  } catch (err) {
+    console.error("Add account group error:", err);
+
+    if (err.code === "ER_DUP_ENTRY") {
+      return res.status(400).json({
+        success: false,
+        message: "رقم المجموعة مستخدم مسبقاً",
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "خطأ في إضافة مجموعة الحساب",
+    });
+  }
+});
 
     res.json({ success: true });
   } catch (err) {
