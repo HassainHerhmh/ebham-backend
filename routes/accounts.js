@@ -17,26 +17,24 @@ router.get("/", async (req, res) => {
   try {
     const { is_admin_branch, branch_id: userBranchId } = req.user;
 
-    // الفرع المختار من الهيدر (إن وُجد)
     const headerBranch = req.headers["x-branch-id"];
-    const activeBranchId = headerBranch
-      ? Number(headerBranch)
-      : userBranchId;
+    const selectedBranch = headerBranch ? Number(headerBranch) : null;
 
     let where = "";
     let params = [];
 
-    if (!is_admin_branch) {
-      // مستخدم فرع عادي:
-      // يرى الحسابات العامة + حسابات فرعه فقط
+    if (is_admin_branch) {
+      if (selectedBranch) {
+        // الإدارة اختارت فرعًا
+        where = "WHERE (a.branch_id IS NULL OR a.branch_id = ?)";
+        params.push(selectedBranch);
+      }
+      // غير ذلك: الإدارة ترى الكل بدون WHERE
+    } else {
+      // فرع عادي
       where = "WHERE (a.branch_id IS NULL OR a.branch_id = ?)";
       params.push(userBranchId);
-    } else if (activeBranchId && activeBranchId !== userBranchId) {
-      // إدارة عامة + اختارت فرع من الهيدر
-      where = "WHERE (a.branch_id IS NULL OR a.branch_id = ?)";
-      params.push(activeBranchId);
     }
-    // إدارة عامة بدون اختيار فرع → ترى الجميع (لا WHERE)
 
     const [rows] = await db.query(
       `
@@ -49,26 +47,21 @@ router.get("/", async (req, res) => {
         a.branch_id,
         a.account_level,
         a.created_at,
-
         b.name AS branch_name,
         p.name_ar AS parent_name,
         u.name AS created_by,
-        fs.name AS financial_statement,
-        NULL AS group_name
-
+        fs.name AS financial_statement
       FROM accounts a
       LEFT JOIN branches b ON b.id = a.branch_id
       LEFT JOIN accounts p ON p.id = a.parent_id
       LEFT JOIN users u ON u.id = a.created_by
       LEFT JOIN financial_statements fs ON fs.id = a.financial_statement_id
-
       ${where}
       ORDER BY a.code ASC
       `,
       params
     );
 
-    // بناء الشجرة
     const map = {};
     rows.forEach((r) => (map[r.id] = { ...r, children: [] }));
 
@@ -81,16 +74,13 @@ router.get("/", async (req, res) => {
       }
     });
 
-    res.json({
-      success: true,
-      tree,
-      list: rows,
-    });
+    res.json({ success: true, tree, list: rows });
   } catch (err) {
     console.error("GET ACCOUNTS ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
+
 
 
 /* ======================================================
