@@ -97,22 +97,29 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     const { name, delivery_fee } = req.body;
-    const { is_admin_branch, branch_id } = req.user;
 
+    if (!name) {
+      return res.json({ success: false, message: "اسم الحي مطلوب" });
+    }
+
+    const { is_admin_branch, branch_id } = req.user;
     const selectedBranch = req.headers["x-branch-id"];
 
     let finalBranchId = branch_id;
+
     if (is_admin_branch && selectedBranch) {
       finalBranchId = selectedBranch;
     }
 
-    if (!finalBranchId || !name) {
-      return res.json({ success: false, message: "البيانات ناقصة" });
+    if (!finalBranchId) {
+      return res.json({ success: false, message: "يجب تحديد الفرع" });
     }
 
     await db.query(
-      `INSERT INTO neighborhoods (branch_id, name, delivery_fee)
-       VALUES (?, ?, ?)`,
+      `
+      INSERT INTO neighborhoods (branch_id, name, delivery_fee)
+      VALUES (?, ?, ?)
+      `,
       [finalBranchId, name, delivery_fee || 0]
     );
 
@@ -123,42 +130,39 @@ router.post("/", async (req, res) => {
   }
 });
 
+
 /* =========================
    UPDATE Neighborhood
 ========================= */
 router.put("/:id", async (req, res) => {
-  const { name, delivery_fee } = req.body;
-  const { is_admin_branch, branch_id } = req.user;
-
-  const selectedBranch = req.headers["x-branch-id"];
-
-  let finalBranchId = branch_id;
-  if (is_admin_branch && selectedBranch) {
-    finalBranchId = selectedBranch;
-  }
-
-  if (!finalBranchId || !name) {
-    return res.status(400).json({
-      success: false,
-      message: "بيانات ناقصة",
-    });
-  }
-
   try {
+    const { name, delivery_fee } = req.body;
+
+    if (!name) {
+      return res.json({ success: false, message: "اسم الحي مطلوب" });
+    }
+
+    const { is_admin_branch, branch_id } = req.user;
+    const selectedBranch = req.headers["x-branch-id"];
+
+    let finalBranchId = branch_id;
+    if (is_admin_branch && selectedBranch) {
+      finalBranchId = selectedBranch;
+    }
+
     await db.query(
-      `UPDATE neighborhoods
-       SET branch_id = ?, name = ?, delivery_fee = ?
-       WHERE id = ?`,
+      `
+      UPDATE neighborhoods
+      SET branch_id = ?, name = ?, delivery_fee = ?
+      WHERE id = ?
+      `,
       [finalBranchId, name, delivery_fee || 0, req.params.id]
     );
 
     res.json({ success: true });
   } catch (err) {
     console.error("UPDATE NEIGHBORHOOD ERROR:", err);
-    res.status(500).json({
-      success: false,
-      error: err.message,
-    });
+    res.status(500).json({ success: false });
   }
 });
 
