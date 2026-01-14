@@ -14,7 +14,11 @@ router.use(auth);
 ========================= */
 router.get("/", async (req, res) => {
   const search = req.query.search || "";
-  const { is_admin_branch, branch_id } = req.user;
+
+  const user = req.user || {};
+  const is_admin_branch = Boolean(user.is_admin_branch);
+  const branch_id = user.branch_id || null;
+
   const selectedBranch = req.headers["x-branch-id"];
 
   try {
@@ -40,7 +44,6 @@ router.get("/", async (req, res) => {
           [selectedBranch, `%${search}%`]
         );
       } else {
-        // بدون اختيار فرع → كل الأحياء
         [rows] = await db.query(
           `
           SELECT 
@@ -58,7 +61,11 @@ router.get("/", async (req, res) => {
         );
       }
     } else {
-      // مستخدم فرع → يرى أحياء فرعه فقط
+      // مستخدم فرع
+      if (!branch_id) {
+        return res.json({ success: true, neighborhoods: [] });
+      }
+
       [rows] = await db.query(
         `
         SELECT 
@@ -77,15 +84,13 @@ router.get("/", async (req, res) => {
       );
     }
 
-    res.json({
-      success: true,
-      neighborhoods: rows,
-    });
+    res.json({ success: true, neighborhoods: rows });
   } catch (err) {
     console.error("GET NEIGHBORHOODS ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
+
 
 /* =========================
    ADD Neighborhood
