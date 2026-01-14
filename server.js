@@ -152,6 +152,13 @@ import accountsRoutes from "./routes/accounts.js";
 app.use("/api/accounts", accountsRoutes);
 
 /* =========================
+مجموعة االحسابات 
+========================= */
+import accountGroupsRoutes from "./routes/accountGroups.js";
+
+app.use("/account-groups", accountGroupsRoutes);
+
+/* =========================
    Start Server
 ========================= */
 const PORT = process.env.PORT || 8080;
