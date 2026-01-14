@@ -26,21 +26,24 @@ router.get("/", async (req, res) => {
     selectedBranch = null;
   }
 
+  // 👇 لو إدارة عامة والفرع المختار هو نفس فرع الحساب
+  // نعتبره غير محدد (عرض الكل)
+  if (is_admin_branch && selectedBranch && Number(selectedBranch) === Number(branch_id)) {
+    selectedBranch = null;
+  }
+
   try {
     let rows;
     let where = `WHERE p.name LIKE ?`;
     let params = [`%${search}%`];
 
     if (is_admin_branch) {
-      // إدارة عامة
       if (selectedBranch) {
-        // إدارة عامة + فرع محدد
         where += ` AND r.branch_id = ?`;
         params.push(selectedBranch);
       }
-      // إدارة عامة بدون فرع → لا نضيف شرط فرع
+      // غير ذلك: الإدارة العامة ترى كل المنتجات
     } else {
-      // مستخدم فرع
       where += ` AND r.branch_id = ?`;
       params.push(branch_id);
     }
@@ -53,8 +56,6 @@ router.get("/", async (req, res) => {
         p.price,
         p.image_url,
         p.notes,
-        p.created_at,
-        p.status,
         GROUP_CONCAT(c.id) AS category_ids,
         GROUP_CONCAT(c.name SEPARATOR ', ') AS categories,
         u.id AS unit_id,
@@ -80,6 +81,7 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 /* ======================================================
    ✅ إضافة منتج جديد
