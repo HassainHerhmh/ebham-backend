@@ -104,12 +104,22 @@ router.post("/", async (req, res) => {
         return res.json({ success: false, message: "الحساب الأب غير موجود" });
       }
 
-      finalBranchId = parent.branch_id;
+      finalBranchId = parent.branch_id; // قد تكون NULL أو رقم فرع
       finalFinancialId = parent.financial_statement_id;
     } else {
       // حساب جذري
-      if (account_level === "فرعي" && !is_admin_branch) {
-        finalBranchId = branch_id;
+      if (account_level === "رئيسي") {
+        // الرئيسي دائمًا عام
+        finalBranchId = null;
+      } else {
+        // فرعي
+        if (is_admin_branch) {
+          // من الإدارة → يُربط بفرع الإدارة فقط
+          finalBranchId = branch_id;
+        } else {
+          // من فرع → يُربط بذلك الفرع
+          finalBranchId = branch_id;
+        }
       }
 
       // تحديد الحساب الختامي للجذور
@@ -120,10 +130,10 @@ router.post("/", async (req, res) => {
       }
     }
 
+    // توليد كود متسلسل
     const [[{ maxCode }]] = await db.query(
       "SELECT COALESCE(MAX(code), 0) AS maxCode FROM accounts"
     );
-
     const newCode = Number(maxCode) + 1;
 
     await db.query(
@@ -150,6 +160,7 @@ router.post("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 /* ======================================================
    ✏️ تعديل حساب
