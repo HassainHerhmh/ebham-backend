@@ -18,22 +18,22 @@ router.get("/", async (req, res) => {
     const { is_admin_branch, branch_id: userBranchId } = req.user;
 
     const headerBranch = req.headers["x-branch-id"];
-    const selectedBranch = headerBranch ? Number(headerBranch) : null;
+    const activeBranchId = headerBranch ? Number(headerBranch) : userBranchId;
 
     let where = "";
     let params = [];
 
     if (is_admin_branch) {
-      if (selectedBranch) {
-        // الإدارة اختارت فرعًا
+      if (headerBranch) {
+        // الإدارة اختارت فرعًا من الهيدر
         where = "WHERE (a.branch_id IS NULL OR a.branch_id = ?)";
-        params.push(selectedBranch);
+        params.push(activeBranchId);
       }
-      // غير ذلك: الإدارة ترى الكل بدون WHERE
+      // غير ذلك: الإدارة ترى الكل
     } else {
-      // فرع عادي
+      // فرع عادي دائمًا مقيد بفرعه
       where = "WHERE (a.branch_id IS NULL OR a.branch_id = ?)";
-      params.push(userBranchId);
+      params.push(activeBranchId);
     }
 
     const [rows] = await db.query(
@@ -80,6 +80,7 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 
 
