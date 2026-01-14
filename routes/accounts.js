@@ -84,24 +84,42 @@ const [rows] = await db.query(`
 router.post("/", async (req, res) => {
   try {
     const { name_ar, name_en, parent_id, account_level } = req.body;
-    const { is_admin_branch, branch_id } = req.user;
+    const { id: user_id, is_admin_branch, branch_id } = req.user;
 
     if (!name_ar) {
       return res.json({ success: false, message: "اسم الحساب مطلوب" });
     }
 
-    // تحديد الفرع:
-    // - الرئيسي دائمًا عام (NULL)
-    // - الفرعي:
-    //   - الإدارة: يمكنه تركه NULL أو تحديد فرع لاحقًا
-    //   - الفرع: يُجبر على فرعه
     let finalBranchId = null;
+    let finalFinancialId = null;
 
-    if (account_level === "فرعي") {
-      finalBranchId = is_admin_branch ? null : branch_id;
+    // لو له أب → يرث منه الفرع والحساب الختامي
+    if (parent_id) {
+      const [[parent]] = await db.query(
+        "SELECT branch_id, financial_statement_id FROM accounts WHERE id=?",
+        [parent_id]
+      );
+
+      if (!parent) {
+        return res.json({ success: false, message: "الحساب الأب غير موجود" });
+      }
+
+      finalBranchId = parent.branch_id;
+      finalFinancialId = parent.financial_statement_id;
+    } else {
+      // حساب جذري
+      if (account_level === "فرعي" && !is_admin_branch) {
+        finalBranchId = branch_id;
+      }
+
+      // تحديد الحساب الختامي للجذور
+      if (["الأصول", "حقوق الملكية"].includes(name_ar)) {
+        finalFinancialId = 1; // الميزانية العمومية
+      } else if (["الإيرادات", "المصروفات"].includes(name_ar)) {
+        finalFinancialId = 2; // أرباح وخسائر
+      }
     }
 
-    // توليد كود بسيط متسلسل
     const [[{ maxCode }]] = await db.query(
       "SELECT COALESCE(MAX(code), 0) AS maxCode FROM accounts"
     );
@@ -111,8 +129,8 @@ router.post("/", async (req, res) => {
     await db.query(
       `
       INSERT INTO accounts
-      (code, name_ar, name_en, parent_id, account_level, branch_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, NOW())
+      (code, name_ar, name_en, parent_id, account_level, branch_id, financial_statement_id, created_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
       `,
       [
         newCode,
@@ -121,6 +139,8 @@ router.post("/", async (req, res) => {
         parent_id || null,
         account_level || "رئيسي",
         finalBranchId,
+        finalFinancialId,
+        user_id,
       ]
     );
 
@@ -167,6 +187,7 @@ router.put("/:id", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 /* ======================================================
    🗑️ حذف حساب
