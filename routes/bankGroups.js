@@ -7,34 +7,45 @@ const router = express.Router();
 // حماية كل المسارات
 router.use(auth);
 
-/* =========================
+/* =====================================================
    🏦 Bank Groups (مجموعات البنوك)
-========================= */
+===================================================== */
 
-// 🟢 جلب مجموعات البنوك مع دعم الفروع
+/* =========================
+   🟢 جلب مجموعات البنوك
+   - الإدارة العامة: ترى الكل
+   - الفرع: يرى مجموعاته فقط
+========================= */
 router.get("/", async (req, res) => {
   try {
     const search = req.query.search || "";
-    const authUser = req.user;
-    const headerBranch = req.headers["x-branch-id"];
+    const { is_admin_branch, branch_id } = req.user;
 
-    let where = "WHERE 1=1";
+    let sql = `
+      SELECT 
+        bg.id,
+        bg.code,
+        bg.name_ar,
+        bg.name_en,
+        bg.created_at,
+        u.name AS user_name,
+        b.name AS branch
+      FROM bank_groups bg
+      LEFT JOIN users u ON u.id = bg.created_by
+      LEFT JOIN branches b ON b.id = bg.branch_id
+      WHERE 1=1
+    `;
+
     const params = [];
 
-    if (authUser.is_admin_branch) {
-      // إدارة عامة
-      if (headerBranch) {
-        where += " AND bg.branch_id = ?";
-        params.push(headerBranch);
-      }
-    } else {
-      // مستخدم فرع
-      where += " AND bg.branch_id = ?";
-      params.push(authUser.branch_id);
+    // لو المستخدم ليس إدارة عامة → نشوف فقط مجموعات فرعه
+    if (!is_admin_branch) {
+      sql += ` AND bg.branch_id = ? `;
+      params.push(branch_id);
     }
 
     if (search.trim()) {
-      where += `
+      sql += `
         AND (
           bg.name_ar LIKE ?
           OR bg.name_en LIKE ?
@@ -44,26 +55,14 @@ router.get("/", async (req, res) => {
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
-    const [rows] = await db.query(
-      `
-      SELECT 
-        bg.id,
-        bg.code,
-        bg.name_ar,
-        bg.name_en,
-        bg.created_at,
-        u.name AS user_name,
-        b.name AS branch_name
-      FROM bank_groups bg
-      LEFT JOIN users u ON u.id = bg.created_by
-      LEFT JOIN branches b ON b.id = bg.branch_id
-      ${where}
-      ORDER BY bg.code ASC
-      `,
-      params
-    );
+    sql += " ORDER BY bg.code ASC";
 
-    res.json({ success: true, groups: rows });
+    const [rows] = await db.query(sql, params);
+
+    res.json({
+      success: true,
+      groups: rows,
+    });
   } catch (err) {
     console.error("❌ Get bank groups error:", err);
     res.status(500).json({
@@ -73,7 +72,9 @@ router.get("/", async (req, res) => {
   }
 });
 
-// ➕ إضافة مجموعة بنك (تُربط بالفرع الحالي)
+/* =========================
+   ➕ إضافة مجموعة بنك (تُربط بالفرع الحالي)
+========================= */
 router.post("/", async (req, res) => {
   try {
     const { name_ar, name_en, code } = req.body;
@@ -116,7 +117,9 @@ router.post("/", async (req, res) => {
   }
 });
 
-// ✏️ تعديل مجموعة بنك
+/* =========================
+   ✏️ تعديل مجموعة بنك
+========================= */
 router.put("/:id", async (req, res) => {
   try {
     const { name_ar, name_en, code } = req.body;
@@ -161,12 +164,12 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-// 🗑️ حذف مجموعة بنك
+/* =========================
+   🗑️ حذف مجموعة بنك
+========================= */
 router.delete("/:id", async (req, res) => {
   try {
-    await db.query("DELETE FROM bank_groups WHERE id = ?", [
-      req.params.id,
-    ]);
+    await db.query("DELETE FROM bank_groups WHERE id = ?", [req.params.id]);
 
     res.json({
       success: true,
