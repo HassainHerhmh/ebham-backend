@@ -156,7 +156,7 @@ app.use("/api/accounts", accountsRoutes);
 ========================= */
 import accountGroupsRoutes from "./routes/accountGroups.js";
 
-app.use("/account-groups", accountGroupsRoutes);
+app.use("/api/account-groups", accountGroupsRoutes);
 
 /* =========================
    Start Server
