@@ -1,16 +1,39 @@
 import express from "express";
 import db from "../db.js";
+import auth from "../middlewares/auth.js";
 import upload, { uploadToCloudinary } from "../middlewares/upload.js";
 
-
 const router = express.Router();
+
+/* =========================
+   حماية كل المسارات
+========================= */
+router.use(auth);
 
 /* ======================================================
    🟢 جلب جميع المطاعم مع الفئات + التوقيت + الترتيب
 ====================================================== */
-router.get("/", async (_, res) => {
+router.get("/", async (req, res) => {
   try {
-    const [rows] = await db.query(`
+    const { is_admin_branch, branch_id } = req.user;
+    const selectedBranch = req.headers["x-branch-id"];
+
+    let where = "";
+    let params = [];
+
+    if (is_admin_branch) {
+      if (selectedBranch && Number(selectedBranch) !== Number(branch_id)) {
+        where = "WHERE r.branch_id = ?";
+        params.push(selectedBranch);
+      }
+      // غير ذلك: الإدارة ترى كل الفروع
+    } else {
+      where = "WHERE r.branch_id = ?";
+      params.push(branch_id);
+    }
+
+    const [rows] = await db.query(
+      `
       SELECT 
         r.id,
         r.name,
@@ -21,20 +44,26 @@ router.get("/", async (_, res) => {
         r.longitude,
         r.created_at,
         r.sort_order,
-          r.type_id,
+        r.type_id,
+        r.branch_id,
+        b.name AS branch_name,
 
         COALESCE(GROUP_CONCAT(DISTINCT c.name SEPARATOR ', '), '') AS categories,
         COALESCE(GROUP_CONCAT(DISTINCT c.id SEPARATOR ','), '')    AS category_ids
 
       FROM restaurants r
+      LEFT JOIN branches b ON b.id = r.branch_id
       LEFT JOIN restaurant_categories rc 
         ON r.id = rc.restaurant_id
       LEFT JOIN categories c 
         ON rc.category_id = c.id
 
+      ${where}
       GROUP BY r.id
       ORDER BY r.sort_order ASC
-    `);
+      `,
+      params
+    );
 
     for (const r of rows) {
       const [schedule] = await db.query(
@@ -51,7 +80,6 @@ router.get("/", async (_, res) => {
   }
 });
 
-
 /* ======================================================
    ✅ إضافة مطعم جديد
 ====================================================== */
@@ -65,31 +93,38 @@ router.post("/", upload.single("image"), async (req, res) => {
       longitude = null,
       category_ids = [],
       schedule = "[]",
-         type_id = null
+      type_id = null,
     } = req.body;
 
     if (!name) {
       return res.status(400).json({ success: false, message: "❌ اسم المطعم مطلوب" });
     }
 
-    let image_url = null;
+    const { is_admin_branch, branch_id } = req.user;
+    const selectedBranch = req.headers["x-branch-id"];
 
+    let finalBranchId = branch_id;
+    if (is_admin_branch && selectedBranch) {
+      finalBranchId = selectedBranch;
+    }
+
+    let image_url = null;
     if (req.file) {
       const result = await uploadToCloudinary(req.file.path, "restaurants");
-      image_url = result.secure_url; // رابط دائم من Cloudinary
+      image_url = result.secure_url;
     }
 
     const [[{ maxOrder }]] = await db.query(
-      "SELECT COALESCE(MAX(sort_order), 0) AS maxOrder FROM restaurants"
+      "SELECT COALESCE(MAX(sort_order), 0) AS maxOrder FROM restaurants WHERE branch_id=?",
+      [finalBranchId]
     );
 
-   const [result] = await db.query(
-  `INSERT INTO restaurants
-   (name, type_id, address, phone, image_url, latitude, longitude, sort_order, created_at)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-  [name, type_id || null, address, phone, image_url, latitude || null, longitude || null, maxOrder + 1]
-);
-
+    const [result] = await db.query(
+      `INSERT INTO restaurants
+       (name, type_id, address, phone, image_url, latitude, longitude, sort_order, branch_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [name, type_id || null, address, phone, image_url, latitude || null, longitude || null, maxOrder + 1, finalBranchId]
+    );
 
     const restaurantId = result.insertId;
 
@@ -141,7 +176,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       longitude,
       category_ids,
       schedule,
-         type_id = null
+      type_id = null,
     } = req.body;
 
     const updates = [];
@@ -152,6 +187,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     if (phone !== undefined) { updates.push("phone=?"); params.push(phone); }
     if (latitude !== undefined) { updates.push("latitude=?"); params.push(latitude || null); }
     if (longitude !== undefined) { updates.push("longitude=?"); params.push(longitude || null); }
+    if (type_id !== undefined) { updates.push("type_id=?"); params.push(type_id || null); }
 
     if (req.file) {
       const result = await uploadToCloudinary(req.file.path, "restaurants");
@@ -159,12 +195,6 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       params.push(result.secure_url);
     }
 
-    if (type_id !== undefined) {
-  updates.push("type_id=?");
-  params.push(type_id || null);
-}
-
-     
     if (updates.length) {
       params.push(req.params.id);
       await db.query(`UPDATE restaurants SET ${updates.join(", ")} WHERE id=?`, params);
@@ -172,16 +202,11 @@ router.put("/:id", upload.single("image"), async (req, res) => {
 
     // الفئات
     if (category_ids !== undefined) {
-      await db.query(
-        "DELETE FROM restaurant_categories WHERE restaurant_id=?",
-        [req.params.id]
-      );
+      await db.query("DELETE FROM restaurant_categories WHERE restaurant_id=?", [req.params.id]);
 
       let cats = [];
       try {
-        cats = typeof category_ids === "string"
-          ? JSON.parse(category_ids)
-          : category_ids;
+        cats = typeof category_ids === "string" ? JSON.parse(category_ids) : category_ids;
       } catch {}
 
       for (const cid of cats) {
@@ -194,16 +219,11 @@ router.put("/:id", upload.single("image"), async (req, res) => {
 
     // التوقيت
     if (schedule !== undefined) {
-      await db.query(
-        "DELETE FROM restaurant_schedule WHERE restaurant_id=?",
-        [req.params.id]
-      );
+      await db.query("DELETE FROM restaurant_schedule WHERE restaurant_id=?", [req.params.id]);
 
       let sch = [];
       try {
-        sch = typeof schedule === "string"
-          ? JSON.parse(schedule)
-          : schedule;
+        sch = typeof schedule === "string" ? JSON.parse(schedule) : schedule;
       } catch {}
 
       for (const d of sch) {
@@ -211,13 +231,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
           `INSERT INTO restaurant_schedule
            (restaurant_id, day, start_time, end_time, closed)
            VALUES (?, ?, ?, ?, ?)`,
-          [
-            req.params.id,
-            d.day,
-            d.start || null,
-            d.end || null,
-            d.closed ? 1 : 0,
-          ]
+          [req.params.id, d.day, d.start || null, d.end || null, d.closed ? 1 : 0]
         );
       }
     }
@@ -230,12 +244,11 @@ router.put("/:id", upload.single("image"), async (req, res) => {
 });
 
 /* ======================================================
-   🔀 تحديث ترتيب المطاعم (بعد السحب)
+   🔀 تحديث ترتيب المطاعم (حسب الفرع)
 ====================================================== */
 router.post("/reorder", async (req, res) => {
   try {
     const { order } = req.body;
-    // order = [{ id: 5, sort_order: 1 }, { id: 2, sort_order: 2 }, ...]
 
     for (const item of order) {
       await db.query(
@@ -250,12 +263,19 @@ router.post("/reorder", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 /* ======================================================
-   🟢 جلب المطاعم للتطبيق (خفيف – بدون هاتف)
+   🟢 جلب المطاعم للتطبيق (حسب الفرع)
 ====================================================== */
-router.get("/app", async (_, res) => {
+router.get("/app", async (req, res) => {
   try {
-    const [rows] = await db.query(`
+    const branch = req.headers["x-branch-id"] || null;
+
+    const where = branch ? "WHERE r.branch_id=?" : "";
+    const params = branch ? [branch] : [];
+
+    const [rows] = await db.query(
+      `
       SELECT 
         r.id,
         r.name,
@@ -263,11 +283,9 @@ router.get("/app", async (_, res) => {
         r.image_url,
         r.sort_order,
 
-        -- الأنواع الخاصة بالمطعم
         GROUP_CONCAT(c.id)   AS category_ids,
         GROUP_CONCAT(c.name) AS categories,
 
-        -- هل المطعم مفتوح الآن؟
         CASE 
           WHEN EXISTS (
             SELECT 1
@@ -280,7 +298,6 @@ router.get("/app", async (_, res) => {
           THEN 1 ELSE 0
         END AS is_open,
 
-        -- التقييم (مؤقتًا)
         0 AS rating,
         0 AS reviews_count
 
@@ -290,9 +307,12 @@ router.get("/app", async (_, res) => {
       LEFT JOIN categories c 
         ON c.id = rc.category_id
 
+      ${where}
       GROUP BY r.id
       ORDER BY r.sort_order ASC
-    `);
+      `,
+      params
+    );
 
     res.json({ success: true, restaurants: rows });
   } catch (err) {
