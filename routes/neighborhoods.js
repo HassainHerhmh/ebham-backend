@@ -29,7 +29,8 @@ router.get("/", async (req, res) => {
 
     if (is_admin_branch) {
       // إدارة عامة
-      if (selectedBranch) {
+      if (selectedBranch && Number(selectedBranch) !== Number(branch_id)) {
+        // تم اختيار فرع مختلف عن فرع الإدارة
         [rows] = await db.query(
           `
           SELECT 
@@ -47,7 +48,7 @@ router.get("/", async (req, res) => {
           [selectedBranch, `%${search}%`]
         );
       } else {
-        // الإدارة العامة بدون اختيار فرع → كل الأحياء
+        // الإدارة العامة على فرعها → كل الأحياء من كل الفروع
         [rows] = await db.query(
           `
           SELECT 
