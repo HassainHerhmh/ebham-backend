@@ -159,6 +159,14 @@ import accountGroupsRoutes from "./routes/accountGroups.js";
 app.use("/api/account-groups", accountGroupsRoutes);
 
 /* =========================
+العملات
+========================= */
+
+import currenciesRoutes from "./routes/currencies.js";
+app.use("/api/currencies", currenciesRoutes);
+
+
+/* =========================
    Start Server
 ========================= */
 const PORT = process.env.PORT || 8080;
