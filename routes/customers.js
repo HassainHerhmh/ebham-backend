@@ -1,166 +1,182 @@
 import express from "express";
 import db from "../db.js";
-import bcrypt from "bcrypt";
 import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 
-// حماية كل المسارات
+// حماية جميع المسارات
 router.use(auth);
 
 /* =========================
-   GET /customers
+   Currencies API (with branches)
 ========================= */
+
+// 🟢 جلب العملات
 router.get("/", async (req, res) => {
   try {
-    const authUser = req.user;
-    const headerBranch = req.headers["x-branch-id"];
+    const { is_admin_branch, branch_id } = req.user;
 
-    let where = "";
+    // الفرع المختار من الهيدر (للإدارة)
+    let selectedBranch = req.headers["x-branch-id"];
+
+    if (selectedBranch === "all") {
+      selectedBranch = null;
+    }
+
+    let where = "WHERE is_active = 1";
     const params = [];
 
-    if (authUser.is_admin_branch) {
+    if (is_admin_branch) {
       // إدارة عامة
-      if (headerBranch) {
-        where = "WHERE c.branch_id = ?";
-        params.push(headerBranch);
+      if (selectedBranch) {
+        where += " AND branch_id = ?";
+        params.push(Number(selectedBranch));
       }
-      // بدون اختيار فرع → يجلب الكل
+      // بدون اختيار فرع → تجيب الكل
     } else {
-      // مستخدم فرع → دائمًا فرعه فقط
-      where = "WHERE c.branch_id = ?";
-      params.push(authUser.branch_id);
+      // مستخدم فرع → يرى عملات فرعه فقط
+      where += " AND branch_id = ?";
+      params.push(branch_id);
     }
 
     const [rows] = await db.query(
       `
-      SELECT 
-        c.id,
-        c.name,
-        c.phone,
-        c.email,
-        c.created_at,
-        c.branch_id,
-        b.name AS branch_name
-      FROM customers c
-      LEFT JOIN branches b ON b.id = c.branch_id
+      SELECT *
+      FROM currencies
       ${where}
-      ORDER BY c.id DESC
+      ORDER BY is_local DESC, id ASC
       `,
       params
     );
 
-    res.json({ success: true, customers: rows });
+    res.json({ success: true, currencies: rows });
   } catch (err) {
-    console.error("GET CUSTOMERS ERROR:", err);
-    res.status(500).json({ success: false });
+    console.error("GET CURRENCIES ERROR:", err);
+    res.status(500).json({ success: false, message: "خطأ في جلب العملات" });
   }
 });
 
-/* =========================
-   POST /customers
-========================= */
+// ➕ إضافة عملة
 router.post("/", async (req, res) => {
   try {
-    const { name, phone, email, password } = req.body;
-    const authUser = req.user;
-    const headerBranch = req.headers["x-branch-id"];
+    const {
+      name_ar,
+      name_en,
+      code,
+      symbol,
+      exchange_rate,
+      min_rate,
+      max_rate,
+      is_local,
+    } = req.body;
 
-    if (!name || !phone) {
-      return res
-        .status(400)
-        .json({ success: false, message: "الاسم ورقم الهاتف مطلوبان" });
+    const { is_admin_branch, branch_id } = req.user;
+
+    if (!name_ar || !code) {
+      return res.status(400).json({
+        success: false,
+        message: "الحقول الأساسية مطلوبة",
+      });
     }
 
     // تحديد الفرع
-    let branchId;
+    let finalBranchId = branch_id;
 
-    if (authUser.is_admin_branch) {
-      // إدارة عامة
-      branchId = headerBranch || authUser.branch_id;
-    } else {
-      // مستخدم فرع
-      branchId = authUser.branch_id;
+    if (is_admin_branch) {
+      const selected = req.headers["x-branch-id"];
+      if (selected && selected !== "all") {
+        finalBranchId = Number(selected);
+      }
     }
 
-    const hashed = password
-      ? await bcrypt.hash(password, 10)
-      : null;
+    const rate = is_local ? 1 : exchange_rate;
 
     await db.query(
       `
-      INSERT INTO customers (name, phone, email, password, branch_id)
-      VALUES (?, ?, ?, ?, ?)
-      `,
-      [name, phone, email || null, hashed, branchId]
-    );
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error("ADD CUSTOMER ERROR:", err);
-    res.status(500).json({ success: false });
-  }
-});
-
-/* =========================
-   PUT /customers/:id
-========================= */
-router.put("/:id", async (req, res) => {
-  const { name, phone, email, is_profile_complete } = req.body;
-
-  try {
-    await db.query(
-      `
-      UPDATE customers
-      SET name = ?, phone = ?, email = ?, is_profile_complete = ?
-      WHERE id = ?
+      INSERT INTO currencies
+      (name_ar, name_en, code, symbol, exchange_rate, min_rate, max_rate, is_local, branch_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
-        name,
-        phone,
-        email || null,
-        is_profile_complete ?? 0,
-        req.params.id,
+        name_ar,
+        name_en || "",
+        code.toUpperCase(),
+        symbol || null,
+        rate,
+        min_rate || null,
+        max_rate || null,
+        is_local ? 1 : 0,
+        finalBranchId,
       ]
     );
 
-    res.json({ success: true });
+    res.json({ success: true, message: "تمت إضافة العملة" });
   } catch (err) {
-    console.error("UPDATE CUSTOMER ERROR:", err);
-    res.status(500).json({ success: false });
+    console.error("ADD CURRENCY ERROR:", err);
+    res.status(500).json({ success: false, message: "خطأ في إضافة العملة" });
   }
 });
 
-/* =========================
-   DELETE /customers/:id
-========================= */
-router.delete("/:id", async (req, res) => {
+// ✏️ تعديل عملة
+router.put("/:id", async (req, res) => {
   try {
-    await db.query("DELETE FROM customers WHERE id=?", [req.params.id]);
-    res.json({ success: true });
-  } catch (err) {
-    console.error("DELETE CUSTOMER ERROR:", err);
-    res.status(500).json({ success: false });
-  }
-});
+    const { id } = req.params;
+    const {
+      name_ar,
+      name_en,
+      symbol,
+      exchange_rate,
+      min_rate,
+      max_rate,
+      is_local,
+    } = req.body;
 
-/* =========================
-   PUT /customers/:id/reset-password
-========================= */
-router.put("/:id/reset-password", async (req, res) => {
-  try {
-    const newPass = Math.random().toString(36).slice(-8);
-    const hashed = await bcrypt.hash(newPass, 10);
+    const rate = is_local ? 1 : exchange_rate;
 
     await db.query(
-      "UPDATE customers SET password=? WHERE id=?",
-      [hashed, req.params.id]
+      `
+      UPDATE currencies
+      SET
+        name_ar = ?,
+        name_en = ?,
+        symbol = ?,
+        exchange_rate = ?,
+        min_rate = ?,
+        max_rate = ?,
+        is_local = ?
+      WHERE id = ?
+      `,
+      [
+        name_ar,
+        name_en || "",
+        symbol || null,
+        rate,
+        min_rate || null,
+        max_rate || null,
+        is_local ? 1 : 0,
+        id,
+      ]
     );
 
-    res.json({ success: true, new_password: newPass });
+    res.json({ success: true, message: "تم التحديث" });
   } catch (err) {
-    console.error("RESET PASSWORD ERROR:", err);
-    res.status(500).json({ success: false });
+    console.error("UPDATE CURRENCY ERROR:", err);
+    res.status(500).json({ success: false, message: "خطأ في التحديث" });
+  }
+});
+
+// 🗑️ تعطيل عملة
+router.delete("/:id", async (req, res) => {
+  try {
+    await db.query(
+      `UPDATE currencies SET is_active = 0 WHERE id = ?`,
+      [req.params.id]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("DELETE CURRENCY ERROR:", err);
+    res.status(500).json({ success: false, message: "خطأ في الحذف" });
   }
 });
 
