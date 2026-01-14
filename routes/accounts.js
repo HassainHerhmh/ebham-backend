@@ -3,35 +3,33 @@ import db from "../db.js";
 import auth from "../middlewares/auth.js";
 
 const router = express.Router();
-
-// حماية كل المسارات
 router.use(auth);
 
 /* ======================================================
-   📥 جلب الحسابات
+   🟢 جلب الحسابات (قائمة + شجرة)
 ====================================================== */
 router.get("/", async (req, res) => {
   try {
     const { is_admin_branch, branch_id } = req.user;
 
     let where = "";
-    const params = [];
+    let params = [];
 
-    // الفرع: يرى الرئيسي + حساباته الفرعية فقط
     if (!is_admin_branch) {
+      // الفرع يرى:
+      // - كل الحسابات الرئيسية (branch_id IS NULL)
+      // - + حساباته الفرعية فقط
       where = `
-        WHERE (
+        WHERE 
           a.account_level = 'رئيسي'
           OR a.branch_id = ?
-        )
       `;
       params.push(branch_id);
     }
-    // الإدارة العامة: لا WHERE (ترى الجميع)
 
     const [rows] = await db.query(
       `
-      SELECT
+      SELECT 
         a.id,
         a.code,
         a.name_ar,
@@ -41,14 +39,14 @@ router.get("/", async (req, res) => {
         a.branch_id,
         a.created_at,
 
-        p.name_ar AS parent_name,
         b.name AS branch_name,
+        p.name_ar AS parent_name,
         u.name AS created_by,
         fs.name AS financial_statement
 
       FROM accounts a
-      LEFT JOIN accounts p ON p.id = a.parent_id
       LEFT JOIN branches b ON b.id = a.branch_id
+      LEFT JOIN accounts p ON p.id = a.parent_id
       LEFT JOIN users u ON u.id = a.created_by
       LEFT JOIN financial_statements fs ON fs.id = a.financial_statement_id
 
@@ -60,24 +58,21 @@ router.get("/", async (req, res) => {
 
     // بناء الشجرة
     const map = {};
-    const roots = [];
+    rows.forEach((r) => (map[r.id] = { ...r, children: [] }));
 
-    rows.forEach((r) => {
-      map[r.id] = { ...r, children: [] };
-    });
-
+    const tree = [];
     rows.forEach((r) => {
       if (r.parent_id && map[r.parent_id]) {
         map[r.parent_id].children.push(map[r.id]);
       } else {
-        roots.push(map[r.id]);
+        tree.push(map[r.id]);
       }
     });
 
     res.json({
       success: true,
+      tree,
       list: rows,
-      tree: roots,
     });
   } catch (err) {
     console.error("GET ACCOUNTS ERROR:", err);
@@ -91,7 +86,7 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     const { name_ar, name_en, parent_id, account_level } = req.body;
-    const { id: user_id, branch_id } = req.user;
+    const { id: user_id, is_admin_branch, branch_id } = req.user;
 
     if (!name_ar) {
       return res.json({ success: false, message: "اسم الحساب مطلوب" });
@@ -100,6 +95,7 @@ router.post("/", async (req, res) => {
     let finalBranchId = null;
     let finalFinancialId = null;
 
+    // لو له أب → يرث منه الفرع والحساب الختامي
     if (parent_id) {
       const [[parent]] = await db.query(
         "SELECT branch_id, financial_statement_id FROM accounts WHERE id=?",
@@ -113,13 +109,12 @@ router.post("/", async (req, res) => {
       finalBranchId = parent.branch_id;
       finalFinancialId = parent.financial_statement_id;
     } else {
-      // الحساب الرئيسي عام
+      // حساب جذري
       if (account_level === "رئيسي") {
+        // الرئيسي دائمًا عام
         finalBranchId = null;
-      }
-
-      // الحساب الفرعي دائمًا يتبع فرع المنشئ
-      if (account_level === "فرعي") {
+      } else {
+        // الفرعي دائمًا يُربط بفرع المُنشئ
         finalBranchId = branch_id;
       }
 
