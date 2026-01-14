@@ -165,6 +165,13 @@ app.use("/api/account-groups", accountGroupsRoutes);
 import currenciesRoutes from "./routes/currencies.js";
 app.use("/api/currencies", currenciesRoutes);
 
+/* =========================
+مجموعة البنوك
+========================= */
+
+import bankGroupsRouter from "./routes/bankGroups.js";
+
+app.use("/api/bank-groups", bankGroupsRouter);
 
 /* =========================
    Start Server
