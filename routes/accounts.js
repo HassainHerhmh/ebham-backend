@@ -86,7 +86,7 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     const { name_ar, name_en, parent_id, account_level } = req.body;
-    const { id: user_id, is_admin_branch, branch_id } = req.user;
+    const { id: user_id, branch_id } = req.user;
 
     if (!name_ar) {
       return res.json({ success: false, message: "اسم الحساب مطلوب" });
@@ -96,6 +96,7 @@ router.post("/", async (req, res) => {
     let finalFinancialId = null;
 
     if (parent_id) {
+      // يرث من الأب
       const [[parent]] = await db.query(
         "SELECT branch_id, financial_statement_id FROM accounts WHERE id=?",
         [parent_id]
@@ -108,9 +109,13 @@ router.post("/", async (req, res) => {
       finalBranchId = parent.branch_id;
       finalFinancialId = parent.financial_statement_id;
     } else {
+      // حساب جذري
       if (account_level === "فرعي") {
-        // أي فرعي يُربط بفرع من أنشأه (حتى الإدارة)
+        // الفرعي دائمًا يُربط بفرع المستخدم
         finalBranchId = branch_id;
+      } else {
+        // الرئيسي عام لكل الفروع
+        finalBranchId = null;
       }
 
       if (["الأصول", "حقوق الملكية"].includes(name_ar)) {
@@ -150,6 +155,7 @@ router.post("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 /* ======================================================
    ✏️ تعديل حساب
