@@ -15,54 +15,60 @@ router.use(auth);
 ========================*/
 router.get("/", async (req, res) => {
   try {
-    const { is_admin_branch, branch_id: userBranch } = req.user;
-    const selectedBranch = req.headers["x-branch-id"];
+    const { is_admin_branch, branch_id: userBranchId } = req.user;
+
+    // الفرع المختار من الهيدر (إن وُجد)
+    const headerBranch = req.headers["x-branch-id"];
+    const activeBranchId = headerBranch
+      ? Number(headerBranch)
+      : userBranchId;
 
     let where = "";
     let params = [];
 
-    if (is_admin_branch) {
-      if (selectedBranch) {
-        where = "WHERE (a.branch_id IS NULL OR a.branch_id = ?)";
-        params.push(selectedBranch);
-      }
-    } else {
+    if (!is_admin_branch) {
+      // مستخدم فرع عادي:
+      // يرى الحسابات العامة + حسابات فرعه فقط
       where = "WHERE (a.branch_id IS NULL OR a.branch_id = ?)";
-      params.push(userBranch);
+      params.push(userBranchId);
+    } else if (activeBranchId && activeBranchId !== userBranchId) {
+      // إدارة عامة + اختارت فرع من الهيدر
+      where = "WHERE (a.branch_id IS NULL OR a.branch_id = ?)";
+      params.push(activeBranchId);
     }
+    // إدارة عامة بدون اختيار فرع → ترى الجميع (لا WHERE)
 
- const [rows] = await db.query(
-  `
-  SELECT 
-    a.id,
-    a.code,
-    a.name_ar,
-    a.name_en,
-    a.parent_id,
-    a.branch_id,
-    a.account_level,
-    a.created_at,
+    const [rows] = await db.query(
+      `
+      SELECT 
+        a.id,
+        a.code,
+        a.name_ar,
+        a.name_en,
+        a.parent_id,
+        a.branch_id,
+        a.account_level,
+        a.created_at,
 
-    b.name AS branch_name,
-    p.name_ar AS parent_name,
-    u.name AS created_by,
-    fs.name AS financial_statement,
+        b.name AS branch_name,
+        p.name_ar AS parent_name,
+        u.name AS created_by,
+        fs.name AS financial_statement,
+        NULL AS group_name
 
-    NULL AS group_name
+      FROM accounts a
+      LEFT JOIN branches b ON b.id = a.branch_id
+      LEFT JOIN accounts p ON p.id = a.parent_id
+      LEFT JOIN users u ON u.id = a.created_by
+      LEFT JOIN financial_statements fs ON fs.id = a.financial_statement_id
 
-  FROM accounts a
-  LEFT JOIN branches b ON b.id = a.branch_id
-  LEFT JOIN accounts p ON p.id = a.parent_id
-  LEFT JOIN users u ON u.id = a.created_by
-  LEFT JOIN financial_statements fs ON fs.id = a.financial_statement_id
+      ${where}
+      ORDER BY a.code ASC
+      `,
+      params
+    );
 
-  ${where}
-  ORDER BY a.code ASC
-  `,
-  params
-);
-
-
+    // بناء الشجرة
     const map = {};
     rows.forEach((r) => (map[r.id] = { ...r, children: [] }));
 
