@@ -13,7 +13,7 @@ router.use(auth);
 /* ======================================================
    🟢 جلب جميع المنتجات (مع فلترة حسب الفرع)
 ====================================================== */
-router.get("/", async (req, res) => {
+router.get("/", auth, async (req, res) => {
   const user = req.user || {};
   const { is_admin_branch, branch_id } = user;
 
@@ -27,25 +27,15 @@ router.get("/", async (req, res) => {
     let rows;
 
     if (is_admin_branch) {
-      // إدارة عامة
       if (selectedBranch) {
-        // إدارة عامة + فرع محدد من الهيدر
+        // إدارة عامة + فرع محدد
         [rows] = await db.query(`
           SELECT 
-            p.id,
-            p.name,
-            p.price,
-            p.image_url,
-            p.notes,
-            p.created_at,
-            p.status,
+            p.id, p.name, p.price, p.image_url, p.notes,
             GROUP_CONCAT(c.id) AS category_ids,
             GROUP_CONCAT(c.name SEPARATOR ', ') AS categories,
-            u.id AS unit_id,
-            u.name AS unit_name,
-            r.id AS restaurant_id,
-            r.name AS restaurant_name,
-            r.branch_id
+            u.id AS unit_id, u.name AS unit_name,
+            r.id AS restaurant_id, r.name AS restaurant_name
           FROM products p
           LEFT JOIN product_categories pc ON p.id = pc.product_id
           LEFT JOIN categories c ON pc.category_id = c.id
@@ -59,20 +49,11 @@ router.get("/", async (req, res) => {
         // إدارة عامة بدون تحديد فرع → كل المنتجات
         [rows] = await db.query(`
           SELECT 
-            p.id,
-            p.name,
-            p.price,
-            p.image_url,
-            p.notes,
-            p.created_at,
-            p.status,
+            p.id, p.name, p.price, p.image_url, p.notes,
             GROUP_CONCAT(c.id) AS category_ids,
             GROUP_CONCAT(c.name SEPARATOR ', ') AS categories,
-            u.id AS unit_id,
-            u.name AS unit_name,
-            r.id AS restaurant_id,
-            r.name AS restaurant_name,
-            r.branch_id
+            u.id AS unit_id, u.name AS unit_name,
+            r.id AS restaurant_id, r.name AS restaurant_name
           FROM products p
           LEFT JOIN product_categories pc ON p.id = pc.product_id
           LEFT JOIN categories c ON pc.category_id = c.id
@@ -83,23 +64,14 @@ router.get("/", async (req, res) => {
         `);
       }
     } else {
-      // مستخدم فرع → منتجات مطاعمه فقط
+      // مستخدم فرع
       [rows] = await db.query(`
         SELECT 
-          p.id,
-          p.name,
-          p.price,
-          p.image_url,
-          p.notes,
-          p.created_at,
-          p.status,
+          p.id, p.name, p.price, p.image_url, p.notes,
           GROUP_CONCAT(c.id) AS category_ids,
           GROUP_CONCAT(c.name SEPARATOR ', ') AS categories,
-          u.id AS unit_id,
-          u.name AS unit_name,
-          r.id AS restaurant_id,
-          r.name AS restaurant_name,
-          r.branch_id
+          u.id AS unit_id, u.name AS unit_name,
+          r.id AS restaurant_id, r.name AS restaurant_name
         FROM products p
         LEFT JOIN product_categories pc ON p.id = pc.product_id
         LEFT JOIN categories c ON pc.category_id = c.id
@@ -117,6 +89,7 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 /* ======================================================
    ✅ إضافة منتج جديد
