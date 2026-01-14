@@ -1,8 +1,15 @@
 import express from "express";
 import db from "../db.js";
 import upload from "../middlewares/upload.js";
+import auth from "../middlewares/auth.js";
 
 const router = express.Router();
+
+/* =========================
+   حماية كل المسارات
+========================= */
+router.use(auth);
+
 
 /* ======================================================
    🟢 جلب جميع المنتجات (مع دعم الإدارة العامة والفروع)
