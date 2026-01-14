@@ -143,6 +143,13 @@ import branchesRouter from "./routes/branches.js";
 
 app.use("/api/branches", auth, branchesRouter);
 
+/* =========================
+شجرة الحسابات
+========================= */
+
+import accountsRoutes from "./routes/accounts.js";
+
+app.use("/api/accounts", accountsRoutes);
 
 /* =========================
    Start Server
