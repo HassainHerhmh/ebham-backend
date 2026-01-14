@@ -97,23 +97,28 @@ router.get("/", async (req, res) => {
 ========================= */
 router.post("/", async (req, res) => {
   try {
-    const { name, delivery_fee } = req.body;
+    const { name, delivery_fee = 0 } = req.body;
 
     if (!name) {
-      return res.json({ success: false, message: "اسم الحي مطلوب" });
+      return res.status(400).json({ success: false, message: "اسم الحي مطلوب" });
     }
 
     const { is_admin_branch, branch_id } = req.user;
-    const selectedBranch = req.headers["x-branch-id"];
+    let selectedBranch = req.headers["x-branch-id"];
 
+    if (selectedBranch === "all") {
+      selectedBranch = null;
+    }
+
+    // تحديد الفرع النهائي
     let finalBranchId = branch_id;
 
-    if (is_admin_branch && selectedBranch) {
-      finalBranchId = selectedBranch;
+    if (is_admin_branch && selectedBranch && Number(selectedBranch) !== Number(branch_id)) {
+      finalBranchId = Number(selectedBranch);
     }
 
     if (!finalBranchId) {
-      return res.json({ success: false, message: "يجب تحديد الفرع" });
+      return res.status(400).json({ success: false, message: "يجب تحديد الفرع" });
     }
 
     await db.query(
@@ -127,9 +132,10 @@ router.post("/", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error("ADD NEIGHBORHOOD ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, message: "خطأ في السيرفر" });
   }
 });
+
 
 
 /* =========================
