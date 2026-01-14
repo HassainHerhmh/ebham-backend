@@ -28,8 +28,7 @@ router.get("/", async (req, res) => {
       params.push(branch_id);
     }
 
-const [rows] = await db.query(
-  `
+const [rows] = await db.query(`
   SELECT 
     a.id,
     a.code,
@@ -42,22 +41,18 @@ const [rows] = await db.query(
 
     b.name AS branch_name,
     p.name_ar AS parent_name,
-
     u.name AS created_by,
-    fs.name AS financial_statement,
-    g.name AS group_name
+    fs.name AS financial_statement
 
   FROM accounts a
   LEFT JOIN branches b ON b.id = a.branch_id
   LEFT JOIN accounts p ON p.id = a.parent_id
   LEFT JOIN users u ON u.id = a.created_by
   LEFT JOIN financial_statements fs ON fs.id = a.financial_statement_id
-  LEFT JOIN account_groups g ON g.id = a.group_id
   ${where}
   ORDER BY a.code ASC
-  `,
-  params
-);
+`, params);
+
 
     // بناء الشجرة
     const map = {};
