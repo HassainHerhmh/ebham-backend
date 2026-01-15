@@ -18,55 +18,40 @@ router.get("/", async (req, res) => {
 
     if (is_admin_branch) {
       if (headerBranch) {
-        where += " AND pv.branch_id = ? ";
+        where += " AND rv.branch_id = ? ";
         params.push(headerBranch);
       }
     } else {
-      where += " AND pv.branch_id = ? ";
+      where += " AND rv.branch_id = ? ";
       params.push(branch_id);
     }
 
     const [rows] = await db.query(
       `
       SELECT
-        pv.id,
-        pv.voucher_no,
-        pv.voucher_date,
-        pv.payment_type,
-        pv.cash_box_account_id,
-        pv.bank_account_id,
-        pv.transfer_no,
-        pv.currency_id,
-        pv.amount,
-        pv.account_id,
-        pv.analytic_account_id,
-        pv.cost_center_id,
-        pv.notes,
-        pv.handling,
-        pv.created_at,
-
+        rv.*,
         c.name_ar  AS currency_name,
         a.name_ar  AS account_name,
         cb.name_ar AS cash_box_name,
-        bk.name_ar AS bank_name,
+        b.name_ar  AS bank_name,
         u.name     AS user_name,
         br.name_ar AS branch_name
-      FROM payment_vouchers pv
-      LEFT JOIN currencies  c  ON c.id  = pv.currency_id
-      LEFT JOIN accounts    a  ON a.id  = pv.account_id
-      LEFT JOIN cash_boxes  cb ON cb.id = pv.cash_box_account_id
-      LEFT JOIN banks       bk ON bk.id = pv.bank_account_id
-      LEFT JOIN users       u  ON u.id  = pv.created_by
-      LEFT JOIN branches    br ON br.id = pv.branch_id
+      FROM receipt_vouchers rv
+      LEFT JOIN currencies c  ON c.id = rv.currency_id
+      LEFT JOIN accounts   a  ON a.id = rv.account_id
+      LEFT JOIN cash_boxes cb ON cb.id = rv.cash_box_account_id
+      LEFT JOIN banks      b  ON b.id = rv.bank_account_id
+      LEFT JOIN users      u  ON u.id = rv.created_by
+      LEFT JOIN branches   br ON br.id = rv.branch_id
       ${where}
-      ORDER BY pv.id DESC
+      ORDER BY rv.id DESC
       `,
       params
     );
 
     res.json({ success: true, list: rows });
   } catch (err) {
-    console.error("GET PAYMENT VOUCHERS ERROR:", err);
+    console.error("GET RECEIPT VOUCHERS ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
