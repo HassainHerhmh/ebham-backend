@@ -205,6 +205,12 @@ app.use("/api/payment-types", paymentTypes);
 import receiptTypes from "./routes/receiptTypes.js";
 app.use("/api/receipt-types", receiptTypes);
 
+/*========================
+انواع القيود
+==========================*/
+import journalTypes from "./routes/journalTypes.js";
+app.use("/api/journal-types", journalTypes);
+
 /* =========================
    Start Server
 ========================= */
