@@ -222,5 +222,31 @@ router.get("/main-for-banks", auth, async (req, res) => {
   }
 });
 
+// جلب الحسابات الرئيسية فقط لاستخدامها في صفحة الصناديق
+router.get("/main-for-cashboxes", auth, async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT 
+        id,
+        code,
+        name_ar,
+        parent_id
+      FROM accounts
+      WHERE account_level = 'رئيسي'
+      ORDER BY code ASC
+    `);
+
+    res.json({
+      success: true,
+      accounts: rows,
+    });
+  } catch (err) {
+    console.error("MAIN FOR CASHBOXES ERROR:", err);
+    res.status(500).json({
+      success: false,
+      message: "خطأ في جلب الحسابات الرئيسية للصناديق",
+    });
+  }
+});
 
 export default router;
