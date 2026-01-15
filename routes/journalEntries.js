@@ -28,19 +28,32 @@ router.get("/", async (req, res) => {
 
     const [rows] = await db.query(
       `
-      SELECT
-        je.*,
-        a.name_ar  AS account_name,
-        c.name_ar  AS currency_name,
-        u.name     AS user_name,
-        br.name    AS branch_name
-      FROM journal_entries je
-      LEFT JOIN accounts  a  ON a.id  = je.account_id
-      LEFT JOIN currencies c ON c.id  = je.currency_id
-      LEFT JOIN users     u  ON u.id  = je.created_by
-      LEFT JOIN branches  br ON br.id = je.branch_id
-      ${where}
-      ORDER BY je.id DESC
+     SELECT
+  j1.journal_date,
+  MAX(CASE WHEN j1.debit > 0 THEN a1.name_ar END)   AS from_account,
+  MAX(CASE WHEN j1.credit > 0 THEN a1.name_ar END)  AS to_account,
+  MAX(j1.debit) + MAX(j1.credit)                    AS amount,
+  c.name_ar                                         AS currency_name,
+  MAX(j1.notes)                                     AS notes,
+  u.name                                            AS user_name,
+  br.name                                           AS branch_name,
+  MIN(j1.id)                                        AS id
+FROM journal_entries j1
+LEFT JOIN accounts a1   ON a1.id = j1.account_id
+LEFT JOIN currencies c  ON c.id = j1.currency_id
+LEFT JOIN users u       ON u.id = j1.created_by
+LEFT JOIN branches br   ON br.id = j1.branch_id
+GROUP BY
+  j1.journal_date,
+  j1.currency_id,
+  j1.reference_type,
+  j1.reference_id,
+  j1.created_by,
+  j1.branch_id,
+  c.name_ar,
+  u.name,
+  br.name
+ORDER BY id DESC;
       `,
       params
     );
