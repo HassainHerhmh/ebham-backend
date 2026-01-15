@@ -193,7 +193,11 @@ app.use("/api/cashbox-groups", cashboxGroupsRoutes);
 import cashBoxesRoutes from "./routes/cashBoxes.js";
 app.use("/api/cash-boxes", cashBoxesRoutes);
 
-
+/*========================
+انواع القبض
+==========================*/
+import paymentTypes from "./routes/paymentTypes.js";
+app.use("/api/payment-types", paymentTypes);
 
 /* =========================
    Start Server
