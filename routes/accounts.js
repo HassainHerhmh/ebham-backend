@@ -249,4 +249,21 @@ router.get("/main-for-cashboxes", auth, async (req, res) => {
   }
 });
 
+// الحسابات الفرعية فقط (للتسقيف)
+router.get("/sub", auth, async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT id, code, name_ar
+      FROM accounts
+      WHERE account_level = 'فرعي'
+      ORDER BY code ASC
+    `);
+
+    res.json({ success: true, list: rows });
+  } catch (err) {
+    console.error("GET SUB ACCOUNTS ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
 export default router;
