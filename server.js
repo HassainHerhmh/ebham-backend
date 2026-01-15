@@ -190,8 +190,9 @@ app.use("/api/cashbox-groups", cashboxGroupsRoutes);
 /*===========================
 الصناديق
 ===========================*/
-import cashboxGroupsRoutes from "./routes/cashboxGroups.js";
-app.use("/api/cashbox-groups", cashboxGroupsRoutes);
+import cashBoxesRoutes from "./routes/cashBoxes.js";
+app.use("/api/cash-boxes", cashBoxesRoutes);
+
 
 
 /* =========================
