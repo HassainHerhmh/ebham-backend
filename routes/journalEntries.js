@@ -29,6 +29,7 @@ router.get("/", async (req, res) => {
     const [rows] = await db.query(
       `
       SELECT
+        j1.reference_id,
         j1.journal_date,
         MAX(CASE WHEN j1.debit  > 0 THEN a1.name_ar END) AS from_account,
         MAX(CASE WHEN j1.credit > 0 THEN a1.name_ar END) AS to_account,
@@ -37,13 +38,12 @@ router.get("/", async (req, res) => {
         MAX(j1.notes)                                   AS notes,
         u.name                                          AS user_name,
         br.name                                         AS branch_name,
-        j1.reference_id,
         MIN(j1.id)                                      AS id
       FROM journal_entries j1
-      LEFT JOIN accounts  a1 ON a1.id = j1.account_id
+      LEFT JOIN accounts   a1 ON a1.id = j1.account_id
       LEFT JOIN currencies c  ON c.id  = j1.currency_id
-      LEFT JOIN users     u  ON u.id  = j1.created_by
-      LEFT JOIN branches  br ON br.id = j1.branch_id
+      LEFT JOIN users      u  ON u.id  = j1.created_by
+      LEFT JOIN branches   br ON br.id = j1.branch_id
       ${where}
       GROUP BY
         j1.reference_id,
@@ -65,6 +65,7 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 
 /* =========================
