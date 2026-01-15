@@ -34,15 +34,15 @@ router.get("/", async (req, res) => {
         a.name_ar  AS account_name,
         cb.name_ar AS cash_box_name,
         b.name_ar  AS bank_name,
-        u.name     AS user_name,
+        u.username AS user_name,
         br.name_ar AS branch_name
       FROM receipt_vouchers rv
-      LEFT JOIN currencies c  ON c.id = rv.currency_id
-      LEFT JOIN accounts   a  ON a.id = rv.account_id
-      LEFT JOIN cash_boxes cb ON cb.id = rv.cash_box_account_id
-      LEFT JOIN banks      b  ON b.id = rv.bank_account_id
-      LEFT JOIN users      u  ON u.id = rv.created_by
-      LEFT JOIN branches   br ON br.id = rv.branch_id
+      LEFT JOIN currencies  c  ON c.id  = rv.currency_id
+      LEFT JOIN accounts    a  ON a.id  = rv.account_id
+      LEFT JOIN cash_boxes  cb ON cb.id = rv.cash_box_account_id
+      LEFT JOIN banks       b  ON b.id  = rv.bank_account_id
+      LEFT JOIN users       u  ON u.id  = rv.created_by
+      LEFT JOIN branches    br ON br.id = rv.branch_id
       ${where}
       ORDER BY rv.id DESC
       `,
@@ -52,9 +52,10 @@ router.get("/", async (req, res) => {
     res.json({ success: true, list: rows });
   } catch (err) {
     console.error("GET RECEIPT VOUCHERS ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
+
 
 
 
