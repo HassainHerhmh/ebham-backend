@@ -194,10 +194,16 @@ import cashBoxesRoutes from "./routes/cashBoxes.js";
 app.use("/api/cash-boxes", cashBoxesRoutes);
 
 /*========================
-انواع القبض
+انواع الصرف
 ==========================*/
 import paymentTypes from "./routes/paymentTypes.js";
 app.use("/api/payment-types", paymentTypes);
+
+/*========================
+انواع القبض
+==========================*/
+import receiptTypes from "./routes/receiptTypes.js";
+app.use("/api/receipt-types", receiptTypes);
 
 /* =========================
    Start Server
