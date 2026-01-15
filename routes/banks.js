@@ -116,5 +116,47 @@ router.delete("/:id", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+/* =========================
+   GET /accounts/main-for-banks
+   جلب جميع الحسابات الرئيسية فقط
+========================= */
+router.get("/main-for-banks", async (req, res) => {
+  try {
+    const { is_admin_branch, branch_id } = req.user;
+
+    let sql = `
+      SELECT 
+        id,
+        code,
+        name_ar,
+        parent_id
+      FROM accounts
+      WHERE parent_id IS NULL
+    `;
+
+    const params = [];
+
+    // لو المستخدم ليس إدارة عامة → نقيّد بالفرع
+    if (!is_admin_branch) {
+      sql += " AND branch_id = ? ";
+      params.push(branch_id);
+    }
+
+    sql += " ORDER BY code ASC";
+
+    const [rows] = await db.query(sql, params);
+
+    res.json({
+      success: true,
+      accounts: rows,
+    });
+  } catch (err) {
+    console.error("GET MAIN ACCOUNTS ERROR:", err);
+    res.status(500).json({
+      success: false,
+      message: "خطأ في جلب الحسابات الرئيسية",
+    });
+  }
+});
 
 export default router;
