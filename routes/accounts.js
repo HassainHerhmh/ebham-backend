@@ -195,4 +195,32 @@ router.put("/:id", async (req, res) => {
   }
 });
 
+// جلب الحسابات الرئيسية فقط لاستخدامها في صفحة البنوك
+router.get("/main-for-banks", auth, async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT 
+        id,
+        code,
+        name_ar,
+        parent_id
+      FROM accounts
+      WHERE account_level = 'رئيسي'
+      ORDER BY code ASC
+    `);
+
+    res.json({
+      success: true,
+      accounts: rows,
+    });
+  } catch (err) {
+    console.error("MAIN FOR BANKS ERROR:", err);
+    res.status(500).json({
+      success: false,
+      message: "خطأ في جلب الحسابات الرئيسية للبنوك",
+    });
+  }
+});
+
+
 export default router;
