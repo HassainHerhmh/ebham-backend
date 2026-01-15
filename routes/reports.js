@@ -9,8 +9,7 @@ router.use(auth);
 POST /reports/account-statement
 payload:
 {
-  account_id?: number,        // عند اختيار "حساب واحد"
-  main_account_id?: number,   // عند اختيار "كل الحسابات"
+  account_id?: number,        // عند اختيار "حساب واحد" (حساب رئيسي)
   currency_id?: number|null,
   from_date?: string|null,
   to_date?: string|null,
@@ -21,7 +20,6 @@ router.post("/account-statement", async (req, res) => {
   try {
     const {
       account_id,
-      main_account_id,
       currency_id,
       from_date,
       to_date,
@@ -34,21 +32,29 @@ router.post("/account-statement", async (req, res) => {
     let accountIds = [];
 
     if (account_id) {
-      // حساب واحد → اجلب الحسابات الفرعية فقط
+      // حساب واحد → اخترت حساب رئيسي
+      // اجلب كل الحسابات الفرعية التابعة له
       const [subs] = await db.query(
         `SELECT id FROM accounts WHERE parent_id = ?`,
         [account_id]
       );
+
       accountIds = subs.map(r => r.id);
-      if (!accountIds.length) accountIds = [account_id];
-    } else if (main_account_id) {
+
+      // إذا ما عنده فروع، خذ الحساب نفسه
+      if (!accountIds.length) {
+        accountIds = [account_id];
+      }
+    } else {
       // كل الحسابات → اجلب الحسابات الرئيسية فقط
       const [mains] = await db.query(
-        `SELECT id FROM accounts WHERE parent_id IS NULL AND id = ?`,
-        [main_account_id]
+        `SELECT id FROM accounts WHERE parent_id IS NULL`
       );
+
       accountIds = mains.map(r => r.id);
-    } else {
+    }
+
+    if (!accountIds.length) {
       return res.json({ success: true, opening_balance: 0, list: [] });
     }
 
@@ -76,7 +82,7 @@ router.post("/account-statement", async (req, res) => {
       params.push(to_date);
     }
 
-    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    const whereSql = `WHERE ${where.join(" AND ")}`;
 
     // 2) الرصيد الافتتاحي
     let opening = 0;
@@ -97,11 +103,14 @@ router.post("/account-statement", async (req, res) => {
           from_date,
         ]
       );
+
       opening = op[0]?.bal || 0;
     }
 
     // 3) الجلب
     let sql;
+    let runParams = [...params];
+
     if (report_mode === "summary") {
       sql = `
         SELECT
@@ -131,10 +140,10 @@ router.post("/account-statement", async (req, res) => {
         ${whereSql}
         ORDER BY je.journal_date, je.id
       `;
-      params.unshift(opening);
+      runParams = [opening, ...params];
     }
 
-    const [rows] = await db.query(sql, params);
+    const [rows] = await db.query(sql, runParams);
 
     res.json({
       success: true,
