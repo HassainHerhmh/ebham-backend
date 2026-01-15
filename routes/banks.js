@@ -69,6 +69,7 @@ router.get("/", auth, async (req, res) => {
 /* =========================
    POST /banks
 ========================= */
+
 router.post("/", async (req, res) => {
   try {
     const {
@@ -88,6 +89,26 @@ router.post("/", async (req, res) => {
       });
     }
 
+    // 1️⃣ إنشاء حساب فرعي للبنك تحت الحساب الأب
+    const [accResult] = await db.query(
+      `
+      INSERT INTO accounts
+      (code, name_ar, name_en, parent_id, account_level, branch_id, created_by)
+      VALUES (?, ?, ?, ?, 'فرعي', ?, ?)
+      `,
+      [
+        code,
+        name_ar,
+        name_en || null,
+        parent_account_id,
+        branch_id,
+        user_id,
+      ]
+    );
+
+    const newAccountId = accResult.insertId;
+
+    // 2️⃣ إنشاء البنك وربطه بالحساب الجديد
     await db.query(
       `
       INSERT INTO banks
@@ -99,18 +120,25 @@ router.post("/", async (req, res) => {
         name_en || null,
         code,
         bank_group_id,
-        parent_account_id,
+        newAccountId,
         branch_id,
         user_id,
       ]
     );
 
-    res.json({ success: true });
+    res.json({
+      success: true,
+      message: "تم إضافة البنك وربطه بالحساب المحاسبي",
+    });
   } catch (err) {
     console.error("ADD BANK ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: "خطأ في إضافة البنك",
+    });
   }
 });
+
 
 /* =========================
    DELETE /banks/:id
