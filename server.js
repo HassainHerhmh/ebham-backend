@@ -211,6 +211,12 @@ app.use("/api/receipt-types", receiptTypes);
 import journalTypes from "./routes/journalTypes.js";
 app.use("/api/journal-types", journalTypes);
 
+/*========================
+تسيقف الحسابات 
+==========================*/
+import accountCeilings from "./routes/accountCeilings.js";
+app.use("/api/account-ceilings", accountCeilings);
+
 /* =========================
    Start Server
 ========================= */
