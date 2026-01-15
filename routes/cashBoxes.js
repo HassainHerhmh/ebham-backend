@@ -55,7 +55,7 @@ router.get("/", async (req, res) => {
         u.name AS user_name,
         b.name AS branch_name
       FROM cash_boxes cb
-      LEFT JOIN cashbox_groups cg ON cg.id = cb.cashbox_group_id
+      LEFT JOIN cashbox_groups cg ON cg.id = cb.cash_box_group_id
       LEFT JOIN accounts a ON a.id = cb.parent_account_id
       LEFT JOIN users u ON u.id = cb.created_by
       LEFT JOIN branches b ON b.id = cb.branch_id
@@ -118,7 +118,7 @@ router.post("/", async (req, res) => {
     await db.query(
       `
       INSERT INTO cash_boxes
-      (name_ar, name_en, code, cashbox_group_id, parent_account_id, branch_id, created_by)
+      (name_ar, name_en, code, cash_box_group_id, parent_account_id, branch_id, created_by)
       VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
       [
@@ -162,7 +162,7 @@ router.put("/:id", async (req, res) => {
     await db.query(
       `
       UPDATE cash_boxes
-      SET name_ar = ?, name_en = ?, cashbox_group_id = ?
+      SET name_ar = ?, name_en = ?, cash_box_group_id = ?
       WHERE id = ?
       `,
       [name_ar, name_en || null, cash_box_group_id, req.params.id]
