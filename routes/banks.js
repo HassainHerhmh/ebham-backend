@@ -8,36 +8,25 @@ router.use(auth);
 /* =========================
    GET /banks
 ========================= */
-router.get("/", async (req, res) => {
+router.get("/", auth, async (req, res) => {
   try {
     const search = req.query.search || "";
     const { is_admin_branch, branch_id } = req.user;
+    const headerBranch = req.headers["x-branch-id"];
 
-    let sql = `
-      SELECT 
-        b.id,
-        b.name_ar,
-        b.name_en,
-        b.code,
-        bg.name_ar AS bank_group_name,
-        a.name_ar AS account_name,
-        u.name AS user_name
-      FROM banks b
-      LEFT JOIN bank_groups bg ON bg.id = b.bank_group_id
-      LEFT JOIN accounts a ON a.id = b.parent_account_id
-      LEFT JOIN users u ON u.id = b.created_by
-      WHERE 1=1
-    `;
-
+    let where = "WHERE 1=1";
     const params = [];
 
     if (!is_admin_branch) {
-      sql += ` AND b.branch_id = ? `;
+      where += " AND b.branch_id = ?";
       params.push(branch_id);
+    } else if (headerBranch) {
+      where += " AND b.branch_id = ?";
+      params.push(headerBranch);
     }
 
     if (search.trim()) {
-      sql += `
+      where += `
         AND (
           b.name_ar LIKE ?
           OR b.name_en LIKE ?
@@ -47,9 +36,27 @@ router.get("/", async (req, res) => {
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
-    sql += " ORDER BY b.id DESC";
-
-    const [rows] = await db.query(sql, params);
+    const [rows] = await db.query(
+      `
+      SELECT 
+        b.id,
+        b.name_ar,
+        b.name_en,
+        b.code,
+        bg.name_ar AS bank_group_name,
+        a.name_ar AS account_name,
+        u.name AS user_name,
+        br.name AS branch_name
+      FROM banks b
+      LEFT JOIN bank_groups bg ON bg.id = b.bank_group_id
+      LEFT JOIN accounts a ON a.id = b.parent_account_id
+      LEFT JOIN users u ON u.id = b.created_by
+      LEFT JOIN branches br ON br.id = b.branch_id
+      ${where}
+      ORDER BY b.id DESC
+      `,
+      params
+    );
 
     res.json({ success: true, banks: rows });
   } catch (err) {
@@ -57,6 +64,7 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 /* =========================
    POST /banks
