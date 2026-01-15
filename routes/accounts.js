@@ -249,21 +249,44 @@ router.get("/main-for-cashboxes", auth, async (req, res) => {
   }
 });
 
-// الحسابات الفرعية فقط (للتسقيف)
-router.get("/sub", auth, async (req, res) => {
+// الحسابات الفرعية للتسقيف (حسب الفرع)
+router.get("/sub-for-ceiling", auth, async (req, res) => {
   try {
-    const [rows] = await db.query(`
+    const { is_admin_branch, branch_id } = req.user;
+    const headerBranch = req.headers["x-branch-id"];
+
+    let where = "WHERE account_level = 'فرعي'";
+    const params = [];
+
+    if (is_admin_branch) {
+      // فرع الإدارة
+      if (headerBranch) {
+        where += " AND branch_id = ?";
+        params.push(headerBranch);
+      }
+      // بدون headerBranch = يجلب الكل
+    } else {
+      // مستخدم فرع عادي
+      where += " AND branch_id = ?";
+      params.push(branch_id);
+    }
+
+    const [rows] = await db.query(
+      `
       SELECT id, code, name_ar
       FROM accounts
-      WHERE account_level = 'فرعي'
+      ${where}
       ORDER BY code ASC
-    `);
+      `,
+      params
+    );
 
     res.json({ success: true, list: rows });
   } catch (err) {
-    console.error("GET SUB ACCOUNTS ERROR:", err);
+    console.error("GET SUB ACCOUNTS FOR CEILING ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
+
 
 export default router;
