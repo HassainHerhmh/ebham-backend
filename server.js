@@ -230,6 +230,14 @@ app.use("/api/receipt-vouchers", receiptVouchers);
 import paymentVouchers from "./routes/paymentVouchers.js";
 app.use("/api/payment-vouchers", paymentVouchers);
 
+/*========================
+الثيد اليومي 
+ 
+==========================*/
+
+import journalEntries from "./routes/journalEntries.js";
+app.use("/api/journal-entries", journalEntries);
+
 /* =========================
    Start Server
 ========================= */
