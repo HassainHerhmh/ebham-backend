@@ -118,7 +118,7 @@ router.post("/", auth, async (req, res) => {
     await db.query(
       `
       INSERT INTO cash_boxes
-      (name_ar, name_en, code, cash_box_group_id, account_id, branch_id, created_by)
+      (name_ar, name_en, code, cashbox_group_id, account_id, branch_id, created_by)
       VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
       [
