@@ -26,28 +26,28 @@ router.get("/", async (req, res) => {
       params.push(branch_id);
     }
 
-    const [rows] = await db.query(
-      `
-      SELECT
-        rv.*,
-        c.name_ar  AS currency_name,
-        a.name_ar  AS account_name,
-        cb.name_ar AS cash_box_name,
-        b.name_ar  AS bank_name,
-        u.username AS user_name,
-        br.name_ar AS branch_name
-      FROM receipt_vouchers rv
-      LEFT JOIN currencies  c  ON c.id  = rv.currency_id
-      LEFT JOIN accounts    a  ON a.id  = rv.account_id
-      LEFT JOIN cash_boxes  cb ON cb.id = rv.cash_box_account_id
-      LEFT JOIN banks       b  ON b.id  = rv.bank_account_id
-      LEFT JOIN users       u  ON u.id  = rv.created_by
-      LEFT JOIN branches    br ON br.id = rv.branch_id
-      ${where}
-      ORDER BY rv.id DESC
-      `,
-      params
-    );
+ const [rows] = await db.query(
+  `
+  SELECT
+    rv.*,
+    c.name_ar  AS currency_name,
+    a.name_ar  AS account_name,
+    cb.name_ar AS cash_box_name,
+    b.name_ar  AS bank_name,
+    u.username AS user_name,
+    br.name_ar AS branch_name
+  FROM receipt_vouchers rv
+  LEFT JOIN currencies  c  ON c.id  = rv.currency_id
+  LEFT JOIN accounts    a  ON a.id  = rv.account_id
+  LEFT JOIN cash_boxes  cb ON cb.id = rv.cash_box_account_id
+  LEFT JOIN banks       b  ON b.id  = rv.bank_account_id
+  LEFT JOIN users       u  ON u.id  = rv.created_by
+  LEFT JOIN branches    br ON br.id = rv.branch_id
+  ${where}
+  ORDER BY rv.id DESC
+  `,
+  params
+);
 
     res.json({ success: true, list: rows });
   } catch (err) {
