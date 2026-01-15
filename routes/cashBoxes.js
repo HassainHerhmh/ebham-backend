@@ -76,7 +76,7 @@ router.get("/", async (req, res) => {
    ➕ POST /cash-boxes
    إضافة صندوق (يرتبط بفرع المستخدم)
 ===================================================== */
-router.post("/", async (req, res) => {
+router.post("/", auth, async (req, res) => {
   try {
     const {
       name_ar,
@@ -95,37 +95,56 @@ router.post("/", async (req, res) => {
       });
     }
 
-    await db.query(
+    // 1️⃣ إنشاء حساب فرعي تحت الحساب الأب
+    const [accResult] = await db.query(
       `
-      INSERT INTO cash_boxes
-      (code, name_ar, name_en, cashbox_group_id, parent_account_id, branch_id, created_by, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+      INSERT INTO accounts
+      (code, name_ar, name_en, parent_id, account_level, branch_id, created_by)
+      VALUES (?, ?, ?, ?, 'فرعي', ?, ?)
       `,
       [
         code,
         name_ar,
         name_en || null,
-        cash_box_group_id,
         parent_account_id,
         branch_id,
         user_id,
       ]
     );
 
-    res.json({ success: true, message: "تمت إضافة الصندوق" });
+    const newAccountId = accResult.insertId;
+
+    // 2️⃣ إنشاء الصندوق وربطه بالحساب الجديد
+    await db.query(
+      `
+      INSERT INTO cash_boxes
+      (name_ar, name_en, code, cash_box_group_id, account_id, branch_id, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        name_ar,
+        name_en || null,
+        code,
+        cash_box_group_id,
+        newAccountId,
+        branch_id,
+        user_id,
+      ]
+    );
+
+    res.json({
+      success: true,
+      message: "تم إضافة الصندوق وربطه بالحساب المحاسبي",
+    });
   } catch (err) {
     console.error("ADD CASH BOX ERROR:", err);
-
-    if (err.code === "ER_DUP_ENTRY") {
-      return res.status(400).json({
-        success: false,
-        message: "رقم الصندوق مستخدم مسبقًا في هذا الفرع",
-      });
-    }
-
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: "خطأ في إضافة الصندوق",
+    });
   }
 });
+
 
 /* =====================================================
    ✏️ PUT /cash-boxes/:id
