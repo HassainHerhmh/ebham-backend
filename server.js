@@ -187,6 +187,13 @@ import cashboxGroupsRoutes from "./routes/cashboxGroups.js";
 
 app.use("/api/cashbox-groups", cashboxGroupsRoutes);
 
+/*===========================
+الصناديق
+===========================*/
+import cashboxGroupsRoutes from "./routes/cashboxGroups.js";
+app.use("/api/cashbox-groups", cashboxGroupsRoutes);
+
+
 /* =========================
    Start Server
 ========================= */
