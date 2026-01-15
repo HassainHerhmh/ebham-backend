@@ -173,6 +173,13 @@ import bankGroupsRouter from "./routes/bankGroups.js";
 
 app.use("/api/bank-groups", bankGroupsRouter);
 
+
+/* =========================
+البنوك
+========================= */
+import banksRoutes from "./routes/banks.js";
+app.use("/api/banks", banksRoutes);
+
 /* =========================
    Start Server
 ========================= */
