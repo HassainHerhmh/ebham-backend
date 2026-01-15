@@ -181,10 +181,12 @@ import banksRoutes from "./routes/banks.js";
 app.use("/api/banks", banksRoutes);
 
 /* =========================
-البنوك
+مجموعة الصناديق
 ========================= */
-import bankscashboxGroups from "./routes/cashboxGroups.js";
-app.use("/api/cashboxGroups", cashboxGroupsRoutes)
+import cashboxGroupsRoutes from "./routes/cashboxGroups.js";
+
+app.use("/api/cashbox-groups", cashboxGroupsRoutes);
+
 /* =========================
    Start Server
 ========================= */
