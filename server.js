@@ -217,6 +217,12 @@ app.use("/api/journal-types", journalTypes);
 import accountCeilings from "./routes/accountCeilings.js";
 app.use("/api/account-ceilings", accountCeilings);
 
+/*========================
+ سند قبض  
+==========================*/
+import receiptVouchers from "./routes/receiptVouchers.js";
+app.use("/api/receipt-vouchers", receiptVouchers);
+
 /* =========================
    Start Server
 ========================= */
