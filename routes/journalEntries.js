@@ -30,15 +30,15 @@ router.get("/", async (req, res) => {
       `
       SELECT
         je.*,
-        a.name_ar AS account_name,
-        c.name_ar AS currency_name,
-        u.name AS user_name,
-        br.name AS branch_name
+        a.name_ar  AS account_name,
+        c.name_ar  AS currency_name,
+        u.name     AS user_name,
+        br.name    AS branch_name
       FROM journal_entries je
-      LEFT JOIN accounts a   ON a.id = je.account_id
-      LEFT JOIN currencies c ON c.id = je.currency_id
-      LEFT JOIN users u      ON u.id = je.created_by
-      LEFT JOIN branches br  ON br.id = je.branch_id
+      LEFT JOIN accounts  a  ON a.id  = je.account_id
+      LEFT JOIN currencies c ON c.id  = je.currency_id
+      LEFT JOIN users     u  ON u.id  = je.created_by
+      LEFT JOIN branches  br ON br.id = je.branch_id
       ${where}
       ORDER BY je.id DESC
       `,
@@ -100,6 +100,69 @@ router.post("/", async (req, res) => {
   } catch (err) {
     console.error("CREATE JOURNAL ENTRY ERROR:", err);
     res.status(500).json({ success: false, message: "فشل حفظ القيد" });
+  }
+});
+
+/* =========================
+   UPDATE Journal Entry
+========================= */
+router.put("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      journal_date,
+      currency_id,
+      account_id,
+      debit,
+      credit,
+      notes,
+      cost_center_id,
+    } = req.body;
+
+    await db.query(
+      `
+      UPDATE journal_entries
+      SET journal_date = ?,
+          currency_id  = ?,
+          account_id   = ?,
+          debit        = ?,
+          credit       = ?,
+          notes        = ?,
+          cost_center_id = ?
+      WHERE id = ?
+      `,
+      [
+        journal_date,
+        currency_id,
+        account_id,
+        debit,
+        credit,
+        notes,
+        cost_center_id,
+        id,
+      ]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("UPDATE JOURNAL ENTRY ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
+/* =========================
+   DELETE Journal Entry
+========================= */
+router.delete("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await db.query(`DELETE FROM journal_entries WHERE id = ?`, [id]);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("DELETE JOURNAL ENTRY ERROR:", err);
+    res.status(500).json({ success: false });
   }
 });
 
