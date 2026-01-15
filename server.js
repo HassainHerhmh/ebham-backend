@@ -239,6 +239,13 @@ import journalEntries from "./routes/journalEntries.js";
 app.use("/api/journal-entries", journalEntries);
 
 /* =========================
+   التقارير
+========================= */
+import reports from "./routes/reports.js";
+app.use("/api/reports", reports);
+
+
+/* =========================
    Start Server
 ========================= */
 const PORT = process.env.PORT || 8080;
