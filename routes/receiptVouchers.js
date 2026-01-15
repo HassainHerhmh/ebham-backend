@@ -29,20 +29,35 @@ router.get("/", async (req, res) => {
     const [rows] = await db.query(
       `
       SELECT
-        rv.*,
-        c.name_ar AS currency_name,
-        a.name_ar AS account_name,
+        rv.id,
+        rv.voucher_no,
+        rv.voucher_date,
+        rv.receipt_type,
+        rv.cash_box_account_id,
+        rv.bank_account_id,
+        rv.transfer_no,
+        rv.currency_id,
+        rv.amount,
+        rv.account_id,
+        rv.analytic_account_id,
+        rv.cost_center_id,
+        rv.notes,
+        rv.handling,
+        rv.created_at,
+
+        c.name_ar  AS currency_name,
+        a.name_ar  AS account_name,
         cb.name_ar AS cash_box_name,
-        b.name_ar AS bank_name,
-        u.name AS user_name,
-        br.name AS branch_name
+        bk.name_ar AS bank_name,
+        u.name     AS user_name,
+        br.name_ar AS branch_name
       FROM receipt_vouchers rv
-      LEFT JOIN currencies c ON c.id = rv.currency_id
-      LEFT JOIN accounts a ON a.id = rv.account_id
-      LEFT JOIN cash_boxes cb ON cb.id = rv.cash_box_account_id
-      LEFT JOIN banks b ON b.id = rv.bank_account_id
-      LEFT JOIN users u ON u.id = rv.created_by
-      LEFT JOIN branches br ON br.id = rv.branch_id
+      LEFT JOIN currencies  c  ON c.id  = rv.currency_id
+      LEFT JOIN accounts    a  ON a.id  = rv.account_id
+      LEFT JOIN cash_boxes  cb ON cb.id = rv.cash_box_account_id
+      LEFT JOIN banks       bk ON bk.id = rv.bank_account_id
+      LEFT JOIN users       u  ON u.id  = rv.created_by
+      LEFT JOIN branches    br ON br.id = rv.branch_id
       ${where}
       ORDER BY rv.id DESC
       `,
@@ -55,6 +70,7 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 /* =========================
    POST /receipt-vouchers
