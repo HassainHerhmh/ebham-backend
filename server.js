@@ -223,6 +223,13 @@ app.use("/api/account-ceilings", accountCeilings);
 import receiptVouchers from "./routes/receiptVouchers.js";
 app.use("/api/receipt-vouchers", receiptVouchers);
 
+/*========================
+ سند صرف 
+ 
+==========================*/
+import paymentVouchers from "./routes/paymentVouchers.js";
+app.use("/api/payment-vouchers", paymentVouchers);
+
 /* =========================
    Start Server
 ========================= */
