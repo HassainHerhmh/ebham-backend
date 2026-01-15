@@ -26,29 +26,32 @@ router.get("/", async (req, res) => {
       params.push(branch_id);
     }
 
-   const [rows] = await db.query(`
-  SELECT
-    j1.reference_id,
-    j1.journal_date,
-    MAX(CASE WHEN j1.debit  > 0 THEN a1.name_ar END)  AS from_account,
-    MAX(CASE WHEN j1.credit > 0 THEN a1.name_ar END)  AS to_account,
-    MAX(j1.debit) + MAX(j1.credit)                    AS amount,
-    c.name_ar                                         AS currency_name,
-    MAX(j1.notes)                                     AS notes,
-    u.name                                            AS user_name,
-    br.name                                           AS branch_name,
-    MIN(j1.id)                                        AS id
-  FROM journal_entries j1
-  LEFT JOIN accounts a1   ON a1.id = j1.account_id
-  LEFT JOIN currencies c  ON c.id = j1.currency_id
-  LEFT JOIN users u       ON u.id = j1.created_by
-  LEFT JOIN branches br   ON br.id = j1.branch_id
-  GROUP BY
-    j1.reference_id
-  ORDER BY id DESC
-`);
+    const [rows] = await db.query(
+      `
+      SELECT
+        j1.reference_id,
 
+        MAX(j1.journal_date)                               AS journal_date,
+        MAX(CASE WHEN j1.debit  > 0 THEN a1.name_ar END)  AS from_account,
+        MAX(CASE WHEN j1.credit > 0 THEN a1.name_ar END)  AS to_account,
+        MAX(j1.debit) + MAX(j1.credit)                    AS amount,
 
+        MAX(c.name_ar)                                    AS currency_name,
+        MAX(j1.notes)                                     AS notes,
+        MAX(u.name)                                       AS user_name,
+        MAX(br.name)                                      AS branch_name,
+        MIN(j1.id)                                        AS id
+      FROM journal_entries j1
+      LEFT JOIN accounts   a1 ON a1.id = j1.account_id
+      LEFT JOIN currencies c  ON c.id  = j1.currency_id
+      LEFT JOIN users      u  ON u.id  = j1.created_by
+      LEFT JOIN branches   br ON br.id = j1.branch_id
+      ${where}
+      GROUP BY j1.reference_id
+      ORDER BY id DESC
+      `,
+      params
+    );
 
     res.json({ success: true, list: rows });
   } catch (err) {
@@ -56,6 +59,7 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 
 
