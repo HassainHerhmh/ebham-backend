@@ -76,7 +76,7 @@ router.get("/", async (req, res) => {
    ➕ POST /cash-boxes
    إضافة صندوق (يرتبط بفرع المستخدم)
 ===================================================== */
-router.post("/", auth, async (req, res) => {
+router.post("/", async (req, res) => {
   try {
     const {
       name_ar,
@@ -118,7 +118,7 @@ router.post("/", auth, async (req, res) => {
     await db.query(
       `
       INSERT INTO cash_boxes
-      (name_ar, name_en, code, cashbox_group_id, account_id, branch_id, created_by)
+      (name_ar, name_en, code, cashbox_group_id, parent_account_id, branch_id, created_by)
       VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
       [
@@ -144,7 +144,6 @@ router.post("/", auth, async (req, res) => {
     });
   }
 });
-
 
 /* =====================================================
    ✏️ PUT /cash-boxes/:id
