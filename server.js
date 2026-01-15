@@ -181,6 +181,11 @@ import banksRoutes from "./routes/banks.js";
 app.use("/api/banks", banksRoutes);
 
 /* =========================
+البنوك
+========================= */
+import bankscashboxGroups from "./routes/cashboxGroups.js";
+app.use("/api/cashboxGroups", cashboxGroupsRoutes)
+/* =========================
    Start Server
 ========================= */
 const PORT = process.env.PORT || 8080;
