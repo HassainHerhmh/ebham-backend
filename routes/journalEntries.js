@@ -44,16 +44,10 @@ router.get("/", async (req, res) => {
   LEFT JOIN users u       ON u.id = j1.created_by
   LEFT JOIN branches br   ON br.id = j1.branch_id
   GROUP BY
-    j1.reference_id,
-    j1.journal_date,
-    j1.currency_id,
-    j1.created_by,
-    j1.branch_id,
-    c.name_ar,
-    u.name,
-    br.name
+    j1.reference_id
   ORDER BY id DESC
 `);
+
 
 
     res.json({ success: true, list: rows });
