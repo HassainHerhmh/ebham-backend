@@ -26,7 +26,8 @@ router.get("/", async (req, res) => {
 
     let rows;
 
-    if (user.role === "admin" || user.is_admin_branch === 1) {
+    // الإدارة العامة فقط
+    if (user.is_admin_branch === 1) {
       [rows] = await pool.query(
         `
         SELECT b.id, b.name, b.address, b.phone,
@@ -42,28 +43,26 @@ router.get("/", async (req, res) => {
         [today]
       );
     } else {
-  // مستخدم فرع → يجلب فرعه فقط حسب الاسم
-  const branchName = user.username || user.name;
+      // أي مستخدم فرع → فرعه فقط
+      if (!user.branch_id) {
+        return res.json({ success: true, branches: [] });
+      }
 
-  if (!branchName) {
-    return res.json({ success: true, branches: [] });
-  }
-
-  [rows] = await pool.query(
-    `
-    SELECT b.id, b.name, b.address, b.phone,
-           w.open_time AS today_from,
-           w.close_time AS today_to,
-           w.is_closed AS today_closed
-    FROM branches b
-    LEFT JOIN branch_work_times w
-      ON w.branch_id = b.id
-     AND w.day_of_week = ?
-    WHERE b.name = ?
-    `,
-    [today, branchName]
-  );
-}
+      [rows] = await pool.query(
+        `
+        SELECT b.id, b.name, b.address, b.phone,
+               w.open_time AS today_from,
+               w.close_time AS today_to,
+               w.is_closed AS today_closed
+        FROM branches b
+        LEFT JOIN branch_work_times w
+          ON w.branch_id = b.id
+         AND w.day_of_week = ?
+        WHERE b.id = ?
+        `,
+        [today, user.branch_id]
+      );
+    }
 
     res.json({ success: true, branches: rows });
   } catch (err) {
