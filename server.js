@@ -258,6 +258,12 @@ import deliverySettings from "./routes/deliverySettings.js";
 app.use("/api/delivery-settings", deliverySettings);
 
 /* =========================
+    الطلبات
+========================= */
+import orders from "./routes/orders.js";
+
+app.use("/api/orders", orders);
+/* =========================
    Start Server
 ========================= */
 const PORT = process.env.PORT || 8080;
