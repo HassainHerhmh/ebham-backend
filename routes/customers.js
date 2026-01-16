@@ -1,4 +1,3 @@
-
 import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
@@ -11,177 +10,151 @@ const router = express.Router();
 router.use(auth);
 
 /* =========================
-   GET Neighborhoods
+   GET /customers
 ========================= */
 router.get("/", async (req, res) => {
-  const search = req.query.search || "";
-  const user = req.user || {};
-  const { is_admin_branch, branch_id } = user;
-
-  let selectedBranch = req.headers["x-branch-id"];
-
-  // لو القيمة "all" نعتبره غير موجود
-  if (selectedBranch === "all") {
-    selectedBranch = null;
-  }
-
   try {
+    const { is_admin_branch, branch_id } = req.user;
+    let selectedBranch = req.headers["x-branch-id"];
+
+    if (selectedBranch === "all") selectedBranch = null;
+
     let rows;
 
     if (is_admin_branch) {
       // إدارة عامة
       if (selectedBranch) {
+        // إدارة عامة + فرع محدد من الهيدر
         [rows] = await db.query(
           `
-          SELECT 
-            n.id,
-            n.name,
-            n.delivery_fee,
-            b.name AS branch_name,
-            n.branch_id
-          FROM neighborhoods n
-          LEFT JOIN branches b ON b.id = n.branch_id
-          WHERE n.branch_id = ?
-            AND n.name LIKE ?
-          ORDER BY n.id DESC
+          SELECT c.*, b.name AS branch_name
+          FROM customers c
+          LEFT JOIN branches b ON b.id = c.branch_id
+          WHERE c.branch_id = ?
+          ORDER BY c.id DESC
           `,
-          [selectedBranch, `%${search}%`]
+          [selectedBranch]
         );
       } else {
-        // الإدارة العامة بدون اختيار فرع → كل الأحياء
-        [rows] = await db.query(
-          `
-          SELECT 
-            n.id,
-            n.name,
-            n.delivery_fee,
-            b.name AS branch_name,
-            n.branch_id
-          FROM neighborhoods n
-          LEFT JOIN branches b ON b.id = n.branch_id
-          WHERE n.name LIKE ?
-          ORDER BY n.id DESC
-          `,
-          [`%${search}%`]
-        );
+        // إدارة عامة بدون اختيار فرع → كل العملاء
+        [rows] = await db.query(`
+          SELECT c.*, b.name AS branch_name
+          FROM customers c
+          LEFT JOIN branches b ON b.id = c.branch_id
+          ORDER BY c.id DESC
+        `);
       }
     } else {
-      // مستخدم فرع
+      // مستخدم فرع عادي → فرعه فقط
       [rows] = await db.query(
         `
-        SELECT 
-          n.id,
-          n.name,
-          n.delivery_fee,
-          b.name AS branch_name,
-          n.branch_id
-        FROM neighborhoods n
-        LEFT JOIN branches b ON b.id = n.branch_id
-        WHERE n.branch_id = ?
-          AND n.name LIKE ?
-        ORDER BY n.id DESC
+        SELECT c.*, b.name AS branch_name
+        FROM customers c
+        LEFT JOIN branches b ON b.id = c.branch_id
+        WHERE c.branch_id = ?
+        ORDER BY c.id DESC
         `,
-        [branch_id, `%${search}%`]
+        [branch_id]
       );
     }
 
-    res.json({ success: true, neighborhoods: rows });
+    res.json({ success: true, customers: rows });
   } catch (err) {
-    console.error("GET NEIGHBORHOODS ERROR:", err);
+    console.error("GET CUSTOMERS ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
 
 /* =========================
-   ADD Neighborhood
+   POST /customers
 ========================= */
 router.post("/", async (req, res) => {
   try {
-    const { branch_id, name, delivery_fee } = req.body;
+    const { name, phone, email, password } = req.body;
+    if (!name || !phone) {
+      return res.json({ success: false, message: "الاسم والجوال مطلوبان" });
+    }
 
-    if (!branch_id || !name) {
-      return res.json({ success: false, message: "البيانات ناقصة" });
+    const { is_admin_branch, branch_id } = req.user;
+    let selectedBranch = req.headers["x-branch-id"];
+
+    let finalBranchId = branch_id;
+
+    if (is_admin_branch && selectedBranch && selectedBranch !== "all") {
+      finalBranchId = Number(selectedBranch);
     }
 
     await db.query(
       `
-      INSERT INTO neighborhoods (branch_id, name, delivery_fee)
-      VALUES (?, ?, ?)
+      INSERT INTO customers (name, phone, email, password, branch_id, created_at)
+      VALUES (?, ?, ?, ?, ?, NOW())
       `,
-      [branch_id, name, delivery_fee || 0]
+      [name, phone, email || null, password || null, finalBranchId]
     );
 
     res.json({ success: true });
   } catch (err) {
-    console.error("ADD NEIGHBORHOOD ERROR:", err);
+    console.error("ADD CUSTOMER ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
 
 /* =========================
-   UPDATE Neighborhood
+   PUT /customers/:id
 ========================= */
 router.put("/:id", async (req, res) => {
-  const { branch_id, name, delivery_fee } = req.body;
+  const { name, phone, email, is_active } = req.body;
 
-  if (!branch_id || !name) {
-    return res.status(400).json({
-      success: false,
-      message: "بيانات ناقصة",
-    });
+  const fields = [];
+  const values = [];
+
+  if (name !== undefined) {
+    fields.push("name=?");
+    values.push(name);
+  }
+  if (phone !== undefined) {
+    fields.push("phone=?");
+    values.push(phone);
+  }
+  if (email !== undefined) {
+    fields.push("email=?");
+    values.push(email);
+  }
+  if (is_active !== undefined) {
+    fields.push("is_active=?");
+    values.push(is_active);
+  }
+
+  if (!fields.length) {
+    return res.json({ success: false, message: "لا توجد بيانات للتحديث" });
   }
 
   try {
     await db.query(
       `
-      UPDATE neighborhoods
-      SET branch_id = ?, name = ?, delivery_fee = ?
-      WHERE id = ?
+      UPDATE customers
+      SET ${fields.join(", ")}
+      WHERE id=?
       `,
-      [branch_id, name, delivery_fee || 0, req.params.id]
+      [...values, req.params.id]
     );
 
     res.json({ success: true });
   } catch (err) {
-    console.error("UPDATE NEIGHBORHOOD ERROR:", err);
-    res.status(500).json({
-      success: false,
-      error: err.message,
-    });
-  }
-});
-
-/* =========================
-   DELETE Neighborhood
-========================= */
-router.delete("/:id", async (req, res) => {
-  try {
-    await db.query("DELETE FROM neighborhoods WHERE id = ?", [req.params.id]);
-    res.json({ success: true });
-  } catch (err) {
-    console.error("DELETE NEIGHBORHOOD ERROR:", err);
+    console.error("UPDATE CUSTOMER ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
 
 /* =========================
-   GET /neighborhoods/by-branch/:branchId
+   DELETE /customers/:id
 ========================= */
-router.get("/by-branch/:branchId", async (req, res) => {
+router.delete("/:id", async (req, res) => {
   try {
-    const [rows] = await db.query(
-      `
-      SELECT id, name, delivery_fee, branch_id
-      FROM neighborhoods
-      WHERE branch_id = ?
-      ORDER BY id DESC
-      `,
-      [req.params.branchId]
-    );
-
-    res.json({ success: true, neighborhoods: rows });
+    await db.query("DELETE FROM customers WHERE id=?", [req.params.id]);
+    res.json({ success: true });
   } catch (err) {
-    console.error("GET NEIGHBORHOODS BY BRANCH ERROR:", err);
+    console.error("DELETE CUSTOMER ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
