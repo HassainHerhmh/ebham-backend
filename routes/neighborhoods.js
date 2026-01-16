@@ -10,35 +10,31 @@ const router = express.Router();
 router.use(auth);
 
 /* =========================
-   GET Neighborhoods
+   GET /neighborhoods
 ========================= */
 router.get("/", async (req, res) => {
   const search = req.query.search || "";
-  const user = req.user || {};
-  const { is_admin_branch, branch_id } = user;
-
+  const { is_admin_branch, branch_id } = req.user;
   let selectedBranch = req.headers["x-branch-id"];
 
-  // لو القيمة "all" نعتبره غير موجود
-  if (selectedBranch === "all") {
-    selectedBranch = null;
-  }
+  if (selectedBranch === "all") selectedBranch = null;
 
   try {
     let rows;
 
     if (is_admin_branch) {
-      // إدارة عامة
+      // الإدارة العامة
+
       if (selectedBranch && Number(selectedBranch) !== Number(branch_id)) {
-        // تم اختيار فرع مختلف عن فرع الإدارة
+        // تم اختيار فرع معين
         [rows] = await db.query(
           `
           SELECT 
             n.id,
             n.name,
             n.delivery_fee,
-            b.name AS branch_name,
-            n.branch_id
+            n.branch_id,
+            b.name AS branch_name
           FROM neighborhoods n
           LEFT JOIN branches b ON b.id = n.branch_id
           WHERE n.branch_id = ?
@@ -48,15 +44,15 @@ router.get("/", async (req, res) => {
           [selectedBranch, `%${search}%`]
         );
       } else {
-        // الإدارة العامة على فرعها → كل الأحياء من كل الفروع
+        // بدون اختيار فرع → كل الأحياء
         [rows] = await db.query(
           `
           SELECT 
             n.id,
             n.name,
             n.delivery_fee,
-            b.name AS branch_name,
-            n.branch_id
+            n.branch_id,
+            b.name AS branch_name
           FROM neighborhoods n
           LEFT JOIN branches b ON b.id = n.branch_id
           WHERE n.name LIKE ?
@@ -66,15 +62,15 @@ router.get("/", async (req, res) => {
         );
       }
     } else {
-      // مستخدم فرع
+      // مستخدم فرع عادي
       [rows] = await db.query(
         `
         SELECT 
           n.id,
           n.name,
           n.delivery_fee,
-          b.name AS branch_name,
-          n.branch_id
+          n.branch_id,
+          b.name AS branch_name
         FROM neighborhoods n
         LEFT JOIN branches b ON b.id = n.branch_id
         WHERE n.branch_id = ?
@@ -93,32 +89,26 @@ router.get("/", async (req, res) => {
 });
 
 /* =========================
-   ADD Neighborhood
+   POST /neighborhoods
 ========================= */
 router.post("/", async (req, res) => {
   try {
-    const { name, delivery_fee = 0 } = req.body;
+    const { name, delivery_fee } = req.body;
+    const { is_admin_branch, branch_id } = req.user;
+    const selectedBranch = req.headers["x-branch-id"];
 
     if (!name) {
-      return res.status(400).json({ success: false, message: "اسم الحي مطلوب" });
+      return res.json({ success: false, message: "اسم الحي مطلوب" });
     }
 
-    const { is_admin_branch, branch_id } = req.user;
-    let selectedBranch = req.headers["x-branch-id"];
-
-    if (selectedBranch === "all") {
-      selectedBranch = null;
-    }
-
-    // تحديد الفرع النهائي
     let finalBranchId = branch_id;
 
-    if (is_admin_branch && selectedBranch && Number(selectedBranch) !== Number(branch_id)) {
-      finalBranchId = Number(selectedBranch);
+    if (is_admin_branch && selectedBranch) {
+      finalBranchId = selectedBranch;
     }
 
     if (!finalBranchId) {
-      return res.status(400).json({ success: false, message: "يجب تحديد الفرع" });
+      return res.json({ success: false, message: "الفرع غير محدد" });
     }
 
     await db.query(
@@ -132,27 +122,21 @@ router.post("/", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error("ADD NEIGHBORHOOD ERROR:", err);
-    res.status(500).json({ success: false, message: "خطأ في السيرفر" });
+    res.status(500).json({ success: false });
   }
 });
 
-
-
 /* =========================
-   UPDATE Neighborhood
+   PUT /neighborhoods/:id
 ========================= */
 router.put("/:id", async (req, res) => {
+  const { name, delivery_fee } = req.body;
+  const { is_admin_branch, branch_id } = req.user;
+  const selectedBranch = req.headers["x-branch-id"];
+
   try {
-    const { name, delivery_fee } = req.body;
-
-    if (!name) {
-      return res.json({ success: false, message: "اسم الحي مطلوب" });
-    }
-
-    const { is_admin_branch, branch_id } = req.user;
-    const selectedBranch = req.headers["x-branch-id"];
-
     let finalBranchId = branch_id;
+
     if (is_admin_branch && selectedBranch) {
       finalBranchId = selectedBranch;
     }
@@ -160,10 +144,10 @@ router.put("/:id", async (req, res) => {
     await db.query(
       `
       UPDATE neighborhoods
-      SET branch_id = ?, name = ?, delivery_fee = ?
+      SET name = ?, delivery_fee = ?, branch_id = ?
       WHERE id = ?
       `,
-      [finalBranchId, name, delivery_fee || 0, req.params.id]
+      [name, delivery_fee || 0, finalBranchId, req.params.id]
     );
 
     res.json({ success: true });
@@ -174,7 +158,7 @@ router.put("/:id", async (req, res) => {
 });
 
 /* =========================
-   DELETE Neighborhood
+   DELETE /neighborhoods/:id
 ========================= */
 router.delete("/:id", async (req, res) => {
   try {
@@ -182,28 +166,6 @@ router.delete("/:id", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error("DELETE NEIGHBORHOOD ERROR:", err);
-    res.status(500).json({ success: false });
-  }
-});
-
-/* =========================
-   GET /neighborhoods/by-branch/:branchId
-========================= */
-router.get("/by-branch/:branchId", async (req, res) => {
-  try {
-    const [rows] = await db.query(
-      `
-      SELECT id, name, delivery_fee, branch_id
-      FROM neighborhoods
-      WHERE branch_id = ?
-      ORDER BY id DESC
-      `,
-      [req.params.branchId]
-    );
-
-    res.json({ success: true, neighborhoods: rows });
-  } catch (err) {
-    console.error("GET NEIGHBORHOODS BY BRANCH ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
