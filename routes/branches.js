@@ -16,6 +16,8 @@ router.use(auth);
    GET /branches
 ========================= */
 router.get("/", async (req, res) => {
+  console.log("REQ USER =>", req.user);
+
   try {
     const user = req.user || {};
 
