@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
+import db from "../db.js";
 
-export default function auth(req, res, next) {
+export default async function auth(req, res, next) {
   const header = req.headers.authorization;
 
   if (!header) {
@@ -12,14 +13,27 @@ export default function auth(req, res, next) {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
+    // جلب حالة الفرع من قاعدة البيانات
+    const [rows] = await db.query(
+      `
+      SELECT b.is_admin
+      FROM users u
+      JOIN branches b ON b.id = u.branch_id
+      WHERE u.id = ?
+      `,
+      [decoded.id]
+    );
+
+    const isAdminBranch = rows.length ? rows[0].is_admin === 1 : false;
+
     req.user = {
       id: decoded.id,
       role: decoded.role,
       branch_id: decoded.branch_id || null,
-      is_admin_branch: decoded.is_admin_branch || 0,
+      is_admin_branch: isAdminBranch,
     };
 
-    // 🔹 دعم تغيير الفرع من الهيدر للإدارة العامة فقط
+    // 🔹 دعم تغيير الفرع من الهيدر (للإدارة فقط)
     const headerBranch = req.headers["x-branch-id"];
     if (headerBranch && req.user.is_admin_branch) {
       req.user.branch_id = Number(headerBranch);
