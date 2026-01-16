@@ -4,28 +4,40 @@ import pool from "../db.js";
 const router = express.Router();
 
 /*
-  ملاحظة:
-  نفترض أن عندك ميدلوير مصادقة يضيف:
+  نفترض وجود ميدلوير يضيف:
   req.user = { id, role, branch_id, is_admin_branch }
 */
 
 /* =========================
    GET /branches
    جلب الفروع حسب نوع المستخدم
+   مع ملخص وقت اليوم
 ========================= */
 router.get("/", async (req, res) => {
   try {
     const user = req.user || {};
 
+    // حساب يوم الأسبوع بنظامنا: 0 = السبت ... 6 = الجمعة
+    const jsDay = new Date().getDay(); // 0 = الأحد ... 6 = السبت
+    const today = (jsDay + 6) % 7;
+
     let rows;
 
     // إدارة عامة → كل الفروع
     if (user.role === "admin" || user.is_admin_branch === 1) {
-      [rows] = await pool.query(`
-        SELECT id, name
-        FROM branches
-        ORDER BY id ASC
-      `);
+      [rows] = await pool.query(
+        `
+        SELECT b.id, b.name, b.address, b.phone,
+               w.open_time AS today_from,
+               w.close_time AS today_to,
+               w.is_closed AS today_closed
+        FROM branches b
+        LEFT JOIN branch_work_times w
+          ON w.branch_id = b.id AND w.day_of_week = ?
+        ORDER BY b.id ASC
+        `,
+        [today]
+      );
     } else {
       // مستخدم عادي → فرعه فقط
       if (!user.branch_id) {
@@ -34,11 +46,16 @@ router.get("/", async (req, res) => {
 
       [rows] = await pool.query(
         `
-        SELECT id, name
-        FROM branches
-        WHERE id = ?
+        SELECT b.id, b.name, b.address, b.phone,
+               w.open_time AS today_from,
+               w.close_time AS today_to,
+               w.is_closed AS today_closed
+        FROM branches b
+        LEFT JOIN branch_work_times w
+          ON w.branch_id = b.id AND w.day_of_week = ?
+        WHERE b.id = ?
         `,
-        [user.branch_id]
+        [today, user.branch_id]
       );
     }
 
@@ -57,10 +74,12 @@ router.post("/", async (req, res) => {
     const { name, address, phone, is_admin } = req.body;
 
     if (!name) {
-      return res.status(400).json({ success: false, message: "اسم الفرع مطلوب" });
+      return res
+        .status(400)
+        .json({ success: false, message: "اسم الفرع مطلوب" });
     }
 
-    await pool.query(
+    const [result] = await pool.query(
       `
       INSERT INTO branches (name, address, phone, is_admin)
       VALUES (?, ?, ?, ?)
@@ -68,7 +87,11 @@ router.post("/", async (req, res) => {
       [name, address || null, phone || null, is_admin ? 1 : 0]
     );
 
-    res.json({ success: true, message: "تم إضافة الفرع" });
+    res.json({
+      success: true,
+      message: "تم إضافة الفرع",
+      id: result.insertId,
+    });
   } catch (err) {
     console.error("ADD BRANCH ERROR:", err);
     res.status(500).json({ success: false });
