@@ -1,14 +1,15 @@
+// routes/branchWorkTimes.js
 import express from "express";
 import pool from "../db.js";
 
 const router = express.Router();
 
 /* =========================
-   GET /branches/:id/work-times
+   GET /api/branch-work-times/:branchId
 ========================= */
-router.get("/branches/:id/work-times", async (req, res) => {
+router.get("/:branchId", async (req, res) => {
   try {
-    const branchId = req.params.id;
+    const branchId = req.params.branchId;
 
     const [rows] = await pool.query(
       `
@@ -36,11 +37,11 @@ router.get("/branches/:id/work-times", async (req, res) => {
 });
 
 /* =========================
-   POST /branches/:id/work-times
+   POST /api/branch-work-times/:branchId
 ========================= */
-router.post("/branches/:id/work-times", async (req, res) => {
+router.post("/:branchId", async (req, res) => {
   try {
-    const branchId = req.params.id;
+    const branchId = req.params.branchId;
     const { days, notes } = req.body;
 
     if (!Array.isArray(days)) {
