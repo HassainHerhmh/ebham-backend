@@ -11,36 +11,29 @@ router.use(auth);
 
 /* =========================
    GET /customer-addresses
+   - الإدارة: كل العناوين أو حسب الفرع المختار
+   - الفرع العادي: عناوين فرعه فقط
 ========================= */
 router.get("/", async (req, res) => {
-     console.log("REQ USER =>", req.user);
   try {
     const { is_admin_branch, branch_id } = req.user;
     let selectedBranch = req.headers["x-branch-id"];
 
-    if (selectedBranch === "all") {
-      selectedBranch = null;
-    }
+    if (selectedBranch === "all") selectedBranch = null;
 
     let rows;
-
-    const baseSelect = `
-      SELECT 
-        a.*,
-        c.name AS customer_name,
-        b.name AS branch_name,
-        n.name AS district_name
-      FROM customer_addresses a
-      LEFT JOIN customers c ON c.id = a.customer_id
-      LEFT JOIN branches b ON b.id = a.branch_id
-      LEFT JOIN neighborhoods n ON n.id = a.district
-    `;
 
     if (is_admin_branch) {
       if (selectedBranch) {
         [rows] = await db.query(
           `
-          ${baseSelect}
+          SELECT 
+            a.*,
+            c.name AS customer_name,
+            b.name AS branch_name
+          FROM customer_addresses a
+          LEFT JOIN customers c ON c.id = a.customer_id
+          LEFT JOIN branches b ON b.id = a.branch_id
           WHERE a.branch_id = ?
           ORDER BY a.id DESC
           `,
@@ -48,14 +41,26 @@ router.get("/", async (req, res) => {
         );
       } else {
         [rows] = await db.query(`
-          ${baseSelect}
+          SELECT 
+            a.*,
+            c.name AS customer_name,
+            b.name AS branch_name
+          FROM customer_addresses a
+          LEFT JOIN customers c ON c.id = a.customer_id
+          LEFT JOIN branches b ON b.id = a.branch_id
           ORDER BY a.id DESC
         `);
       }
     } else {
       [rows] = await db.query(
         `
-        ${baseSelect}
+        SELECT 
+          a.*,
+          c.name AS customer_name,
+          b.name AS branch_name
+        FROM customer_addresses a
+        LEFT JOIN customers c ON c.id = a.customer_id
+        LEFT JOIN branches b ON b.id = a.branch_id
         WHERE a.branch_id = ?
         ORDER BY a.id DESC
         `,
@@ -72,13 +77,15 @@ router.get("/", async (req, res) => {
 
 /* =========================
    POST /customer-addresses
+   - district يُحفظ كنص (اسم الحي)
+   - الفرع العادي: يُحفظ على فرعه تلقائيًا
+   - الإدارة: يمكن تحديد الفرع من الهيدر
 ========================= */
 router.post("/", async (req, res) => {
-     console.log("REQ USER =>", req.user);
   try {
     const {
       customer_id,
-      district,
+      district,        // اسم الحي كنص
       location_type,
       address,
       gps_link,
@@ -86,8 +93,8 @@ router.post("/", async (req, res) => {
       longitude,
     } = req.body;
 
-    if (!customer_id) {
-      return res.json({ success: false, message: "العميل مطلوب" });
+    if (!customer_id || !district) {
+      return res.json({ success: false, message: "العميل والحي مطلوبان" });
     }
 
     const { is_admin_branch, branch_id } = req.user;
@@ -96,7 +103,11 @@ router.post("/", async (req, res) => {
     let finalBranchId = branch_id;
 
     if (is_admin_branch && selectedBranch && selectedBranch !== "all") {
-      finalBranchId = selectedBranch;
+      finalBranchId = Number(selectedBranch);
+    }
+
+    if (!finalBranchId) {
+      return res.json({ success: false, message: "الفرع غير محدد" });
     }
 
     await db.query(
@@ -107,7 +118,7 @@ router.post("/", async (req, res) => {
       `,
       [
         customer_id,
-        district || null,
+        district,                // اسم الحي
         location_type || null,
         address || null,
         gps_link || null,
