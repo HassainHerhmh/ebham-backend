@@ -8,33 +8,63 @@ const router = express.Router();
 router.use(auth);
 
 /*
-  نفترض أن:
   req.user = { id, role, branch_id, is_admin_branch }
 */
 
 /* =========================
    GET /delivery-settings
-   جلب إعدادات رسوم التوصيل للفرع الحالي
+   - الفرع العادي: يرجّع إعدادات فرعه فقط
+   - الإدارة العامة: يرجّع كل الفروع مع إعداداتها
 ========================= */
 router.get("/", async (req, res) => {
   try {
-    const { branch_id } = req.user;
+    const user = req.user;
 
-    if (!branch_id) {
-      return res.json({});
+    // الإدارة العامة
+    if (user.is_admin_branch === 1) {
+      const [rows] = await pool.query(`
+        SELECT 
+          b.id AS branch_id,
+          b.name AS branch_name,
+          COALESCE(s.method, 'distance') AS method,
+          COALESCE(s.km_price_single, 0) AS km_price_single,
+          COALESCE(s.km_price_multi, 0) AS km_price_multi
+        FROM branches b
+        LEFT JOIN branch_delivery_settings s
+          ON s.branch_id = b.id
+        WHERE b.is_admin = 0
+        ORDER BY b.id ASC
+      `);
+
+      return res.json({ success: true, mode: "admin", rows });
+    }
+
+    // فرع عادي
+    if (!user.branch_id) {
+      return res.json({ success: true, mode: "branch", data: null });
     }
 
     const [rows] = await pool.query(
       `
-      SELECT method, km_price_single, km_price_multi
+      SELECT 
+        method,
+        km_price_single,
+        km_price_multi
       FROM branch_delivery_settings
       WHERE branch_id = ?
-      LIMIT 1
       `,
-      [branch_id]
+      [user.branch_id]
     );
 
-    res.json(rows[0] || {});
+    return res.json({
+      success: true,
+      mode: "branch",
+      data: rows[0] || {
+        method: "distance",
+        km_price_single: 0,
+        km_price_multi: 0,
+      },
+    });
   } catch (err) {
     console.error("GET DELIVERY SETTINGS ERROR:", err);
     res.status(500).json({ success: false });
@@ -43,16 +73,19 @@ router.get("/", async (req, res) => {
 
 /* =========================
    POST /delivery-settings
-   حفظ الإعدادات للفرع الحالي
+   حفظ إعدادات الفرع الحالي فقط
 ========================= */
 router.post("/", async (req, res) => {
   try {
-    const { branch_id } = req.user;
-    const { method, km_price_single, km_price_multi } = req.body;
+    const user = req.user;
 
-    if (!branch_id) {
-      return res.status(400).json({ success: false });
+    if (!user.branch_id || user.is_admin_branch === 1) {
+      return res
+        .status(403)
+        .json({ success: false, message: "غير مسموح" });
     }
+
+    const { method, km_price_single, km_price_multi } = req.body;
 
     await pool.query(
       `
@@ -65,10 +98,10 @@ router.post("/", async (req, res) => {
         km_price_multi = VALUES(km_price_multi)
       `,
       [
-        branch_id,
+        user.branch_id,
         method,
-        km_price_single || null,
-        km_price_multi || null,
+        km_price_single || 0,
+        km_price_multi || 0,
       ]
     );
 
