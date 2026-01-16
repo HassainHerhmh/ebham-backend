@@ -170,4 +170,28 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
+/* =========================
+   GET /neighborhoods/by-branch/:branchId
+========================= */
+router.get("/by-branch/:branchId", async (req, res) => {
+  try {
+    const { branchId } = req.params;
+
+    const [rows] = await db.query(
+      `
+      SELECT id, name
+      FROM neighborhoods
+      WHERE branch_id = ?
+      ORDER BY name ASC
+      `,
+      [branchId]
+    );
+
+    res.json({ success: true, neighborhoods: rows });
+  } catch (err) {
+    console.error("GET NEIGHBORHOODS BY BRANCH ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
 export default router;
