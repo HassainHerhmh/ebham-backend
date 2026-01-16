@@ -23,17 +23,23 @@ router.get("/", async (req, res) => {
 
     let rows;
 
+    const baseSelect = `
+      SELECT 
+        a.*,
+        c.name AS customer_name,
+        b.name AS branch_name,
+        n.name AS district_name
+      FROM customer_addresses a
+      LEFT JOIN customers c ON c.id = a.customer_id
+      LEFT JOIN branches b ON b.id = a.branch_id
+      LEFT JOIN neighborhoods n ON n.id = a.district
+    `;
+
     if (is_admin_branch) {
       if (selectedBranch) {
         [rows] = await db.query(
           `
-          SELECT 
-            a.*,
-            c.name AS customer_name,
-            b.name AS branch_name
-          FROM customer_addresses a
-          LEFT JOIN customers c ON c.id = a.customer_id
-          LEFT JOIN branches b ON b.id = a.branch_id
+          ${baseSelect}
           WHERE a.branch_id = ?
           ORDER BY a.id DESC
           `,
@@ -41,26 +47,14 @@ router.get("/", async (req, res) => {
         );
       } else {
         [rows] = await db.query(`
-          SELECT 
-            a.*,
-            c.name AS customer_name,
-            b.name AS branch_name
-          FROM customer_addresses a
-          LEFT JOIN customers c ON c.id = a.customer_id
-          LEFT JOIN branches b ON b.id = a.branch_id
+          ${baseSelect}
           ORDER BY a.id DESC
         `);
       }
     } else {
       [rows] = await db.query(
         `
-        SELECT 
-          a.*,
-          c.name AS customer_name,
-          b.name AS branch_name
-        FROM customer_addresses a
-        LEFT JOIN customers c ON c.id = a.customer_id
-        LEFT JOIN branches b ON b.id = a.branch_id
+        ${baseSelect}
         WHERE a.branch_id = ?
         ORDER BY a.id DESC
         `,
