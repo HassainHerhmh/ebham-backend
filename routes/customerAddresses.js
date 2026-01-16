@@ -13,6 +13,7 @@ router.use(auth);
    GET /customer-addresses
 ========================= */
 router.get("/", async (req, res) => {
+     console.log("REQ USER =>", req.user);
   try {
     const { is_admin_branch, branch_id } = req.user;
     let selectedBranch = req.headers["x-branch-id"];
