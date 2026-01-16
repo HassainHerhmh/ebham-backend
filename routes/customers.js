@@ -141,4 +141,59 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
+/* =========================
+   POST /customers/:id/toggle
+   تعطيل / تفعيل العميل
+========================= */
+router.post("/:id/toggle", async (req, res) => {
+  try {
+    // نعكس الحالة الحالية
+    const [rows] = await db.query(
+      "SELECT is_active FROM customers WHERE id=?",
+      [req.params.id]
+    );
+
+    if (!rows.length) {
+      return res.json({ success: false, message: "العميل غير موجود" });
+    }
+
+    const newStatus = rows[0].is_active ? 0 : 1;
+
+    await db.query(
+      "UPDATE customers SET is_active=? WHERE id=?",
+      [newStatus, req.params.id]
+    );
+
+    res.json({ success: true, is_active: newStatus });
+  } catch (err) {
+    console.error("TOGGLE CUSTOMER ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
+/* =========================
+   POST /customers/:id/reset-password
+   إعادة تعيين كلمة المرور
+========================= */
+router.post("/:id/reset-password", async (req, res) => {
+  try {
+    // كلمة افتراضية (يمكنك تغييرها)
+    const newPassword = "123456";
+
+    await db.query(
+      "UPDATE customers SET password=? WHERE id=?",
+      [newPassword, req.params.id]
+    );
+
+    res.json({
+      success: true,
+      password: newPassword, // لو حاب ترجعها للواجهة
+    });
+  } catch (err) {
+    console.error("RESET PASSWORD ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
+
 export default router;
