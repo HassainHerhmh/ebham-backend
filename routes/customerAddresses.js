@@ -74,6 +74,7 @@ router.get("/", async (req, res) => {
    POST /customer-addresses
 ========================= */
 router.post("/", async (req, res) => {
+     console.log("REQ USER =>", req.user);
   try {
     const {
       customer_id,
