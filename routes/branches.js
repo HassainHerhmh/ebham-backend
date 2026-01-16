@@ -40,25 +40,28 @@ router.get("/", async (req, res) => {
         [today]
       );
     } else {
-      if (!user.branch_id) {
-        return res.json({ success: true, branches: [] });
-      }
+  // مستخدم فرع → يجلب فرعه فقط حسب الاسم
+  const branchName = user.username || user.name;
 
-      [rows] = await pool.query(
-        `
-        SELECT b.id, b.name, b.address, b.phone,
-               w.open_time AS today_from,
-               w.close_time AS today_to,
-               w.is_closed AS today_closed
-        FROM branches b
-        LEFT JOIN branch_work_times w
-          ON w.branch_id = b.id
-         AND w.day_of_week = ?
-        WHERE b.id = ?
-        `,
-        [today, user.branch_id]
-      );
-    }
+  if (!branchName) {
+    return res.json({ success: true, branches: [] });
+  }
+
+  [rows] = await pool.query(
+    `
+    SELECT b.id, b.name, b.address, b.phone,
+           w.open_time AS today_from,
+           w.close_time AS today_to,
+           w.is_closed AS today_closed
+    FROM branches b
+    LEFT JOIN branch_work_times w
+      ON w.branch_id = b.id
+     AND w.day_of_week = ?
+    WHERE b.name = ?
+    `,
+    [today, branchName]
+  );
+}
 
     res.json({ success: true, branches: rows });
   } catch (err) {
