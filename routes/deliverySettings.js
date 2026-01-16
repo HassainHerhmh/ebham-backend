@@ -21,7 +21,8 @@ router.get("/", async (req, res) => {
     const user = req.user;
 
     // الإدارة العامة
-    if (user.is_admin_branch === 1) {
+    if (user.is_admin_branch === 1 || user.is_admin_branch === true) {
+
       const [rows] = await pool.query(`
         SELECT 
           b.id AS branch_id,
@@ -79,11 +80,10 @@ router.post("/", async (req, res) => {
   try {
     const user = req.user;
 
-    if (!user.branch_id || user.is_admin_branch === 1) {
-      return res
-        .status(403)
-        .json({ success: false, message: "غير مسموح" });
-    }
+  if (!user.branch_id || user.is_admin_branch === 1 || user.is_admin_branch === true) {
+  return res.status(403).json({ success: false, message: "غير مسموح" });
+}
+
 
     const { method, km_price_single, km_price_multi } = req.body;
 
