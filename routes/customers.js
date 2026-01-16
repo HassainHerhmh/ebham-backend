@@ -173,12 +173,21 @@ router.post("/:id/toggle", async (req, res) => {
 
 /* =========================
    POST /customers/:id/reset-password
-   إعادة تعيين كلمة المرور
+   إعادة تعيين كلمة المرور (عشوائية)
 ========================= */
 router.post("/:id/reset-password", async (req, res) => {
   try {
-    // كلمة افتراضية (يمكنك تغييرها)
-    const newPassword = "123456";
+    const generatePassword = (length = 8) => {
+      const chars =
+        "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+      let pass = "";
+      for (let i = 0; i < length; i++) {
+        pass += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return pass;
+    };
+
+    const newPassword = generatePassword(8); // تقدر تغير الطول
 
     await db.query(
       "UPDATE customers SET password=? WHERE id=?",
@@ -187,13 +196,12 @@ router.post("/:id/reset-password", async (req, res) => {
 
     res.json({
       success: true,
-      password: newPassword, // لو حاب ترجعها للواجهة
+      password: newPassword,
     });
   } catch (err) {
     console.error("RESET PASSWORD ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
-
 
 export default router;
