@@ -24,17 +24,34 @@ router.get("/", async (req, res) => {
     if (is_admin_branch) {
       if (selectedBranch) {
         [rows] = await db.query(
-          `SELECT * FROM customers WHERE branch_id = ? ORDER BY id DESC`,
+          `
+          SELECT c.*, b.name AS branch_name
+          FROM customers c
+          LEFT JOIN branches b ON b.id = c.branch_id
+          WHERE c.branch_id = ?
+          ORDER BY c.id DESC
+          `,
           [selectedBranch]
         );
       } else {
         [rows] = await db.query(
-          `SELECT * FROM customers ORDER BY id DESC`
+          `
+          SELECT c.*, b.name AS branch_name
+          FROM customers c
+          LEFT JOIN branches b ON b.id = c.branch_id
+          ORDER BY c.id DESC
+          `
         );
       }
     } else {
       [rows] = await db.query(
-        `SELECT * FROM customers WHERE branch_id = ? ORDER BY id DESC`,
+        `
+        SELECT c.*, b.name AS branch_name
+        FROM customers c
+        LEFT JOIN branches b ON b.id = c.branch_id
+        WHERE c.branch_id = ?
+        ORDER BY c.id DESC
+        `,
         [branch_id]
       );
     }
@@ -46,13 +63,12 @@ router.get("/", async (req, res) => {
   }
 });
 
-
 /* =========================
    POST /customers
 ========================= */
 router.post("/", async (req, res) => {
   try {
-    const { name, phone, email, password } = req.body;
+    const { name, phone, phone_alt, email, password } = req.body;
     if (!name || !phone) {
       return res.json({ success: false, message: "الاسم والجوال مطلوبان" });
     }
@@ -68,10 +84,10 @@ router.post("/", async (req, res) => {
 
     await db.query(
       `
-      INSERT INTO customers (name, phone, email, password, branch_id, created_at)
-      VALUES (?, ?, ?, ?, ?, NOW())
+      INSERT INTO customers (name, phone, phone_alt, email, password, branch_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, NOW())
       `,
-      [name, phone, email || null, password || null, finalBranchId]
+      [name, phone, phone_alt || null, email || null, password || null, finalBranchId]
     );
 
     res.json({ success: true });
@@ -85,7 +101,7 @@ router.post("/", async (req, res) => {
    PUT /customers/:id
 ========================= */
 router.put("/:id", async (req, res) => {
-  const { name, phone, email, is_active } = req.body;
+  const { name, phone, phone_alt, email, is_active } = req.body;
 
   const fields = [];
   const values = [];
@@ -97,6 +113,10 @@ router.put("/:id", async (req, res) => {
   if (phone !== undefined) {
     fields.push("phone=?");
     values.push(phone);
+  }
+  if (phone_alt !== undefined) {
+    fields.push("phone_alt=?");
+    values.push(phone_alt);
   }
   if (email !== undefined) {
     fields.push("email=?");
@@ -143,11 +163,9 @@ router.delete("/:id", async (req, res) => {
 
 /* =========================
    POST /customers/:id/toggle
-   تعطيل / تفعيل العميل
 ========================= */
 router.post("/:id/toggle", async (req, res) => {
   try {
-    // نعكس الحالة الحالية
     const [rows] = await db.query(
       "SELECT is_active FROM customers WHERE id=?",
       [req.params.id]
@@ -173,7 +191,6 @@ router.post("/:id/toggle", async (req, res) => {
 
 /* =========================
    POST /customers/:id/reset-password
-   إعادة تعيين كلمة المرور (عشوائية)
 ========================= */
 router.post("/:id/reset-password", async (req, res) => {
   try {
@@ -187,7 +204,7 @@ router.post("/:id/reset-password", async (req, res) => {
       return pass;
     };
 
-    const newPassword = generatePassword(8); // تقدر تغير الطول
+    const newPassword = generatePassword(8);
 
     await db.query(
       "UPDATE customers SET password=? WHERE id=?",
