@@ -46,35 +46,6 @@ router.get("/", async (req, res) => {
   }
 });
 
-router.post("/", async (req, res) => {
-  try {
-    const { name, phone, email, password, branch_id } = req.body;
-    const { is_admin_branch, branch_id: userBranch } = req.user;
-
-    if (!name || !phone || !password) {
-      return res.json({ success: false, message: "بيانات ناقصة" });
-    }
-
-    let finalBranchId = userBranch;
-
-    if (is_admin_branch && branch_id) {
-      finalBranchId = branch_id;
-    }
-
-    await db.query(
-      `
-      INSERT INTO customers (name, phone, email, password, branch_id)
-      VALUES (?, ?, ?, ?, ?)
-      `,
-      [name, phone, email || null, password, finalBranchId]
-    );
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error("ADD CUSTOMER ERROR:", err);
-    res.status(500).json({ success: false });
-  }
-});
 
 /* =========================
    POST /customers
