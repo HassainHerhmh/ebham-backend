@@ -1,12 +1,16 @@
 import express from "express";
 import pool from "../db.js";
+import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 
 /*
-  نفترض وجود ميدلوير يضيف:
+  نفترض أن auth يضيف:
   req.user = { id, role, branch_id, is_admin_branch }
 */
+
+// حماية كل المسارات
+router.use(auth);
 
 /* =========================
    GET /branches
