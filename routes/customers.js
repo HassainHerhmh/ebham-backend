@@ -22,38 +22,19 @@ router.get("/", async (req, res) => {
     let rows;
 
     if (is_admin_branch) {
-      // إدارة عامة
       if (selectedBranch) {
-        // إدارة عامة + فرع محدد من الهيدر
         [rows] = await db.query(
-          `
-          SELECT c.*, b.name AS branch_name
-          FROM customers c
-          LEFT JOIN branches b ON b.id = c.branch_id
-          WHERE c.branch_id = ?
-          ORDER BY c.id DESC
-          `,
+          `SELECT * FROM customers WHERE branch_id = ? ORDER BY id DESC`,
           [selectedBranch]
         );
       } else {
-        // إدارة عامة بدون اختيار فرع → كل العملاء
-        [rows] = await db.query(`
-          SELECT c.*, b.name AS branch_name
-          FROM customers c
-          LEFT JOIN branches b ON b.id = c.branch_id
-          ORDER BY c.id DESC
-        `);
+        [rows] = await db.query(
+          `SELECT * FROM customers ORDER BY id DESC`
+        );
       }
     } else {
-      // مستخدم فرع عادي → فرعه فقط
       [rows] = await db.query(
-        `
-        SELECT c.*, b.name AS branch_name
-        FROM customers c
-        LEFT JOIN branches b ON b.id = c.branch_id
-        WHERE c.branch_id = ?
-        ORDER BY c.id DESC
-        `,
+        `SELECT * FROM customers WHERE branch_id = ? ORDER BY id DESC`,
         [branch_id]
       );
     }
@@ -61,6 +42,36 @@ router.get("/", async (req, res) => {
     res.json({ success: true, customers: rows });
   } catch (err) {
     console.error("GET CUSTOMERS ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
+router.post("/", async (req, res) => {
+  try {
+    const { name, phone, email, password, branch_id } = req.body;
+    const { is_admin_branch, branch_id: userBranch } = req.user;
+
+    if (!name || !phone || !password) {
+      return res.json({ success: false, message: "بيانات ناقصة" });
+    }
+
+    let finalBranchId = userBranch;
+
+    if (is_admin_branch && branch_id) {
+      finalBranchId = branch_id;
+    }
+
+    await db.query(
+      `
+      INSERT INTO customers (name, phone, email, password, branch_id)
+      VALUES (?, ?, ?, ?, ?)
+      `,
+      [name, phone, email || null, password, finalBranchId]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("ADD CUSTOMER ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
