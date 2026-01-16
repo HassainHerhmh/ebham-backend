@@ -14,8 +14,6 @@ router.use(auth);
 
 /* =========================
    GET /branches
-   جلب الفروع حسب نوع المستخدم
-   مع ملخص وقت اليوم
 ========================= */
 router.get("/", async (req, res) => {
   try {
@@ -69,7 +67,6 @@ router.get("/", async (req, res) => {
   }
 });
 
-
 /* =========================
    POST /branches (إضافة فرع)
 ========================= */
@@ -103,34 +100,27 @@ router.post("/", async (req, res) => {
 });
 
 /* =========================
-   PUT /branches/:id (تعديل)
-========================= */
-router.put("/:id", async (req, res) => {
-  try {
-    const { name, address, phone } = req.body;
-
-    await pool.query(
-      `
-      UPDATE branches
-      SET name=?, address=?, phone=?
-      WHERE id=?
-      `,
-      [name, address || null, phone || null, req.params.id]
-    );
-
-    res.json({ success: true, message: "تم التعديل" });
-  } catch (err) {
-    console.error("UPDATE BRANCH ERROR:", err);
-    res.status(500).json({ success: false });
-  }
-});
-
-/* =========================
    DELETE /branches/:id
+   منع حذف فرع لديه بيانات
 ========================= */
 router.delete("/:id", async (req, res) => {
   try {
-    await pool.query(`DELETE FROM branches WHERE id=?`, [req.params.id]);
+    const branchId = req.params.id;
+
+    const [times] = await pool.query(
+      `SELECT COUNT(*) AS c FROM branch_work_times WHERE branch_id=?`,
+      [branchId]
+    );
+
+    if (times[0].c > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "لا يمكن حذف الفرع لأنه يحتوي على بيانات وقت",
+      });
+    }
+
+    await pool.query(`DELETE FROM branches WHERE id=?`, [branchId]);
+
     res.json({ success: true, message: "تم الحذف" });
   } catch (err) {
     console.error("DELETE BRANCH ERROR:", err);
