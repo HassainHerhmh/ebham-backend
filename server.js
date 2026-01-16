@@ -244,6 +244,11 @@ app.use("/api/journal-entries", journalEntries);
 import reports from "./routes/reports.js";
 app.use("/api/reports", reports);
 
+/* =========================
+   أوقات الفروع
+========================= */
+import branchWorkTimes from "./routes/branchWorkTimes.js";
+app.use("/api/branch-work-times", branchWorkTimes);
 
 /* =========================
    Start Server
