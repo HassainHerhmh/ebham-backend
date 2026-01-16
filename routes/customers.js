@@ -1,4 +1,4 @@
-ابغاك تطبق صفحة الاحيا مثله مو تعدل لي صفحة الكباتن صفحة الكباتن عندي سليمه 
+
 import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
