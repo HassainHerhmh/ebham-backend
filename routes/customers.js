@@ -14,54 +14,44 @@ router.use(auth);
 ========================= */
 router.get("/", async (req, res) => {
   try {
-    const { is_admin_branch, branch_id } = req.user;
-    let selectedBranch = req.headers["x-branch-id"];
+    const user = req.user;
 
-    if (selectedBranch === "all") selectedBranch = null;
-
-    let rows;
-
-    if (is_admin_branch) {
-      if (selectedBranch) {
-        [rows] = await db.query(
-          `
-          SELECT c.*, b.name AS branch_name
-          FROM customers c
-          LEFT JOIN branches b ON b.id = c.branch_id
-          WHERE c.branch_id = ?
-          ORDER BY c.id DESC
-          `,
-          [selectedBranch]
-        );
-      } else {
-        [rows] = await db.query(
-          `
-          SELECT c.*, b.name AS branch_name
-          FROM customers c
-          LEFT JOIN branches b ON b.id = c.branch_id
-          ORDER BY c.id DESC
-          `
-        );
-      }
-    } else {
-      [rows] = await db.query(
-        `
+    // الإدارة العامة: كل العملاء من كل الفروع
+    if (user.is_admin_branch === 1 || user.is_admin_branch === true) {
+      const [rows] = await pool.query(`
         SELECT c.*, b.name AS branch_name
         FROM customers c
         LEFT JOIN branches b ON b.id = c.branch_id
-        WHERE c.branch_id = ?
+        WHERE b.is_admin = 0
         ORDER BY c.id DESC
-        `,
-        [branch_id]
-      );
+      `);
+
+      return res.json({ success: true, mode: "admin", customers: rows });
     }
 
-    res.json({ success: true, customers: rows });
+    // فرع عادي: عملاء الفرع فقط
+    if (!user.branch_id) {
+      return res.json({ success: true, customers: [] });
+    }
+
+    const [rows] = await pool.query(
+      `
+      SELECT c.*, b.name AS branch_name
+      FROM customers c
+      LEFT JOIN branches b ON b.id = c.branch_id
+      WHERE c.branch_id = ?
+      ORDER BY c.id DESC
+      `,
+      [user.branch_id]
+    );
+
+    return res.json({ success: true, mode: "branch", customers: rows });
   } catch (err) {
     console.error("GET CUSTOMERS ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
+
 
 
 /* =========================
