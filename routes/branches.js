@@ -20,28 +20,25 @@ router.use(auth);
 router.get("/", async (req, res) => {
   try {
     const user = req.user || {};
+    
+const jsDay = new Date().getDay(); // 0=الأحد ... 6=السبت
+const today = (jsDay + 6) % 7;     // 0=السبت ... 6=الجمعة
 
-    // حساب يوم الأسبوع بنظامنا: 0 = السبت ... 6 = الجمعة
-    const jsDay = new Date().getDay(); // 0 = الأحد ... 6 = السبت
-    const today = (jsDay + 6) % 7;
+[rows] = await pool.query(
+  `
+  SELECT b.id, b.name, b.address, b.phone,
+         w.open_time AS today_from,
+         w.close_time AS today_to,
+         w.is_closed AS today_closed
+  FROM branches b
+  LEFT JOIN branch_work_times w
+    ON w.branch_id = b.id
+   AND w.day_of_week = ?
+  ORDER BY b.id ASC
+  `,
+  [today]
+);
 
-    let rows;
-
-    // إدارة عامة → كل الفروع
-    if (user.role === "admin" || user.is_admin_branch === 1) {
-      [rows] = await pool.query(
-        `
-        SELECT b.id, b.name, b.address, b.phone,
-               w.open_time AS today_from,
-               w.close_time AS today_to,
-               w.is_closed AS today_closed
-        FROM branches b
-        LEFT JOIN branch_work_times w
-          ON w.branch_id = b.id AND w.day_of_week = ?
-        ORDER BY b.id ASC
-        `,
-        [today]
-      );
     } else {
       // مستخدم عادي → فرعه فقط
       if (!user.branch_id) {
