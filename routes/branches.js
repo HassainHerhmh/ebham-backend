@@ -27,7 +27,7 @@ router.get("/", async (req, res) => {
     let rows;
 
     // الإدارة العامة فقط
-    if (user.is_admin_branch === 1) {
+    if (user.is_admin_branch) {
       [rows] = await pool.query(
         `
         SELECT b.id, b.name, b.address, b.phone,
@@ -70,6 +70,7 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 /* =========================
    POST /branches (إضافة فرع)
