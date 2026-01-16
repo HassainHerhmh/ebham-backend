@@ -4,7 +4,9 @@ import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 
-// حماية كل المسارات
+/* =========================
+   حماية كل المسارات
+========================= */
 router.use(auth);
 
 /* =========================
@@ -12,60 +14,63 @@ router.use(auth);
 ========================= */
 router.get("/", async (req, res) => {
   try {
-    const authUser = req.user;
-    const headerBranch = req.headers["x-branch-id"];
+    const { is_admin_branch, branch_id } = req.user;
+    let selectedBranch = req.headers["x-branch-id"];
 
-    let where = "";
-    const params = [];
-
-    if (authUser.is_admin_branch === true) {
-      // إدارة عامة
-      if (headerBranch) {
-        where = "WHERE c.branch_id = ?";
-        params.push(headerBranch);
-      }
-    } else {
-      // مستخدم فرع
-      where = "WHERE c.branch_id = ?";
-      params.push(authUser.branch_id);
+    if (selectedBranch === "all") {
+      selectedBranch = null;
     }
 
-    const [rows] = await db.query(
-      `
-      SELECT
-        ca.id,
-        ca.customer_id,
-        c.name AS customer_name,
+    let rows;
 
-        ca.province,
-        ca.district,
-
-        ci.name AS city_name,
-        n.name AS neighborhood_name,
-
-        ca.location_type,
-        ca.address,
-        ca.gps_link,
-        ca.latitude,
-        ca.longitude,
-        ca.created_at,
-
-        c.branch_id,
-        b.name AS branch_name
-      FROM customer_addresses ca
-      JOIN customers c ON c.id = ca.customer_id
-      LEFT JOIN branches b ON b.id = c.branch_id
-      LEFT JOIN cities ci ON ci.id = ca.province
-      LEFT JOIN neighborhoods n ON n.id = ca.district
-      ${where}
-      ORDER BY ca.id DESC
-      `,
-      params
-    );
+    if (is_admin_branch) {
+      if (selectedBranch) {
+        [rows] = await db.query(
+          `
+          SELECT 
+            a.*,
+            c.name AS customer_name,
+            b.name AS branch_name
+          FROM customer_addresses a
+          LEFT JOIN customers c ON c.id = a.customer_id
+          LEFT JOIN branches b ON b.id = a.branch_id
+          WHERE a.branch_id = ?
+          ORDER BY a.id DESC
+          `,
+          [selectedBranch]
+        );
+      } else {
+        [rows] = await db.query(`
+          SELECT 
+            a.*,
+            c.name AS customer_name,
+            b.name AS branch_name
+          FROM customer_addresses a
+          LEFT JOIN customers c ON c.id = a.customer_id
+          LEFT JOIN branches b ON b.id = a.branch_id
+          ORDER BY a.id DESC
+        `);
+      }
+    } else {
+      [rows] = await db.query(
+        `
+        SELECT 
+          a.*,
+          c.name AS customer_name,
+          b.name AS branch_name
+        FROM customer_addresses a
+        LEFT JOIN customers c ON c.id = a.customer_id
+        LEFT JOIN branches b ON b.id = a.branch_id
+        WHERE a.branch_id = ?
+        ORDER BY a.id DESC
+        `,
+        [branch_id]
+      );
+    }
 
     res.json({ success: true, addresses: rows });
   } catch (err) {
-    console.error("GET ADDRESSES ERROR:", err);
+    console.error("GET CUSTOMER ADDRESSES ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
@@ -74,39 +79,95 @@ router.get("/", async (req, res) => {
    POST /customer-addresses
 ========================= */
 router.post("/", async (req, res) => {
-  const {
-    customer_id,
-    province,
-    district,
-    location_type,
-    address,
-    gps_link,
-    latitude,
-    longitude
-  } = req.body;
-
   try {
+    const {
+      customer_id,
+      district,
+      location_type,
+      address,
+      gps_link,
+      latitude,
+      longitude,
+    } = req.body;
+
+    if (!customer_id) {
+      return res.json({ success: false, message: "العميل مطلوب" });
+    }
+
+    const { is_admin_branch, branch_id } = req.user;
+    const selectedBranch = req.headers["x-branch-id"];
+
+    let finalBranchId = branch_id;
+
+    if (is_admin_branch && selectedBranch && selectedBranch !== "all") {
+      finalBranchId = selectedBranch;
+    }
+
     await db.query(
       `
       INSERT INTO customer_addresses
-      (customer_id, province, district, location_type, address, gps_link, latitude, longitude)
-      VALUES (?,?,?,?,?,?,?,?)
+      (customer_id, district, location_type, address, gps_link, latitude, longitude, branch_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         customer_id,
-        province,
-        district,
-        location_type,
-        address,
-        gps_link,
-        latitude,
-        longitude
+        district || null,
+        location_type || null,
+        address || null,
+        gps_link || null,
+        latitude || null,
+        longitude || null,
+        finalBranchId,
       ]
     );
 
     res.json({ success: true });
   } catch (err) {
-    console.error("ADD ADDRESS ERROR:", err);
+    console.error("ADD CUSTOMER ADDRESS ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
+/* =========================
+   PUT /customer-addresses/:id
+========================= */
+router.put("/:id", async (req, res) => {
+  const {
+    district,
+    location_type,
+    address,
+    gps_link,
+    latitude,
+    longitude,
+  } = req.body;
+
+  try {
+    await db.query(
+      `
+      UPDATE customer_addresses
+      SET
+        district = ?,
+        location_type = ?,
+        address = ?,
+        gps_link = ?,
+        latitude = ?,
+        longitude = ?
+      WHERE id = ?
+      `,
+      [
+        district || null,
+        location_type || null,
+        address || null,
+        gps_link || null,
+        latitude || null,
+        longitude || null,
+        req.params.id,
+      ]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("UPDATE CUSTOMER ADDRESS ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
@@ -116,14 +177,13 @@ router.post("/", async (req, res) => {
 ========================= */
 router.delete("/:id", async (req, res) => {
   try {
-    await db.query(
-      "DELETE FROM customer_addresses WHERE id=?",
-      [req.params.id]
-    );
+    await db.query("DELETE FROM customer_addresses WHERE id = ?", [
+      req.params.id,
+    ]);
 
     res.json({ success: true });
   } catch (err) {
-    console.error("DELETE ADDRESS ERROR:", err);
+    console.error("DELETE CUSTOMER ADDRESS ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
