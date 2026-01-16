@@ -18,7 +18,7 @@ router.get("/", async (req, res) => {
 
     // الإدارة العامة: كل العملاء من كل الفروع
     if (user.is_admin_branch === 1 || user.is_admin_branch === true) {
-      const [rows] = await pool.query(`
+      const [rows] = await db.query(`
         SELECT c.*, b.name AS branch_name
         FROM customers c
         LEFT JOIN branches b ON b.id = c.branch_id
@@ -34,7 +34,7 @@ router.get("/", async (req, res) => {
       return res.json({ success: true, customers: [] });
     }
 
-    const [rows] = await pool.query(
+    const [rows] = await db.query(
       `
       SELECT c.*, b.name AS branch_name
       FROM customers c
