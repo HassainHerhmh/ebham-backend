@@ -337,4 +337,31 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
+/* ======================================================
+   🟢 جلب فئات مطعم معيّن
+====================================================== */
+router.get("/:id/categories", async (req, res) => {
+  try {
+    const restaurantId = req.params.id;
+
+    const [rows] = await db.query(
+      `
+      SELECT c.id, c.name
+      FROM categories c
+      INNER JOIN restaurant_categories rc
+        ON rc.category_id = c.id
+      WHERE rc.restaurant_id = ?
+      ORDER BY c.id ASC
+      `,
+      [restaurantId]
+    );
+
+    res.json({ success: true, categories: rows });
+  } catch (err) {
+    console.error("❌ خطأ في جلب فئات المطعم:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
+
 export default router;
