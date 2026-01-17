@@ -122,9 +122,7 @@ router.post("/", async (req, res) => {
 router.get("/:id", async (req, res) => {
   try {
     const [items] = await db.query(
-      `
-      SELECT * FROM order_items WHERE order_id=?
-      `,
+      `SELECT * FROM order_items WHERE order_id=?`,
       [req.params.id]
     );
 
@@ -134,6 +132,7 @@ router.get("/:id", async (req, res) => {
         o.id,
         c.name AS customer_name,
         c.phone AS customer_phone,
+        a.district AS neighborhood_name,
         a.address AS customer_address,
         a.latitude,
         a.longitude,
