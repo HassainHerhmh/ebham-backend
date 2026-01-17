@@ -263,6 +263,11 @@ app.use("/api/delivery-settings", deliverySettings);
 import orders from "./routes/orders.js";
 
 app.use("/api/orders", orders);
+
+import restaurantsExtra from "./routes/restaurants-extra.js";
+
+app.use("/api/restaurants", restaurantsExtra);
+
 /* =========================
    Start Server
 ========================= */
