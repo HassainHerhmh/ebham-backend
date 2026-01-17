@@ -363,5 +363,35 @@ router.get("/:id/categories", async (req, res) => {
   }
 });
 
+/* ======================================================
+   🟢 جلب منتجات مطعم معين
+====================================================== */
+router.get("/:id/products", async (req, res) => {
+  try {
+    const restaurantId = req.params.id;
+
+    const [rows] = await db.query(
+      `
+      SELECT 
+        p.id,
+        p.name,
+        p.price,
+        p.category_id,
+        p.notes
+      FROM products p
+      WHERE p.restaurant_id = ?
+      ORDER BY p.id DESC
+      `,
+      [restaurantId]
+    );
+
+    res.json({
+      success: true,
+      products: rows,
+    });
+  } catch (err) {
+    console.error("GET RESTAURANT PRODUCTS ERROR:", err);
+    res.status(500).json({ success: fa
+
 
 export default router;
