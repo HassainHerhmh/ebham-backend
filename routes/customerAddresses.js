@@ -28,11 +28,10 @@ router.get("/", async (req, res) => {
         a.*,
         c.name AS customer_name,
         b.name AS branch_name,
-        n.name AS neighborhood_name
+        a.district AS neighborhood_name
       FROM customer_addresses a
       LEFT JOIN customers c ON c.id = a.customer_id
       LEFT JOIN branches b ON b.id = a.branch_id
-      LEFT JOIN neighborhoods n ON n.id = a.neighborhood_id
     `;
 
     if (is_admin_branch) {
