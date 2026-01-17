@@ -8,7 +8,6 @@ const router = express.Router();
    حماية كل المسارات
 ========================= */
 router.use(auth);
-
 /* =========================
    GET /customer-addresses
    - الإدارة: كل العناوين أو حسب الفرع المختار
@@ -21,8 +20,6 @@ router.get("/", async (req, res) => {
 
     if (selectedBranch === "all") selectedBranch = null;
 
-    let rows;
-
     const baseSelect = `
       SELECT 
         a.*,
@@ -33,6 +30,8 @@ router.get("/", async (req, res) => {
       LEFT JOIN customers c ON c.id = a.customer_id
       LEFT JOIN branches b ON b.id = a.branch_id
     `;
+
+    let rows;
 
     if (is_admin_branch) {
       if (selectedBranch) {
@@ -64,9 +63,10 @@ router.get("/", async (req, res) => {
     res.json({ success: true, addresses: rows });
   } catch (err) {
     console.error("GET CUSTOMER ADDRESSES ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, addresses: [] });
   }
 });
+
 
 
 /* =========================
