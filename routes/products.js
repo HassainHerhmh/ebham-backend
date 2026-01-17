@@ -48,32 +48,35 @@ router.get("/", async (req, res) => {
       params.push(branch_id);
     }
 
-    [rows] = await db.query(
-      `
-      SELECT 
-        p.id,
-        p.name,
-        p.price,
-        p.image_url,
-        p.notes,
-        GROUP_CONCAT(c.id) AS category_ids,
-        GROUP_CONCAT(c.name SEPARATOR ', ') AS categories,
-        u.id AS unit_id,
-        u.name AS unit_name,
-        r.id AS restaurant_id,
-        r.name AS restaurant_name,
-        r.branch_id
-      FROM products p
-      LEFT JOIN product_categories pc ON p.id = pc.product_id
-      LEFT JOIN categories c ON pc.category_id = c.id
-      LEFT JOIN units u ON p.unit_id = u.id
-      LEFT JOIN restaurants r ON p.restaurant_id = r.id
-      ${where}
-      GROUP BY p.id
-      ORDER BY p.id DESC
-      `,
-      params
-    );
+   [rows] = await db.query(
+  `
+  SELECT 
+    p.id,
+    p.name,
+    p.price,
+    p.image_url,
+    p.notes,
+    GROUP_CONCAT(c.id) AS category_ids,
+    GROUP_CONCAT(c.name SEPARATOR ', ') AS categories,
+    u.id AS unit_id,
+    u.name AS unit_name,
+    r.id AS restaurant_id,
+    r.name AS restaurant_name,
+    r.branch_id,
+    b.name AS branch_name
+  FROM products p
+  LEFT JOIN product_categories pc ON p.id = pc.product_id
+  LEFT JOIN categories c ON pc.category_id = c.id
+  LEFT JOIN units u ON p.unit_id = u.id
+  LEFT JOIN restaurants r ON p.restaurant_id = r.id
+  LEFT JOIN branches b ON b.id = r.branch_id
+  ${where}
+  GROUP BY p.id
+  ORDER BY p.id DESC
+  `,
+  params
+);
+
 
     res.json({ success: true, products: rows });
   } catch (err) {
