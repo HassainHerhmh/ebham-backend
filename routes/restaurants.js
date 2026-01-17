@@ -385,13 +385,16 @@ router.get("/:id/products", async (req, res) => {
       [restaurantId]
     );
 
+    // نفس الصيغة التي تعتمد عليها الواجهة
     res.json({
       success: true,
       products: rows,
     });
   } catch (err) {
     console.error("GET RESTAURANT PRODUCTS ERROR:", err);
-    res.status(500).json({ success: fa
+    res.status(500).json({ success: false, products: [] });
+  }
+});
 
 
 export default router;
