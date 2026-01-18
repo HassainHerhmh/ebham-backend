@@ -232,11 +232,13 @@ router.get("/:id", async (req, res) => {
         a.latitude,
         a.longitude,
         o.delivery_fee,
-        o.extra_store_fee,
+        COALESCE(bds.extra_store_fee, 0) AS extra_store_fee,
         o.total_amount
       FROM orders o
       JOIN customers c ON c.id = o.customer_id
       JOIN customer_addresses a ON a.id = o.address_id
+      LEFT JOIN branch_delivery_settings bds 
+        ON bds.branch_id = o.branch_id
       WHERE o.id=?
       `,
       [orderId]
