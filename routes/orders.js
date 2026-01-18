@@ -134,10 +134,10 @@ router.post("/", async (req, res) => {
           console.log("ADDRESS ROW:", addr);
 
           if (addr.length && addr[0].district) {
-            const [n] = await db.query(
-              "SELECT delivery_fee FROM neighborhoods WHERE id=?",
-              [addr[0].district]
-            );
+           const [n] = await db.query(
+  "SELECT delivery_fee FROM neighborhoods WHERE name=?",
+  [addr[0].district]
+);
 
             console.log("NEIGHBORHOOD:", n);
 
