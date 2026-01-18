@@ -138,20 +138,7 @@ router.post("/", async (req, res) => {
 ========================= */
 router.get("/:id", async (req, res) => {
   try {
-    const [items] = await db.query(
-      `
-      SELECT 
-        oi.*,
-        r.name  AS restaurant_name,
-        r.phone AS restaurant_phone,
-        r.latitude AS restaurant_latitude,
-        r.longitude AS restaurant_longitude
-      FROM order_items oi
-      JOIN restaurants r ON r.id = oi.restaurant_id
-      WHERE oi.order_id=?
-      `,
-      [req.params.id]
-    );
+    const orderId = req.params.id;
 
     const [[order]] = await db.query(
       `
@@ -163,16 +150,67 @@ router.get("/:id", async (req, res) => {
         a.address AS customer_address,
         a.latitude,
         a.longitude,
-        o.delivery_fee
+        o.delivery_fee,
+        o.total_amount
       FROM orders o
       JOIN customers c ON c.id = o.customer_id
       JOIN customer_addresses a ON a.id = o.address_id
       WHERE o.id=?
       `,
-      [req.params.id]
+      [orderId]
     );
 
-    order.products = items;
+    const [items] = await db.query(
+      `
+      SELECT 
+        oi.id,
+        oi.name,
+        oi.price,
+        oi.quantity,
+        oi.restaurant_id,
+        r.name AS restaurant_name,
+        r.phone AS restaurant_phone,
+        r.latitude,
+        r.longitude
+      FROM order_items oi
+      JOIN restaurants r ON r.id = oi.restaurant_id
+      WHERE oi.order_id=?
+      ORDER BY oi.restaurant_id
+      `,
+      [orderId]
+    );
+
+    // تجميع المنتجات حسب المطعم
+    const restaurants = [];
+    const map = {};
+
+    for (const it of items) {
+      if (!map[it.restaurant_id]) {
+        map[it.restaurant_id] = {
+          id: it.restaurant_id,
+          name: it.restaurant_name,
+          phone: it.restaurant_phone,
+          latitude: it.latitude,
+          longitude: it.longitude,
+          items: [],
+          total: 0,
+        };
+        restaurants.push(map[it.restaurant_id]);
+      }
+
+      const subtotal = it.price * it.quantity;
+      map[it.restaurant_id].total += subtotal;
+
+      map[it.restaurant_id].items.push({
+        id: it.id,
+        name: it.name,
+        price: it.price,
+        quantity: it.quantity,
+        subtotal,
+      });
+    }
+
+    order.restaurants = restaurants;
 
     res.json({ success: true, order });
   } catch (err) {
@@ -180,7 +218,6 @@ router.get("/:id", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-
 
 /* =========================
    PUT /orders/:id/status
