@@ -32,7 +32,6 @@ router.get("/", async (req, res) => {
         ORDER BY o.id DESC
         LIMIT 50
       `);
-
       rows = result;
     } else {
       const [result] = await db.query(
@@ -48,18 +47,12 @@ router.get("/", async (req, res) => {
           o.created_at
         FROM orders o
         JOIN customers c ON c.id = o.customer_id
-        WHERE o.id IN (
-          SELECT DISTINCT oi.order_id
-          FROM order_items oi
-          JOIN restaurants r ON r.id = oi.restaurant_id
-          WHERE r.branch_id = ?
-        )
+        WHERE o.branch_id = ?
         ORDER BY o.id DESC
         LIMIT 50
         `,
         [user.branch_id]
       );
-
       rows = result;
     }
 
