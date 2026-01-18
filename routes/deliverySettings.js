@@ -22,14 +22,14 @@ router.get("/", async (req, res) => {
 
     // الإدارة العامة
     if (user.is_admin_branch === 1 || user.is_admin_branch === true) {
-
       const [rows] = await pool.query(`
         SELECT 
           b.id AS branch_id,
           b.name AS branch_name,
           COALESCE(s.method, 'distance') AS method,
           COALESCE(s.km_price_single, 0) AS km_price_single,
-          COALESCE(s.km_price_multi, 0) AS km_price_multi
+          COALESCE(s.km_price_multi, 0) AS km_price_multi,
+          COALESCE(s.extra_store_fee, 0) AS extra_store_fee
         FROM branches b
         LEFT JOIN branch_delivery_settings s
           ON s.branch_id = b.id
@@ -50,7 +50,8 @@ router.get("/", async (req, res) => {
       SELECT 
         method,
         km_price_single,
-        km_price_multi
+        km_price_multi,
+        extra_store_fee
       FROM branch_delivery_settings
       WHERE branch_id = ?
       `,
@@ -64,6 +65,7 @@ router.get("/", async (req, res) => {
         method: "distance",
         km_price_single: 0,
         km_price_multi: 0,
+        extra_store_fee: 0,
       },
     });
   } catch (err) {
@@ -80,28 +82,35 @@ router.post("/", async (req, res) => {
   try {
     const user = req.user;
 
-  if (!user.branch_id || user.is_admin_branch === 1 || user.is_admin_branch === true) {
-  return res.status(403).json({ success: false, message: "غير مسموح" });
-}
+    // الإدارة العامة لا تعدّل من هنا
+    if (!user.branch_id || user.is_admin_branch === 1 || user.is_admin_branch === true) {
+      return res.status(403).json({ success: false, message: "غير مسموح" });
+    }
 
-
-    const { method, km_price_single, km_price_multi } = req.body;
+    const {
+      method,
+      km_price_single,
+      km_price_multi,
+      extra_store_fee,
+    } = req.body;
 
     await pool.query(
       `
       INSERT INTO branch_delivery_settings
-        (branch_id, method, km_price_single, km_price_multi)
-      VALUES (?, ?, ?, ?)
+        (branch_id, method, km_price_single, km_price_multi, extra_store_fee)
+      VALUES (?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         method = VALUES(method),
         km_price_single = VALUES(km_price_single),
-        km_price_multi = VALUES(km_price_multi)
+        km_price_multi = VALUES(km_price_multi),
+        extra_store_fee = VALUES(extra_store_fee)
       `,
       [
         user.branch_id,
         method,
         km_price_single || 0,
         km_price_multi || 0,
+        extra_store_fee || 0,
       ]
     );
 
