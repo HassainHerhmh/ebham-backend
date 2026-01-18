@@ -64,6 +64,7 @@ router.get("/", async (req, res) => {
    POST /orders
 =============================*/
 router.post("/", async (req, res) => {
+     console.log("REQ USER =>", req.user);
   try {
     const { customer_id, address_id, gps_link, restaurants } = req.body;
     const user = req.user;
