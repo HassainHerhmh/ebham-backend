@@ -8,9 +8,6 @@ router.use(auth);
 /* =========================
    GET /orders
 ========================= */
-/* =========================
-   GET /orders
-========================= */
 router.get("/", async (req, res) => {
   try {
     const user = req.user;
@@ -69,15 +66,12 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     const { customer_id, address_id, gps_link, restaurants } = req.body;
-    const user = req.user; // المستخدم الحالي
-
-    console.log("📥 BODY FROM CLIENT:", JSON.stringify(req.body, null, 2));
+    const user = req.user;
 
     if (!restaurants || !restaurants.length) {
       return res.json({ success: false, message: "لا توجد مطاعم" });
     }
 
-    // تسطيح المنتجات من كل المطاعم
     const products = restaurants.flatMap((r) =>
       (r.products || []).map((p) => ({
         restaurant_id: r.restaurant_id,
@@ -85,8 +79,6 @@ router.post("/", async (req, res) => {
         quantity: p.quantity,
       }))
     );
-
-    console.log("📦 PRODUCTS FLATTENED:", products);
 
     if (!products.length) {
       return res.json({ success: false, message: "لا توجد منتجات" });
@@ -103,14 +95,14 @@ router.post("/", async (req, res) => {
 
     if (address_id) {
       const [addr] = await db.query(
-        "SELECT neighborhood_id FROM customer_addresses WHERE id=?",
+        "SELECT district FROM customer_addresses WHERE id=?",
         [address_id]
       );
 
-      if (addr.length && addr[0].neighborhood_id) {
+      if (addr.length && addr[0].district) {
         const [n] = await db.query(
           "SELECT delivery_fee FROM neighborhoods WHERE id=?",
-          [addr[0].neighborhood_id]
+          [addr[0].district]
         );
 
         if (n.length) {
@@ -119,7 +111,7 @@ router.post("/", async (req, res) => {
       }
     }
 
-    // رسوم إضافية لو الطلب من أكثر من مطعم
+    // رسوم إضافية إذا الطلب من أكثر من مطعم
     if (storesCount > 1) {
       const [s] = await db.query(
         "SELECT multi_store_fee FROM delivery_settings LIMIT 1"
@@ -129,7 +121,6 @@ router.post("/", async (req, res) => {
       }
     }
 
-    // ربط الطلب بالفرع
     const branchId = user.branch_id || null;
 
     const [result] = await db.query(
@@ -150,7 +141,6 @@ router.post("/", async (req, res) => {
     );
 
     const orderId = result.insertId;
-    console.log("🧾 ORDER CREATED:", orderId);
 
     let total = 0;
 
@@ -178,8 +168,6 @@ router.post("/", async (req, res) => {
           p.quantity,
         ]
       );
-
-      console.log(`➕ ITEM ADDED: ${prod.name} x ${p.quantity}`);
     }
 
     const grandTotal = total + deliveryFee;
@@ -188,10 +176,6 @@ router.post("/", async (req, res) => {
       "UPDATE orders SET total_amount=? WHERE id=?",
       [grandTotal, orderId]
     );
-
-    console.log("💰 TOTAL:", total);
-    console.log("🚚 DELIVERY FEE:", deliveryFee);
-    console.log("💵 GRAND TOTAL:", grandTotal);
 
     res.json({
       success: true,
@@ -205,8 +189,6 @@ router.post("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-
-
 
 /* =========================
    GET /orders/:id
@@ -255,7 +237,6 @@ router.get("/:id", async (req, res) => {
       [orderId]
     );
 
-    // تجميع المنتجات حسب المطعم
     const restaurants = [];
     const map = {};
 
