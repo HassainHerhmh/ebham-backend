@@ -88,47 +88,60 @@ router.post("/", async (req, res) => {
     const storesCount = storeIds.length;
     const mainRestaurantId = storeIds[0];
 
-    const branchId = user.branch_id || null;
+    // تحديد الفرع الحقيقي للطلب
+    const headerBranch = req.headers["x-branch-id"];
+    let branchId = headerBranch ? Number(headerBranch) : user.branch_id || null;
+
+    if (!branchId && address_id) {
+      const [addrBranch] = await db.query(
+        "SELECT branch_id FROM customer_addresses WHERE id=?",
+        [address_id]
+      );
+      if (addrBranch.length && addrBranch[0].branch_id) {
+        branchId = addrBranch[0].branch_id;
+      }
+    }
 
     // ===============================
     // 🧭 حساب رسوم التوصيل حسب إعدادات الفرع
     // ===============================
     let deliveryFee = 0;
 
-    const [settingsRows] = await db.query(
-      "SELECT * FROM branch_delivery_settings WHERE branch_id=? LIMIT 1",
-      [branchId]
-    );
+    if (branchId) {
+      const [settingsRows] = await db.query(
+        "SELECT * FROM branch_delivery_settings WHERE branch_id=? LIMIT 1",
+        [branchId]
+      );
 
-    if (settingsRows.length) {
-      const settings = settingsRows[0];
+      if (settingsRows.length) {
+        const settings = settingsRows[0];
 
-      if (settings.method === "neighborhood" && address_id) {
-        const [addr] = await db.query(
-          "SELECT district FROM customer_addresses WHERE id=?",
-          [address_id]
-        );
-
-        if (addr.length && addr[0].district) {
-          const [n] = await db.query(
-            "SELECT delivery_fee FROM neighborhoods WHERE id=?",
-            [addr[0].district]
+        if (settings.method === "neighborhood" && address_id) {
+          const [addr] = await db.query(
+            "SELECT district FROM customer_addresses WHERE id=?",
+            [address_id]
           );
 
-          if (n.length) {
-            deliveryFee = Number(n[0].delivery_fee) || 0;
+          if (addr.length && addr[0].district) {
+            const [n] = await db.query(
+              "SELECT delivery_fee FROM neighborhoods WHERE id=?",
+              [addr[0].district]
+            );
+
+            if (n.length) {
+              deliveryFee = Number(n[0].delivery_fee) || 0;
+            }
           }
         }
-      }
 
-      if (settings.method === "distance") {
-        // مؤقتًا قيمة ثابتة (إلى أن تضيف حساب المسافة الفعلي)
-        deliveryFee = Number(settings.km_price_single) || 0;
-      }
+        if (settings.method === "distance") {
+          // مؤقتًا قيمة ثابتة
+          deliveryFee = Number(settings.km_price_single) || 0;
+        }
 
-      // رسوم إضافية إذا الطلب من أكثر من مطعم
-      if (storesCount > 1) {
-        deliveryFee += Number(settings.extra_store_fee) || 0;
+        if (storesCount > 1) {
+          deliveryFee += Number(settings.extra_store_fee) || 0;
+        }
       }
     }
 
@@ -198,145 +211,6 @@ router.post("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-/* =========================
-   POST /orders
-========================= */
-router.post("/", async (req, res) => {
-  try {
-    const { customer_id, address_id, gps_link, restaurants } = req.body;
-    const user = req.user;
-
-    if (!restaurants || !restaurants.length) {
-      return res.json({ success: false, message: "لا توجد مطاعم" });
-    }
-
-    const products = restaurants.flatMap((r) =>
-      (r.products || []).map((p) => ({
-        restaurant_id: r.restaurant_id,
-        product_id: p.product_id,
-        quantity: p.quantity,
-      }))
-    );
-
-    if (!products.length) {
-      return res.json({ success: false, message: "لا توجد منتجات" });
-    }
-
-    const storeIds = [...new Set(products.map((p) => p.restaurant_id))];
-    const storesCount = storeIds.length;
-    const mainRestaurantId = storeIds[0];
-
-    const branchId = user.branch_id || null;
-
-    // ===============================
-    // 🧭 حساب رسوم التوصيل حسب إعدادات الفرع
-    // ===============================
-    let deliveryFee = 0;
-
-    const [settingsRows] = await db.query(
-      "SELECT * FROM branch_delivery_settings WHERE branch_id=? LIMIT 1",
-      [branchId]
-    );
-
-    if (settingsRows.length) {
-      const settings = settingsRows[0];
-
-      if (settings.method === "neighborhood" && address_id) {
-        const [addr] = await db.query(
-          "SELECT district FROM customer_addresses WHERE id=?",
-          [address_id]
-        );
-
-        if (addr.length && addr[0].district) {
-          const [n] = await db.query(
-            "SELECT delivery_fee FROM neighborhoods WHERE id=?",
-            [addr[0].district]
-          );
-
-          if (n.length) {
-            deliveryFee = Number(n[0].delivery_fee) || 0;
-          }
-        }
-      }
-
-      if (settings.method === "distance") {
-        // مؤقتًا قيمة ثابتة (إلى أن تضيف حساب المسافة الفعلي)
-        deliveryFee = Number(settings.km_price_single) || 0;
-      }
-
-      // رسوم إضافية إذا الطلب من أكثر من مطعم
-      if (storesCount > 1) {
-        deliveryFee += Number(settings.extra_store_fee) || 0;
-      }
-    }
-
-    const [result] = await db.query(
-      `
-      INSERT INTO orders 
-        (customer_id, address_id, restaurant_id, gps_link, stores_count, branch_id, delivery_fee)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        customer_id,
-        address_id,
-        mainRestaurantId,
-        gps_link || null,
-        storesCount,
-        branchId,
-        deliveryFee,
-      ]
-    );
-
-    const orderId = result.insertId;
-
-    let total = 0;
-
-    for (const p of products) {
-      const [[prod]] = await db.query(
-        "SELECT name, price FROM products WHERE id=?",
-        [p.product_id]
-      );
-
-      const subtotal = prod.price * p.quantity;
-      total += subtotal;
-
-      await db.query(
-        `
-        INSERT INTO order_items
-          (order_id, product_id, restaurant_id, name, price, quantity)
-        VALUES (?, ?, ?, ?, ?, ?)
-        `,
-        [
-          orderId,
-          p.product_id,
-          p.restaurant_id,
-          prod.name,
-          prod.price,
-          p.quantity,
-        ]
-      );
-    }
-
-    const grandTotal = total + deliveryFee;
-
-    await db.query(
-      "UPDATE orders SET total_amount=? WHERE id=?",
-      [grandTotal, orderId]
-    );
-
-    res.json({
-      success: true,
-      order_id: orderId,
-      stores_count: storesCount,
-      delivery_fee: deliveryFee,
-      total: grandTotal,
-    });
-  } catch (err) {
-    console.error("ADD ORDER ERROR:", err);
-    res.status(500).json({ success: false });
-  }
-});
-
 
 /* =========================
    GET /orders/:id
