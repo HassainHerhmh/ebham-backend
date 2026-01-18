@@ -59,9 +59,11 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false, orders: [] });
   }
 });
-//* =========================
+
+/*============================
    POST /orders
-========================= */
+=============================*/
+      
 router.post("/", async (req, res) => {
   try {
     const { customer_id, address_id, gps_link, restaurants } = req.body;
