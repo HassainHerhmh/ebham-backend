@@ -13,19 +13,25 @@ router.get("/", async (req, res) => {
     const user = req.user;
     let rows = [];
 
+    const baseQuery = `
+      SELECT 
+        o.id,
+        c.name AS customer_name,
+        c.phone AS customer_phone,
+        o.status,
+        o.total_amount,
+        o.delivery_fee,
+        o.stores_count,
+        o.created_at,
+        cap.name AS captain_name
+      FROM orders o
+      JOIN customers c ON c.id = o.customer_id
+      LEFT JOIN captains cap ON cap.id = o.captain_id
+    `;
+
     if (user.is_admin_branch) {
       const [result] = await db.query(`
-        SELECT 
-          o.id,
-          c.name AS customer_name,
-          c.phone AS customer_phone,
-          o.status,
-          o.total_amount,
-          o.delivery_fee,
-          o.stores_count,
-          o.created_at
-        FROM orders o
-        JOIN customers c ON c.id = o.customer_id
+        ${baseQuery}
         ORDER BY o.id DESC
         LIMIT 50
       `);
@@ -33,17 +39,7 @@ router.get("/", async (req, res) => {
     } else {
       const [result] = await db.query(
         `
-        SELECT 
-          o.id,
-          c.name AS customer_name,
-          c.phone AS customer_phone,
-          o.status,
-          o.total_amount,
-          o.delivery_fee,
-          o.stores_count,
-          o.created_at
-        FROM orders o
-        JOIN customers c ON c.id = o.customer_id
+        ${baseQuery}
         WHERE o.branch_id = ?
         ORDER BY o.id DESC
         LIMIT 50
@@ -59,6 +55,7 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false, orders: [] });
   }
 });
+
 
 /*============================
    POST /orders
