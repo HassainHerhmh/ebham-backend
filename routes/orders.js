@@ -69,18 +69,38 @@ router.get("/", async (req, res) => {
 ========================= */
 router.post("/", async (req, res) => {
   try {
-    const { customer_id, address_id, gps_link, products } = req.body;
+    console.log("📥 BODY FROM CLIENT:", JSON.stringify(req.body, null, 2));
 
-    if (!products || !products.length) {
+    const { customer_id, address_id, gps_link, restaurants } = req.body;
+
+    if (!restaurants || !restaurants.length) {
+      console.log("❌ لا توجد مطاعم في الطلب");
+      return res.json({ success: false, message: "لا توجد مطاعم" });
+    }
+
+    const products = [];
+    for (const r of restaurants) {
+      for (const p of r.products || []) {
+        products.push({
+          restaurant_id: r.restaurant_id,
+          product_id: p.product_id,
+          quantity: p.quantity,
+        });
+      }
+    }
+
+    console.log("📦 PRODUCTS FLATTENED:", products);
+
+    if (!products.length) {
+      console.log("❌ لا توجد منتجات بعد التحويل");
       return res.json({ success: false, message: "لا توجد منتجات" });
     }
 
-    // استخرج المطاعم المختلفة من المنتجات
     const storeIds = [...new Set(products.map(p => p.restaurant_id))];
     const storesCount = storeIds.length;
-
-    // نستخدم أول مطعم كـ restaurant_id أساسي للطلب
     const mainRestaurantId = storeIds[0];
+
+    console.log("🏪 STORES:", storeIds);
 
     const [result] = await db.query(
       `
@@ -91,6 +111,7 @@ router.post("/", async (req, res) => {
     );
 
     const orderId = result.insertId;
+    console.log("🆕 ORDER CREATED:", orderId);
 
     let total = 0;
 
@@ -99,6 +120,11 @@ router.post("/", async (req, res) => {
         "SELECT name, price FROM products WHERE id=?",
         [p.product_id]
       );
+
+      if (!prod) {
+        console.log("⚠️ PRODUCT NOT FOUND:", p.product_id);
+        continue;
+      }
 
       const subtotal = prod.price * p.quantity;
       total += subtotal;
@@ -118,6 +144,8 @@ router.post("/", async (req, res) => {
           p.quantity,
         ]
       );
+
+      console.log("➕ ITEM ADDED:", p.product_id, "x", p.quantity);
     }
 
     await db.query(
@@ -125,12 +153,21 @@ router.post("/", async (req, res) => {
       [total, orderId]
     );
 
-    res.json({ success: true, order_id: orderId, stores_count: storesCount });
+    console.log("💰 TOTAL SET:", total);
+
+    res.json({
+      success: true,
+      order_id: orderId,
+      stores_count: storesCount,
+      items_count: products.length,
+      total,
+    });
   } catch (err) {
-    console.error("ADD ORDER ERROR:", err);
-    res.status(500).json({ success: false });
+    console.error("🔥 ADD ORDER ERROR:", err);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
+
 
 
 /* =========================
