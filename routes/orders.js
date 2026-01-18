@@ -72,14 +72,25 @@ router.get("/", async (req, res) => {
 ========================= */
 router.post("/", async (req, res) => {
   try {
-    const { customer_id, address_id, gps_link, restaurant_id, products } = req.body;
+    const { customer_id, address_id, gps_link, products } = req.body;
+
+    if (!products || !products.length) {
+      return res.json({ success: false, message: "لا توجد منتجات" });
+    }
+
+    // استخرج المطاعم المختلفة من المنتجات
+    const storeIds = [...new Set(products.map(p => p.restaurant_id))];
+    const storesCount = storeIds.length;
+
+    // نستخدم أول مطعم كـ restaurant_id أساسي للطلب
+    const mainRestaurantId = storeIds[0];
 
     const [result] = await db.query(
       `
-      INSERT INTO orders (customer_id, address_id, restaurant_id, gps_link)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO orders (customer_id, address_id, restaurant_id, gps_link, stores_count)
+      VALUES (?, ?, ?, ?, ?)
       `,
-      [customer_id, address_id, restaurant_id, gps_link || null]
+      [customer_id, address_id, mainRestaurantId, gps_link || null, storesCount]
     );
 
     const orderId = result.insertId;
@@ -97,10 +108,18 @@ router.post("/", async (req, res) => {
 
       await db.query(
         `
-        INSERT INTO order_items (order_id, product_id, name, price, quantity)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO order_items
+          (order_id, product_id, restaurant_id, name, price, quantity)
+        VALUES (?, ?, ?, ?, ?, ?)
         `,
-        [orderId, p.product_id, prod.name, prod.price, p.quantity]
+        [
+          orderId,
+          p.product_id,
+          p.restaurant_id,
+          prod.name,
+          prod.price,
+          p.quantity,
+        ]
       );
     }
 
@@ -109,12 +128,13 @@ router.post("/", async (req, res) => {
       [total, orderId]
     );
 
-    res.json({ success: true, order_id: orderId });
+    res.json({ success: true, order_id: orderId, stores_count: storesCount });
   } catch (err) {
     console.error("ADD ORDER ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
+
 
 /* =========================
    GET /orders/:id
