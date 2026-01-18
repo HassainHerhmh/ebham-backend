@@ -63,11 +63,13 @@ router.get("/", async (req, res) => {
 /*============================
    POST /orders
 =============================*/
-      
 router.post("/", async (req, res) => {
   try {
     const { customer_id, address_id, gps_link, restaurants } = req.body;
     const user = req.user;
+
+    console.log("REQ BODY:", { customer_id, address_id, gps_link });
+    console.log("USER:", user);
 
     if (!restaurants || !restaurants.length) {
       return res.json({ success: false, message: "لا توجد مطاعم" });
@@ -103,11 +105,13 @@ router.post("/", async (req, res) => {
       }
     }
 
+    console.log("BRANCH ID:", branchId);
+
     // ===============================
     // 🧭 حساب الرسوم
     // ===============================
-    let deliveryFee = 0;    // رسوم محل واحد
-    let extraStoreFee = 0;  // رسوم المحلات الإضافية
+    let deliveryFee = 0;
+    let extraStoreFee = 0;
 
     if (branchId) {
       const [settingsRows] = await db.query(
@@ -115,21 +119,26 @@ router.post("/", async (req, res) => {
         [branchId]
       );
 
+      console.log("SETTINGS:", settingsRows);
+
       if (settingsRows.length) {
         const settings = settingsRows[0];
 
-        // رسوم التوصيل الأساسية (لمحل واحد فقط)
         if (settings.method === "neighborhood" && address_id) {
           const [addr] = await db.query(
             "SELECT district FROM customer_addresses WHERE id=?",
             [address_id]
           );
 
+          console.log("ADDRESS ROW:", addr);
+
           if (addr.length && addr[0].district) {
             const [n] = await db.query(
               "SELECT delivery_fee FROM neighborhoods WHERE id=?",
               [addr[0].district]
             );
+
+            console.log("NEIGHBORHOOD:", n);
 
             if (n.length) {
               deliveryFee = Number(n[0].delivery_fee) || 0;
@@ -141,13 +150,14 @@ router.post("/", async (req, res) => {
           deliveryFee = Number(settings.km_price_single) || 0;
         }
 
-        // رسوم المحلات الإضافية = (عدد المطاعم - 1) × الرسوم
         if (storesCount > 1) {
           extraStoreFee =
             (storesCount - 1) * (Number(settings.extra_store_fee) || 0);
         }
       }
     }
+
+    console.log("FEES:", { deliveryFee, extraStoreFee });
 
     const [result] = await db.query(
       `
@@ -217,6 +227,7 @@ router.post("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 /* =========================
    GET /orders/:id
