@@ -70,6 +70,7 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     const { customer_id, address_id, gps_link, restaurants } = req.body;
+    const user = req.user; // المستخدم الحالي
 
     console.log("📥 BODY FROM CLIENT:", JSON.stringify(req.body, null, 2));
 
@@ -96,12 +97,23 @@ router.post("/", async (req, res) => {
     const storesCount = storeIds.length;
     const mainRestaurantId = storeIds[0];
 
+    // ربط الطلب بالفرع
+    const branchId = user.branch_id || null;
+
     const [result] = await db.query(
       `
-      INSERT INTO orders (customer_id, address_id, restaurant_id, gps_link, stores_count)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO orders 
+        (customer_id, address_id, restaurant_id, gps_link, stores_count, branch_id)
+      VALUES (?, ?, ?, ?, ?, ?)
       `,
-      [customer_id, address_id, mainRestaurantId, gps_link || null, storesCount]
+      [
+        customer_id,
+        address_id,
+        mainRestaurantId,
+        gps_link || null,
+        storesCount,
+        branchId,
+      ]
     );
 
     const orderId = result.insertId;
@@ -150,7 +162,6 @@ router.post("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-
 
 
 /* =========================
