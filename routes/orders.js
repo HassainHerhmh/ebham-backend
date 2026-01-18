@@ -59,7 +59,6 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false, orders: [] });
   }
 });
-
 /* =========================
    POST /orders
 ========================= */
@@ -88,7 +87,7 @@ router.post("/", async (req, res) => {
     const storesCount = storeIds.length;
     const mainRestaurantId = storeIds[0];
 
-    // تحديد الفرع الحقيقي للطلب
+    // تحديد الفرع الحقيقي
     const headerBranch = req.headers["x-branch-id"];
     let branchId = headerBranch ? Number(headerBranch) : user.branch_id || null;
 
@@ -103,9 +102,10 @@ router.post("/", async (req, res) => {
     }
 
     // ===============================
-    // 🧭 حساب رسوم التوصيل حسب إعدادات الفرع
+    // 🧭 حساب الرسوم
     // ===============================
-    let deliveryFee = 0;
+    let deliveryFee = 0;      // رسوم التوصيل (لمحل واحد)
+    let extraStoreFee = 0;    // رسوم المحل الإضافي
 
     if (branchId) {
       const [settingsRows] = await db.query(
@@ -116,6 +116,7 @@ router.post("/", async (req, res) => {
       if (settingsRows.length) {
         const settings = settingsRows[0];
 
+        // رسوم التوصيل الأساسية
         if (settings.method === "neighborhood" && address_id) {
           const [addr] = await db.query(
             "SELECT district FROM customer_addresses WHERE id=?",
@@ -135,12 +136,12 @@ router.post("/", async (req, res) => {
         }
 
         if (settings.method === "distance") {
-          // مؤقتًا قيمة ثابتة
           deliveryFee = Number(settings.km_price_single) || 0;
         }
 
+        // رسوم المحل الإضافي فقط
         if (storesCount > 1) {
-          deliveryFee += Number(settings.extra_store_fee) || 0;
+          extraStoreFee = Number(settings.extra_store_fee) || 0;
         }
       }
     }
@@ -148,8 +149,8 @@ router.post("/", async (req, res) => {
     const [result] = await db.query(
       `
       INSERT INTO orders 
-        (customer_id, address_id, restaurant_id, gps_link, stores_count, branch_id, delivery_fee)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+        (customer_id, address_id, restaurant_id, gps_link, stores_count, branch_id, delivery_fee, extra_store_fee)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         customer_id,
@@ -159,6 +160,7 @@ router.post("/", async (req, res) => {
         storesCount,
         branchId,
         deliveryFee,
+        extraStoreFee,
       ]
     );
 
@@ -192,7 +194,7 @@ router.post("/", async (req, res) => {
       );
     }
 
-    const grandTotal = total + deliveryFee;
+    const grandTotal = total + deliveryFee + extraStoreFee;
 
     await db.query(
       "UPDATE orders SET total_amount=? WHERE id=?",
@@ -204,6 +206,7 @@ router.post("/", async (req, res) => {
       order_id: orderId,
       stores_count: storesCount,
       delivery_fee: deliveryFee,
+      extra_store_fee: extraStoreFee,
       total: grandTotal,
     });
   } catch (err) {
@@ -211,7 +214,6 @@ router.post("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-
 /* =========================
    GET /orders/:id
 ========================= */
@@ -230,6 +232,7 @@ router.get("/:id", async (req, res) => {
         a.latitude,
         a.longitude,
         o.delivery_fee,
+        o.extra_store_fee,
         o.total_amount
       FROM orders o
       JOIN customers c ON c.id = o.customer_id
