@@ -20,17 +20,13 @@ router.get("/", async (req, res) => {
           o.id,
           c.name AS customer_name,
           c.phone AS customer_phone,
-          r.name AS restaurant_name,
-          r.phone AS restaurant_phone,
-          cap.name AS captain_name,
           o.status,
           o.total_amount,
           o.delivery_fee,
+          o.stores_count,
           o.created_at
         FROM orders o
         JOIN customers c ON c.id = o.customer_id
-        JOIN restaurants r ON r.id = o.restaurant_id
-        LEFT JOIN captains cap ON cap.id = o.captain_id
         ORDER BY o.id DESC
         LIMIT 50
       `);
@@ -41,18 +37,19 @@ router.get("/", async (req, res) => {
           o.id,
           c.name AS customer_name,
           c.phone AS customer_phone,
-          r.name AS restaurant_name,
-          r.phone AS restaurant_phone,
-          cap.name AS captain_name,
           o.status,
           o.total_amount,
           o.delivery_fee,
+          o.stores_count,
           o.created_at
         FROM orders o
         JOIN customers c ON c.id = o.customer_id
-        JOIN restaurants r ON r.id = o.restaurant_id
-        LEFT JOIN captains cap ON cap.id = o.captain_id
-        WHERE r.branch_id = ?
+        WHERE o.id IN (
+          SELECT DISTINCT oi.order_id
+          FROM order_items oi
+          JOIN restaurants r ON r.id = oi.restaurant_id
+          WHERE r.branch_id = ?
+        )
         ORDER BY o.id DESC
         LIMIT 50
         `,
@@ -142,7 +139,17 @@ router.post("/", async (req, res) => {
 router.get("/:id", async (req, res) => {
   try {
     const [items] = await db.query(
-      `SELECT * FROM order_items WHERE order_id=?`,
+      `
+      SELECT 
+        oi.*,
+        r.name  AS restaurant_name,
+        r.phone AS restaurant_phone,
+        r.latitude AS restaurant_latitude,
+        r.longitude AS restaurant_longitude
+      FROM order_items oi
+      JOIN restaurants r ON r.id = oi.restaurant_id
+      WHERE oi.order_id=?
+      `,
       [req.params.id]
     );
 
@@ -156,13 +163,10 @@ router.get("/:id", async (req, res) => {
         a.address AS customer_address,
         a.latitude,
         a.longitude,
-        r.name AS restaurant_name,
-        r.phone AS restaurant_phone,
         o.delivery_fee
       FROM orders o
       JOIN customers c ON c.id = o.customer_id
       JOIN customer_addresses a ON a.id = o.address_id
-      JOIN restaurants r ON r.id = o.restaurant_id
       WHERE o.id=?
       `,
       [req.params.id]
@@ -176,6 +180,7 @@ router.get("/:id", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 /* =========================
    PUT /orders/:id/status
