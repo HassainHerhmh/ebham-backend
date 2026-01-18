@@ -59,7 +59,7 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false, orders: [] });
   }
 });
-/* =========================
+//* =========================
    POST /orders
 ========================= */
 router.post("/", async (req, res) => {
@@ -104,8 +104,8 @@ router.post("/", async (req, res) => {
     // ===============================
     // 🧭 حساب الرسوم
     // ===============================
-    let deliveryFee = 0;   // رسوم محل واحد
-    let extraStoreFee = 0; // رسوم المحلات الإضافية
+    let deliveryFee = 0;    // رسوم محل واحد
+    let extraStoreFee = 0;  // رسوم المحلات الإضافية
 
     if (branchId) {
       const [settingsRows] = await db.query(
@@ -116,7 +116,7 @@ router.post("/", async (req, res) => {
       if (settingsRows.length) {
         const settings = settingsRows[0];
 
-        // رسوم التوصيل الأساسية (لمحل واحد)
+        // رسوم التوصيل الأساسية (لمحل واحد فقط)
         if (settings.method === "neighborhood" && address_id) {
           const [addr] = await db.query(
             "SELECT district FROM customer_addresses WHERE id=?",
@@ -139,7 +139,7 @@ router.post("/", async (req, res) => {
           deliveryFee = Number(settings.km_price_single) || 0;
         }
 
-        // رسوم المحل الإضافي = (عدد المطاعم - 1) × الرسوم
+        // رسوم المحلات الإضافية = (عدد المطاعم - 1) × الرسوم
         if (storesCount > 1) {
           extraStoreFee =
             (storesCount - 1) * (Number(settings.extra_store_fee) || 0);
@@ -215,6 +215,7 @@ router.post("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 /* =========================
    GET /orders/:id
 ========================= */
