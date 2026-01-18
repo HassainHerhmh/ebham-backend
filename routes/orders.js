@@ -8,14 +8,16 @@ router.use(auth);
 /* =========================
    GET /orders
 ========================= */
+/* =========================
+   GET /orders
+========================= */
 router.get("/", async (req, res) => {
   try {
     const user = req.user;
-
-    let rows;
+    let rows = [];
 
     if (user.is_admin_branch) {
-      [rows] = await db.query(`
+      const [result] = await db.query(`
         SELECT 
           o.id,
           c.name AS customer_name,
@@ -30,8 +32,10 @@ router.get("/", async (req, res) => {
         ORDER BY o.id DESC
         LIMIT 50
       `);
+
+      rows = result;
     } else {
-      [rows] = await db.query(
+      const [result] = await db.query(
         `
         SELECT 
           o.id,
@@ -55,14 +59,17 @@ router.get("/", async (req, res) => {
         `,
         [user.branch_id]
       );
+
+      rows = result;
     }
 
-    res.json({ success: true, orders: rows });
+    res.json({ success: true, orders: rows || [] });
   } catch (err) {
     console.error("GET ORDERS ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, orders: [] });
   }
 });
+
 
 /* =========================
    POST /orders
