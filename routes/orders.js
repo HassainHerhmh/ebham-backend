@@ -104,8 +104,8 @@ router.post("/", async (req, res) => {
     // ===============================
     // 🧭 حساب الرسوم
     // ===============================
-    let deliveryFee = 0;      // رسوم التوصيل (لمحل واحد)
-    let extraStoreFee = 0;    // رسوم المحل الإضافي
+    let deliveryFee = 0;   // رسوم محل واحد
+    let extraStoreFee = 0; // رسوم المحلات الإضافية
 
     if (branchId) {
       const [settingsRows] = await db.query(
@@ -116,7 +116,7 @@ router.post("/", async (req, res) => {
       if (settingsRows.length) {
         const settings = settingsRows[0];
 
-        // رسوم التوصيل الأساسية
+        // رسوم التوصيل الأساسية (لمحل واحد)
         if (settings.method === "neighborhood" && address_id) {
           const [addr] = await db.query(
             "SELECT district FROM customer_addresses WHERE id=?",
@@ -139,9 +139,10 @@ router.post("/", async (req, res) => {
           deliveryFee = Number(settings.km_price_single) || 0;
         }
 
-        // رسوم المحل الإضافي فقط
+        // رسوم المحل الإضافي = (عدد المطاعم - 1) × الرسوم
         if (storesCount > 1) {
-          extraStoreFee = Number(settings.extra_store_fee) || 0;
+          extraStoreFee =
+            (storesCount - 1) * (Number(settings.extra_store_fee) || 0);
         }
       }
     }
@@ -232,13 +233,11 @@ router.get("/:id", async (req, res) => {
         a.latitude,
         a.longitude,
         o.delivery_fee,
-        COALESCE(bds.extra_store_fee, 0) AS extra_store_fee,
+        o.extra_store_fee,
         o.total_amount
       FROM orders o
       JOIN customers c ON c.id = o.customer_id
       JOIN customer_addresses a ON a.id = o.address_id
-      LEFT JOIN branch_delivery_settings bds 
-        ON bds.branch_id = o.branch_id
       WHERE o.id=?
       `,
       [orderId]
