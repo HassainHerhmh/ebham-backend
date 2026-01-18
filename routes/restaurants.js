@@ -26,7 +26,6 @@ router.get("/", async (req, res) => {
         where = "WHERE r.branch_id = ?";
         params.push(selectedBranch);
       }
-      // غير ذلك: الإدارة ترى كل الفروع
     } else {
       where = "WHERE r.branch_id = ?";
       params.push(branch_id);
@@ -40,8 +39,7 @@ router.get("/", async (req, res) => {
         r.address,
         r.phone,
         r.image_url,
-        r.latitude,
-        r.longitude,
+        r.map_url,
         r.created_at,
         r.sort_order,
         r.type_id,
@@ -89,8 +87,7 @@ router.post("/", upload.single("image"), async (req, res) => {
       name,
       address = "",
       phone = "",
-      latitude = null,
-      longitude = null,
+      map_url = null,
       category_ids = [],
       schedule = "[]",
       type_id = null,
@@ -121,9 +118,9 @@ router.post("/", upload.single("image"), async (req, res) => {
 
     const [result] = await db.query(
       `INSERT INTO restaurants
-       (name, type_id, address, phone, image_url, latitude, longitude, sort_order, branch_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [name, type_id || null, address, phone, image_url, latitude || null, longitude || null, maxOrder + 1, finalBranchId]
+       (name, type_id, address, phone, image_url, map_url, sort_order, branch_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [name, type_id || null, address, phone, image_url, map_url, maxOrder + 1, finalBranchId]
     );
 
     const restaurantId = result.insertId;
@@ -172,8 +169,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       name,
       address,
       phone,
-      latitude,
-      longitude,
+      map_url,
       category_ids,
       schedule,
       type_id = null,
@@ -185,8 +181,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     if (name !== undefined) { updates.push("name=?"); params.push(name); }
     if (address !== undefined) { updates.push("address=?"); params.push(address); }
     if (phone !== undefined) { updates.push("phone=?"); params.push(phone); }
-    if (latitude !== undefined) { updates.push("latitude=?"); params.push(latitude || null); }
-    if (longitude !== undefined) { updates.push("longitude=?"); params.push(longitude || null); }
+    if (map_url !== undefined) { updates.push("map_url=?"); params.push(map_url || null); }
     if (type_id !== undefined) { updates.push("type_id=?"); params.push(type_id || null); }
 
     if (req.file) {
@@ -242,6 +237,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
 });
+
 
 /* ======================================================
    🔀 تحديث ترتيب المطاعم (حسب الفرع)
