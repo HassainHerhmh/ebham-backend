@@ -346,5 +346,100 @@ router.post("/:id/assign", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+/* =========================================
+   GET /orders?status=pending
+   جلب الطلبات حسب الحالة
+========================================= */
+router.get("/", async (req, res) => {
+  try {
+    const { status } = req.query;
 
+    let where = "";
+    const params = [];
+
+    if (status) {
+      if (status === "processing") {
+        // قيد المعالجة = confirmed + preparing
+        where = `WHERE o.status IN ('confirmed', 'preparing')`;
+      } else {
+        where = `WHERE o.status = $1`;
+        params.push(status);
+      }
+    }
+
+    const result = await db.query(
+      `
+      SELECT
+        o.id,
+        o.status,
+        o.total_amount,
+        o.delivery_fee,
+        o.extra_store_fee,
+        o.created_at,
+        c.name AS customer_name,
+        c.phone AS customer_phone,
+        COUNT(DISTINCT orr.restaurant_id) AS stores_count,
+        cap.name AS captain_name
+      FROM orders o
+      JOIN customers c ON c.id = o.customer_id
+      LEFT JOIN captains cap ON cap.id = o.captain_id
+      LEFT JOIN order_restaurants orr ON orr.order_id = o.id
+      ${where}
+      GROUP BY o.id, c.name, c.phone, cap.name
+      ORDER BY o.id DESC
+      `,
+      params
+    );
+
+    res.json({
+      success: true,
+      orders: result.rows,
+    });
+  } catch (err) {
+    console.error("❌ خطأ في جلب الطلبات:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+/* =========================================
+   PUT /orders/:id/status
+   تحديث حالة الطلب
+========================================= */
+router.put("/:id/status", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    await db.query(
+      `UPDATE orders SET status = $1 WHERE id = $2`,
+      [status, id]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ خطأ في تحديث الحالة:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
+/* =========================================
+   POST /orders/:id/assign-captain
+   تعيين كابتن
+========================================= */
+router.post("/:id/assign-captain", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { captain_id } = req.body;
+
+    await db.query(
+      `UPDATE orders SET captain_id = $1, status = 'delivering' WHERE id = $2`,
+      [captain_id, id]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ خطأ في تعيين الكابتن:", err);
+    res.status(500).json({ success: false });
+  }
+});
 export default router;
