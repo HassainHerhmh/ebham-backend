@@ -268,8 +268,7 @@ router.get("/:id", async (req, res) => {
         oi.restaurant_id,
         r.name AS restaurant_name,
         r.phone AS restaurant_phone,
-        r.latitude,
-        r.longitude
+        r.map_url
       FROM order_items oi
       JOIN restaurants r ON r.id = oi.restaurant_id
       WHERE oi.order_id=?
@@ -287,8 +286,7 @@ router.get("/:id", async (req, res) => {
           id: it.restaurant_id,
           name: it.restaurant_name,
           phone: it.restaurant_phone,
-          latitude: it.latitude,
-          longitude: it.longitude,
+          map_url: it.map_url, // ⬅️ بدل latitude / longitude
           items: [],
           total: 0,
         };
@@ -315,6 +313,7 @@ router.get("/:id", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 /* =========================
    PUT /orders/:id/status
