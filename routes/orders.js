@@ -108,6 +108,7 @@ router.post("/", async (req, res) => {
 
     console.log("BRANCH ID:", branchId);
 
+    
     // ===============================
     // 🧭 حساب الرسوم
     // ===============================
@@ -120,45 +121,45 @@ router.post("/", async (req, res) => {
         [branchId]
       );
 
-      console.log("SETTINGS:", settingsRows);
-
       if (settingsRows.length) {
         const settings = settingsRows[0];
 
+        // 🔹 حسب الحي
         if (settings.method === "neighborhood" && address_id) {
           const [addr] = await db.query(
             "SELECT district FROM customer_addresses WHERE id=?",
             [address_id]
           );
 
-          console.log("ADDRESS ROW:", addr);
-
           if (addr.length && addr[0].district) {
-           const [n] = await db.query(
-  "SELECT delivery_fee FROM neighborhoods WHERE name=?",
-  [addr[0].district]
-);
-
-            console.log("NEIGHBORHOOD:", n);
+            const [n] = await db.query(
+              "SELECT delivery_fee, extra_store_fee FROM neighborhoods WHERE name=?",
+              [addr[0].district]
+            );
 
             if (n.length) {
               deliveryFee = Number(n[0].delivery_fee) || 0;
+
+              if (storesCount > 1) {
+                extraStoreFee =
+                  (storesCount - 1) * (Number(n[0].extra_store_fee) || 0);
+              }
             }
           }
         }
 
+        // 🔹 حسب الكيلومتر
         if (settings.method === "distance") {
           deliveryFee = Number(settings.km_price_single) || 0;
-        }
 
-        if (storesCount > 1) {
-          extraStoreFee =
-            (storesCount - 1) * (Number(settings.extra_store_fee) || 0);
+          if (storesCount > 1) {
+            extraStoreFee =
+              (storesCount - 1) * (Number(settings.km_price_multi) || 0);
+            // إذا اسم العمود مختلف عندك عدله هنا
+          }
         }
       }
     }
-
-    console.log("FEES:", { deliveryFee, extraStoreFee });
 
     const [result] = await db.query(
       `
@@ -228,7 +229,6 @@ router.post("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-
 
 /* =========================
    GET /orders/:id
