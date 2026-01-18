@@ -376,16 +376,18 @@ router.get("/:id/products", async (req, res) => {
         p.id,
         p.name,
         p.price,
-        p.category_id,
-        p.notes
+        p.notes,
+        GROUP_CONCAT(pc.category_id) AS category_ids
       FROM products p
+      LEFT JOIN product_categories pc
+        ON pc.product_id = p.id
       WHERE p.restaurant_id = ?
+      GROUP BY p.id
       ORDER BY p.id DESC
       `,
       [restaurantId]
     );
 
-    // نفس الصيغة التي تعتمد عليها الواجهة
     res.json({
       success: true,
       products: rows,
@@ -395,6 +397,7 @@ router.get("/:id/products", async (req, res) => {
     res.status(500).json({ success: false, products: [] });
   }
 });
+
 
 
 
