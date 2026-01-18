@@ -63,7 +63,6 @@ router.get("/", async (req, res) => {
   }
 });
 
-
 /* =========================
    POST /orders
 ========================= */
@@ -97,14 +96,47 @@ router.post("/", async (req, res) => {
     const storesCount = storeIds.length;
     const mainRestaurantId = storeIds[0];
 
+    // ===============================
+    // 🧭 حساب رسوم التوصيل من الحي
+    // ===============================
+    let deliveryFee = 0;
+
+    if (address_id) {
+      const [addr] = await db.query(
+        "SELECT neighborhood_id FROM customer_addresses WHERE id=?",
+        [address_id]
+      );
+
+      if (addr.length && addr[0].neighborhood_id) {
+        const [n] = await db.query(
+          "SELECT delivery_fee FROM neighborhoods WHERE id=?",
+          [addr[0].neighborhood_id]
+        );
+
+        if (n.length) {
+          deliveryFee = Number(n[0].delivery_fee) || 0;
+        }
+      }
+    }
+
+    // رسوم إضافية لو الطلب من أكثر من مطعم
+    if (storesCount > 1) {
+      const [s] = await db.query(
+        "SELECT multi_store_fee FROM delivery_settings LIMIT 1"
+      );
+      if (s.length) {
+        deliveryFee += Number(s[0].multi_store_fee) || 0;
+      }
+    }
+
     // ربط الطلب بالفرع
     const branchId = user.branch_id || null;
 
     const [result] = await db.query(
       `
       INSERT INTO orders 
-        (customer_id, address_id, restaurant_id, gps_link, stores_count, branch_id)
-      VALUES (?, ?, ?, ?, ?, ?)
+        (customer_id, address_id, restaurant_id, gps_link, stores_count, branch_id, delivery_fee)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
       [
         customer_id,
@@ -113,6 +145,7 @@ router.post("/", async (req, res) => {
         gps_link || null,
         storesCount,
         branchId,
+        deliveryFee,
       ]
     );
 
@@ -149,19 +182,30 @@ router.post("/", async (req, res) => {
       console.log(`➕ ITEM ADDED: ${prod.name} x ${p.quantity}`);
     }
 
+    const grandTotal = total + deliveryFee;
+
     await db.query(
       "UPDATE orders SET total_amount=? WHERE id=?",
-      [total, orderId]
+      [grandTotal, orderId]
     );
 
-    console.log("💰 TOTAL SET:", total);
+    console.log("💰 TOTAL:", total);
+    console.log("🚚 DELIVERY FEE:", deliveryFee);
+    console.log("💵 GRAND TOTAL:", grandTotal);
 
-    res.json({ success: true, order_id: orderId, stores_count: storesCount });
+    res.json({
+      success: true,
+      order_id: orderId,
+      stores_count: storesCount,
+      delivery_fee: deliveryFee,
+      total: grandTotal,
+    });
   } catch (err) {
     console.error("ADD ORDER ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
+
 
 
 /* =========================
