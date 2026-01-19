@@ -145,7 +145,7 @@ router.post("/", async (req, res) => {
         "SELECT account_id FROM banks WHERE id = ?",
         [bank_account_id]
       );
-      boxAccount = bank?.account_id;
+     boxAccount = bank?.parent_account_id;
     }
 
     if (!boxAccount) {
