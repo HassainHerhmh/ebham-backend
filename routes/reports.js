@@ -18,8 +18,6 @@ payload:
 */
 
 router.post("/account-statement", async (req, res) => {
-  console.log("REQ USER =>", req.user);
-
   try {
     const {
       account_id,
@@ -41,19 +39,16 @@ router.post("/account-statement", async (req, res) => {
     let summaryGroupByParent = false;
 
     if (account_id) {
-      // حساب واحد (فرعي) – للإدارة أو الفرع
       const [rows] = await db.query(
         `SELECT id FROM accounts WHERE id = ?`,
         [account_id]
       );
       accountIds = rows.map(r => r.id);
     } else {
-      // كل الحسابات = الحسابات الرئيسية + فروعها
       let mainsSql = `SELECT id FROM accounts WHERE parent_id IS NULL`;
       const mainsParams = [];
 
       if (!is_admin_branch) {
-        // الفرع يرى الحسابات الرئيسية + فروعه فقط
         mainsSql = `
           SELECT id FROM accounts
           WHERE parent_id IS NULL
@@ -115,7 +110,7 @@ router.post("/account-statement", async (req, res) => {
 
       const [op] = await db.query(
         `
-        SELECT COALESCE(SUM(je.debit) - SUM(je.credit), 0) AS bal
+        SELECT ROUND(COALESCE(SUM(je.debit) - SUM(je.credit), 0), 2) AS bal
         FROM journal_entries je
         WHERE ${whereOpening.join(" AND ")}
           AND je.journal_date < ?
@@ -137,9 +132,9 @@ router.post("/account-statement", async (req, res) => {
         sql = `
           SELECT
             p.name_ar AS account_name,
-            SUM(je.debit)  AS debit,
-            SUM(je.credit) AS credit,
-            SUM(je.debit) - SUM(je.credit) AS balance
+            ROUND(SUM(je.debit), 2)  AS debit,
+            ROUND(SUM(je.credit), 2) AS credit,
+            ROUND(SUM(je.debit) - SUM(je.credit), 2) AS balance
           FROM journal_entries je
           JOIN accounts a ON a.id = je.account_id
           JOIN accounts p ON p.id = COALESCE(a.parent_id, a.id)
@@ -151,9 +146,9 @@ router.post("/account-statement", async (req, res) => {
         sql = `
           SELECT
             a.name_ar AS account_name,
-            SUM(je.debit)  AS debit,
-            SUM(je.credit) AS credit,
-            SUM(je.debit) - SUM(je.credit) AS balance
+            ROUND(SUM(je.debit), 2)  AS debit,
+            ROUND(SUM(je.credit), 2) AS credit,
+            ROUND(SUM(je.debit) - SUM(je.credit), 2) AS balance
           FROM journal_entries je
           JOIN accounts a ON a.id = je.account_id
           ${whereSql}
@@ -168,10 +163,10 @@ router.post("/account-statement", async (req, res) => {
           je.journal_date,
           p.name_ar AS parent_account,
           a.name_ar AS account_name,
-          je.debit,
-          je.credit,
+          ROUND(je.debit, 2)  AS debit,
+          ROUND(je.credit, 2) AS credit,
           je.notes,
-          (@run := @run + je.debit - je.credit) AS balance
+          ROUND(@run := @run + je.debit - je.credit, 2) AS balance
         FROM (SELECT @run := ?) r,
              journal_entries je
         JOIN accounts a ON a.id = je.account_id
