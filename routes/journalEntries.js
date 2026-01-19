@@ -14,7 +14,8 @@ router.get("/", async (req, res) => {
     const headerBranch = req.headers["x-branch-id"];
 
     let where = "WHERE 1=1 ";
-    const params: any[] = [];
+   const params = [];
+
 
     if (is_admin_branch) {
       if (headerBranch) {
