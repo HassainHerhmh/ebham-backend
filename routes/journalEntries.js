@@ -13,7 +13,7 @@ router.get("/", async (req, res) => {
     const { is_admin_branch, branch_id } = req.user;
     const headerBranch = req.headers["x-branch-id"];
 
-  let where = "WHERE j1.reference_type = 'manual' ";
+    let where = "WHERE 1=1 ";
     const params = [];
 
     if (is_admin_branch) {
@@ -42,20 +42,17 @@ LEFT JOIN accounts a1   ON a1.id = j1.account_id
 LEFT JOIN currencies c  ON c.id = j1.currency_id
 LEFT JOIN users u       ON u.id = j1.created_by
 LEFT JOIN branches br   ON br.id = j1.branch_id
- ${where}
-      GROUP BY
-        j1.reference_id,
-        j1.journal_date,
-        j1.currency_id,
-        j1.created_by,
-        j1.branch_id,
-        c.name_ar,
-        u.name,
-        br.name
-      ORDER BY id DESC
-      `,
-      params
-    );
+GROUP BY
+  j1.reference_id,
+  j1.journal_date,
+  j1.currency_id,
+  j1.created_by,
+  j1.branch_id,
+  c.name_ar,
+  u.name,
+  br.name
+ORDER BY id DESC
+`);
 
     res.json({ success: true, list: rows });
   } catch (err) {
@@ -63,6 +60,7 @@ LEFT JOIN branches br   ON br.id = j1.branch_id
     res.status(500).json({ success: false });
   }
 });
+
 
 
 
