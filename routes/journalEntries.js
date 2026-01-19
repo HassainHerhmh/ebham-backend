@@ -59,96 +59,53 @@ router.get("/", async (req, res) => {
 });
 
 /* =========================
-   POST Journal Entry (Manual)
+   POST Journal Entry
 ========================= */
 router.post("/", async (req, res) => {
-  const conn = await db.getConnection();
   try {
     const {
       journal_type_id,
+      reference_type,
+      reference_id,
       journal_date,
       currency_id,
-      from_account_id,
-      to_account_id,
-      amount,
+      account_id,
+      debit,
+      credit,
       notes,
       cost_center_id,
     } = req.body;
 
     const { id: user_id, branch_id } = req.user;
 
-    await conn.beginTransaction();
-
-    // توليد رقم سند موحد بين كل الأنواع
-    const [[row]] = await conn.query(`
-      SELECT COALESCE(MAX(v), 9) AS last_no FROM (
-        SELECT voucher_no AS v FROM receipt_vouchers WHERE voucher_no < 1000000
-        UNION ALL
-        SELECT voucher_no AS v FROM payment_vouchers WHERE voucher_no < 1000000
-        UNION ALL
-        SELECT reference_id AS v FROM journal_entries WHERE reference_id < 1000000
-      ) t
-    `);
-
-    const refNo = row.last_no + 1;
-
-    const jType = journal_type_id || 1;
-    const jNotes = notes || "قيد يدوي";
-
-    // القيد المدين
-    await conn.query(
+    await db.query(
       `
       INSERT INTO journal_entries
       (journal_type_id, reference_type, reference_id, journal_date,
        currency_id, account_id, debit, credit, notes, cost_center_id,
        created_by, branch_id)
-      VALUES (?, 'manual', ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
-        jType,
-        refNo,
+        journal_type_id,
+        reference_type,
+        reference_id,
         journal_date,
         currency_id,
-        from_account_id,
-        amount,
-        jNotes,
-        cost_center_id || null,
+        account_id,
+        debit,
+        credit,
+        notes,
+        cost_center_id,
         user_id,
         branch_id,
       ]
     );
 
-    // القيد الدائن
-    await conn.query(
-      `
-      INSERT INTO journal_entries
-      (journal_type_id, reference_type, reference_id, journal_date,
-       currency_id, account_id, debit, credit, notes, cost_center_id,
-       created_by, branch_id)
-      VALUES (?, 'manual', ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
-      `,
-      [
-        jType,
-        refNo,
-        journal_date,
-        currency_id,
-        to_account_id,
-        amount,
-        jNotes,
-        cost_center_id || null,
-        user_id,
-        branch_id,
-      ]
-    );
-
-    await conn.commit();
-    res.json({ success: true, reference_id: refNo });
+    res.json({ success: true });
   } catch (err) {
-    await conn.rollback();
     console.error("CREATE JOURNAL ENTRY ERROR:", err);
     res.status(500).json({ success: false, message: "فشل حفظ القيد" });
-  } finally {
-    conn.release();
   }
 });
 
