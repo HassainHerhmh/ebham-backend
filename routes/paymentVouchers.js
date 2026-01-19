@@ -62,7 +62,6 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     const {
-      voucher_no,
       voucher_date,
       payment_type,            // cash | bank
       cash_box_account_id,
@@ -79,6 +78,19 @@ router.post("/", async (req, res) => {
     } = req.body;
 
     const { id: user_id, branch_id } = req.user;
+
+    // 0) توليد رقم سند تسلسلي موحّد بين القبض/الصرف/القيود
+    const [[row]] = await db.query(`
+      SELECT MAX(v) AS last_no FROM (
+        SELECT MAX(voucher_no) AS v FROM receipt_vouchers
+        UNION ALL
+        SELECT MAX(voucher_no) AS v FROM payment_vouchers
+        UNION ALL
+        SELECT MAX(reference_id) AS v FROM journal_entries
+      ) t
+    `);
+
+    const voucher_no = (row?.last_no || 0) + 1;
 
     // 1) حفظ السند
     const [result] = await db.query(
@@ -137,10 +149,10 @@ router.post("/", async (req, res) => {
       `,
       [
         jType,
-        voucherId,
+        voucher_no,          // نستخدم رقم السند الموحد
         voucher_date,
         currency_id,
-        account_id,
+        account_id,          // حساب المصروف (فرعي)
         amount,
         jNotes,
         user_id,
@@ -148,7 +160,7 @@ router.post("/", async (req, res) => {
       ]
     );
 
-    // 3) القيد الدائن: الصندوق أو البنك
+    // 3) القيد الدائن: الصندوق أو البنك (فرعي)
     await db.query(
       `
       INSERT INTO journal_entries
@@ -158,10 +170,10 @@ router.post("/", async (req, res) => {
       `,
       [
         jType,
-        voucherId,
+        voucher_no,          // نفس رقم السند
         voucher_date,
         currency_id,
-        creditAccount,
+        creditAccount,       // حساب الصندوق أو البنك (فرعي)
         amount,
         jNotes,
         user_id,
@@ -169,12 +181,13 @@ router.post("/", async (req, res) => {
       ]
     );
 
-    res.json({ success: true, id: voucherId });
+    res.json({ success: true, id: voucherId, voucher_no });
   } catch (err) {
     console.error("ADD PAYMENT VOUCHER ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
+
 
 /* =====================================================
    ✏️ PUT /payment-vouchers/:id
