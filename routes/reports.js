@@ -50,23 +50,22 @@ router.post("/account-statement", async (req, res) => {
 
     let accountIds = [];
     let summaryGroupByParent = false;
-
-    if (account_id) {
-      // حساب واحد = حساب فرعي
-      if (is_admin_branch) {
-        // فرع الإدارة: كل الحسابات الفرعية (من كل الفروع)
-        const [rows] = await db.query(
-          `SELECT id FROM accounts WHERE parent_id IS NOT NULL`
-        );
-        accountIds = rows.map(r => r.id);
-      } else {
-        // فرع عادي: الحساب الفرعي المرتبط بفرعه فقط
-        const [rows] = await db.query(
-          `SELECT id FROM accounts WHERE id = ? AND branch_id = ?`,
-          [account_id, branch_id]
-        );
-        accountIds = rows.map(r => r.id);
-      }
+if (account_id) {
+  // حساب واحد = حساب فرعي
+  if (is_admin_branch) {
+    // فرع الإدارة: كل الحسابات الفرعية (من كل الفروع)
+    const [rows] = await db.query(
+      `SELECT id FROM accounts WHERE parent_id IS NOT NULL`
+    );
+    accountIds = rows.map(r => r.id);
+  } else {
+    // فرع عادي: الحساب الفرعي المرتبط بفرعه فقط
+    const [rows] = await db.query(
+      `SELECT id FROM accounts WHERE id = ? AND branch_id = ?`,
+      [account_id, branch_id]
+    );
+    accountIds = rows.map(r => r.id);
+  }
     } else {
       // كل الحسابات = حسابات رئيسية (آباء)
       const [mains] = await db.query(
