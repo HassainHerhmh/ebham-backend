@@ -42,17 +42,20 @@ LEFT JOIN accounts a1   ON a1.id = j1.account_id
 LEFT JOIN currencies c  ON c.id = j1.currency_id
 LEFT JOIN users u       ON u.id = j1.created_by
 LEFT JOIN branches br   ON br.id = j1.branch_id
-GROUP BY
-  j1.reference_id,
-  j1.journal_date,
-  j1.currency_id,
-  j1.created_by,
-  j1.branch_id,
-  c.name_ar,
-  u.name,
-  br.name
-ORDER BY id DESC
-`);
+ ${where}
+      GROUP BY
+        j1.reference_id,
+        j1.journal_date,
+        j1.currency_id,
+        j1.created_by,
+        j1.branch_id,
+        c.name_ar,
+        u.name,
+        br.name
+      ORDER BY id DESC
+      `,
+      params
+    );
 
     res.json({ success: true, list: rows });
   } catch (err) {
