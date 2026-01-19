@@ -18,11 +18,11 @@ payload:
 */
 
 router.post("/account-statement", async (req, res) => {
-    console.log("REQ USER =>", req.user);
+  console.log("REQ USER =>", req.user);
 
   try {
     const {
-      account_id,     // هنا يمثل "حساب واحد" = فرعي
+      account_id,
       currency_id,
       from_date,
       to_date,
@@ -38,45 +38,39 @@ router.post("/account-statement", async (req, res) => {
        تحديد نطاق الفروع
     ========================= */
     if (!is_admin_branch) {
-      // الفروع العادية ترى بيانات فرعها فقط
       where.push(`je.branch_id = ?`);
       params.push(branch_id);
     }
-    // فرع الإدارة: لا نقيّد بالفرع
 
     /* =========================
        تحديد الحسابات
-       - حساب واحد = فرعي
-       - كل الحسابات = رئيسي
     ========================= */
-
     let accountIds = [];
     let summaryGroupByParent = false;
-if (account_id) {
-  // حساب واحد = حساب فرعي
-  if (is_admin_branch) {
-    // فرع الإدارة: كل الحسابات الفرعية (من كل الفروع)
-    const [rows] = await db.query(
-      `SELECT id FROM accounts WHERE parent_id IS NOT NULL`
-    );
-    accountIds = rows.map(r => r.id);
-  } else {
-    // فرع عادي: الحساب الفرعي المرتبط بفرعه فقط
-    const [rows] = await db.query(
-      `SELECT id FROM accounts WHERE id = ? AND branch_id = ?`,
-      [account_id, branch_id]
-    );
-    accountIds = rows.map(r => r.id);
-  }
+
+    if (account_id) {
+      // حساب واحد (فرعي)
+      if (is_admin_branch) {
+        const [rows] = await db.query(
+          `SELECT id FROM accounts WHERE id = ?`,
+          [account_id]
+        );
+        accountIds = rows.map(r => r.id);
+      } else {
+        const [rows] = await db.query(
+          `SELECT id FROM accounts WHERE id = ? AND branch_id = ?`,
+          [account_id, branch_id]
+        );
+        accountIds = rows.map(r => r.id);
+      }
     } else {
-      // كل الحسابات = حسابات رئيسية (آباء)
+      // كل الحسابات = الحسابات الرئيسية + فروعها
       const [mains] = await db.query(
         `SELECT id FROM accounts WHERE parent_id IS NULL`
       );
       const mainIds = mains.map(r => r.id);
 
       if (mainIds.length) {
-        // نضم الآباء + كل فروعهم للحساب
         const [all] = await db.query(
           `
           SELECT id
@@ -119,18 +113,20 @@ if (account_id) {
     ========================= */
     let opening = 0;
     if (from_date) {
-   const [op] = await db.query(
-  `
-  SELECT COALESCE(SUM(je.debit) - SUM(je.credit), 0) AS bal
-  FROM journal_entries je
-  WHERE ${where
-    .filter(w => !w.includes("je.journal_date >="))
-    .join(" AND ")}
-    AND je.journal_date < ?
-  `,
-  [...params.filter((_, i) => !where[i]?.includes("je.journal_date >=")), from_date]
-);
+      const whereOpening = where.filter(w => !w.includes("je.journal_date >="));
+      const paramsOpening = params.filter(
+        (_, i) => !where[i]?.includes("je.journal_date >=")
+      );
 
+      const [op] = await db.query(
+        `
+        SELECT COALESCE(SUM(je.debit) - SUM(je.credit), 0) AS bal
+        FROM journal_entries je
+        WHERE ${whereOpening.join(" AND ")}
+          AND je.journal_date < ?
+        `,
+        [...paramsOpening, from_date]
+      );
 
       opening = op[0]?.bal || 0;
     }
@@ -143,7 +139,6 @@ if (account_id) {
 
     if (report_mode === "summary") {
       if (summaryGroupByParent) {
-        // كل الحسابات = رئيسي (تجميع على الأب)
         sql = `
           SELECT
             p.name_ar AS account_name,
@@ -158,7 +153,6 @@ if (account_id) {
           ORDER BY p.name_ar
         `;
       } else {
-        // حساب واحد = فرعي
         sql = `
           SELECT
             a.name_ar AS account_name,
@@ -173,7 +167,6 @@ if (account_id) {
         `;
       }
     } else {
-      // Detailed
       sql = `
         SELECT
           je.id,
