@@ -84,7 +84,7 @@ router.post("/", async (req, res) => {
 
     await conn.beginTransaction();
 
-    // توليد رقم سند (كما هو عندك الآن)
+    // توليد رقم سند موحّد
     const [[row]] = await conn.query(`
       SELECT COALESCE(MAX(v), 9) AS last_no FROM (
         SELECT voucher_no AS v FROM receipt_vouchers WHERE voucher_no < 1000000
@@ -128,24 +128,23 @@ router.post("/", async (req, res) => {
 
     const refId = r.insertId;
 
-    // 🔴 هنا التصحيح الحقيقي
+    // 🔴 تحويل الصندوق / البنك إلى الحساب المحاسبي الفرعي الحقيقي
     let boxAccount = null;
 
-   if (cash_box_account_id) {
-  const [[box]] = await conn.query(
-    "SELECT parent_account_id FROM cash_boxes WHERE id = ?",
-    [cash_box_account_id]
-  );
-  boxAccount = box?.parent_account_id;
-}
-
+    if (cash_box_account_id) {
+      const [[box]] = await conn.query(
+        "SELECT parent_account_id FROM cash_boxes WHERE id = ?",
+        [cash_box_account_id]
+      );
+      boxAccount = box?.parent_account_id;
+    }
 
     if (bank_account_id) {
       const [[bank]] = await conn.query(
-        "SELECT account_id FROM banks WHERE id = ?",
+        "SELECT parent_account_id FROM banks WHERE id = ?",
         [bank_account_id]
       );
-     boxAccount = bank?.parent_account_id;
+      boxAccount = bank?.parent_account_id;
     }
 
     if (!boxAccount) {
@@ -199,7 +198,7 @@ router.post("/", async (req, res) => {
   } catch (err) {
     await conn.rollback();
     console.error("ADD RECEIPT VOUCHER ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, message: err.message });
   } finally {
     conn.release();
   }
