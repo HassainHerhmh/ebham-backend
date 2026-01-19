@@ -85,18 +85,18 @@ router.post("/", async (req, res) => {
 
     await conn.beginTransaction();
 
-    // توليد رقم سند تسلسلي موحّد
-    const [[row]] = await conn.query(`
-      SELECT MAX(v) AS last_no FROM (
-        SELECT MAX(voucher_no) AS v FROM receipt_vouchers
-        UNION ALL
-        SELECT MAX(voucher_no) AS v FROM payment_vouchers
-        UNION ALL
-        SELECT MAX(reference_id) AS v FROM journal_entries
-      ) t
-    `);
+// 0) توليد رقم سند تسلسلي موحّد باستخدام voucher_sequence
+const [[row]] = await conn.query(
+  "SELECT last_no FROM voucher_sequence WHERE id = 1 FOR UPDATE"
+);
 
-    const voucher_no = (row?.last_no || 9) + 1; // يبدأ من 10
+const voucher_no = row.last_no + 1;
+
+// تحديث العداد
+await conn.query(
+  "UPDATE voucher_sequence SET last_no = ? WHERE id = 1",
+  [voucher_no]
+);
 
     // حفظ السند
     const [r] = await conn.query(
