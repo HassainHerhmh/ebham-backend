@@ -64,6 +64,7 @@ router.get("/", async (req, res) => {
    POST /receipt-vouchers
 ========================= */
 router.post("/", async (req, res) => {
+  const conn = await db.getConnection();
   try {
     const {
       voucher_no,
@@ -74,7 +75,7 @@ router.post("/", async (req, res) => {
       transfer_no,
       currency_id,
       amount,
-      account_id,
+      account_id, // الحساب المقابل (العميل مثلاً)
       analytic_account_id,
       cost_center_id,
       journal_type_id,
@@ -84,7 +85,9 @@ router.post("/", async (req, res) => {
 
     const { id: user_id, branch_id } = req.user;
 
-    await db.query(
+    await conn.beginTransaction();
+
+    const [r] = await conn.query(
       `
       INSERT INTO receipt_vouchers
       (voucher_no, voucher_date, receipt_type, cash_box_account_id, bank_account_id,
@@ -106,18 +109,68 @@ router.post("/", async (req, res) => {
         cost_center_id || null,
         journal_type_id || 1,
         notes || null,
-        handling || 0,
+        handling || null,
         user_id,
         branch_id,
       ]
     );
 
+    const refId = r.insertId;
+    const boxAccount = cash_box_account_id || bank_account_id;
+
+    // مدين: الصندوق / البنك
+    await conn.query(
+      `
+      INSERT INTO journal_entries
+      (journal_type_id, reference_type, reference_id, journal_date,
+       currency_id, account_id, debit, credit, notes, created_by, branch_id)
+      VALUES (?, 'receipt', ?, ?, ?, ?, ?, 0, ?, ?, ?)
+      `,
+      [
+        journal_type_id || 1,
+        refId,
+        voucher_date,
+        currency_id,
+        boxAccount,
+        amount,
+        notes || "سند قبض",
+        user_id,
+        branch_id,
+      ]
+    );
+
+    // دائن: الحساب المقابل
+    await conn.query(
+      `
+      INSERT INTO journal_entries
+      (journal_type_id, reference_type, reference_id, journal_date,
+       currency_id, account_id, debit, credit, notes, created_by, branch_id)
+      VALUES (?, 'receipt', ?, ?, ?, ?, 0, ?, ?, ?, ?)
+      `,
+      [
+        journal_type_id || 1,
+        refId,
+        voucher_date,
+        currency_id,
+        account_id,
+        amount,
+        notes || "سند قبض",
+        user_id,
+        branch_id,
+      ]
+    );
+
+    await conn.commit();
     res.json({ success: true });
   } catch (err) {
+    await conn.rollback();
     console.error("ADD RECEIPT VOUCHER ERROR:", err);
     res.status(500).json({ success: false });
+  } finally {
+    conn.release();
   }
 });
+
 
 /* =========================
    PUT /receipt-vouchers/:id
