@@ -70,14 +70,13 @@ router.get("/", async (req, res) => {
 
 
 /* =========================
-   POST Journal Entry
+   POST Journal Entry (Manual)
 ========================= */
 router.post("/", async (req, res) => {
+  const conn = await db.getConnection();
   try {
     const {
       journal_type_id,
-      reference_type,
-      reference_id,
       journal_date,
       currency_id,
       account_id,
@@ -89,34 +88,53 @@ router.post("/", async (req, res) => {
 
     const { id: user_id, branch_id } = req.user;
 
-    await db.query(
+    await conn.beginTransaction();
+
+    // 0) توليد رقم سند تسلسلي موحّد
+    const [[row]] = await conn.query(`
+      SELECT MAX(v) AS last_no FROM (
+        SELECT MAX(voucher_no) AS v FROM receipt_vouchers
+        UNION ALL
+        SELECT MAX(voucher_no) AS v FROM payment_vouchers
+        UNION ALL
+        SELECT MAX(reference_id) AS v FROM journal_entries
+      ) t
+    `);
+
+    const refNo = (row?.last_no || 0) + 1;
+
+    // 1) إدخال القيد اليدوي
+    await conn.query(
       `
       INSERT INTO journal_entries
       (journal_type_id, reference_type, reference_id, journal_date,
        currency_id, account_id, debit, credit, notes, cost_center_id,
        created_by, branch_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
-        journal_type_id,
-        reference_type,
-        reference_id,
+        journal_type_id || 1,
+        refNo,
         journal_date,
         currency_id,
         account_id,
-        debit,
-        credit,
-        notes,
-        cost_center_id,
+        debit || 0,
+        credit || 0,
+        notes || "قيد يدوي",
+        cost_center_id || null,
         user_id,
         branch_id,
       ]
     );
 
-    res.json({ success: true });
+    await conn.commit();
+    res.json({ success: true, reference_id: refNo });
   } catch (err) {
+    await conn.rollback();
     console.error("CREATE JOURNAL ENTRY ERROR:", err);
     res.status(500).json({ success: false, message: "فشل حفظ القيد" });
+  } finally {
+    conn.release();
   }
 });
 
