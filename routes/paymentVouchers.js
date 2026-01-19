@@ -267,19 +267,37 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-/* =====================================================
-   🗑️ DELETE /payment-vouchers/:id
-===================================================== */
+/* =========================
+   DELETE /payment-vouchers/:id
+========================= */
 router.delete("/:id", async (req, res) => {
+  const conn = await db.getConnection();
   try {
-    await db.query(`DELETE FROM payment_vouchers WHERE id = ?`, [
-      req.params.id,
-    ]);
+    const { id } = req.params;
+
+    await conn.beginTransaction();
+
+    await conn.query(
+      `DELETE FROM journal_entries 
+       WHERE reference_type = 'payment' AND reference_id = ?`,
+      [id]
+    );
+
+    await conn.query(
+      `DELETE FROM payment_vouchers WHERE id = ?`,
+      [id]
+    );
+
+    await conn.commit();
     res.json({ success: true });
   } catch (err) {
+    await conn.rollback();
     console.error("DELETE PAYMENT VOUCHER ERROR:", err);
     res.status(500).json({ success: false });
+  } finally {
+    conn.release();
   }
 });
+
 
 export default router;
