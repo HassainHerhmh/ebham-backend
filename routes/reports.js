@@ -117,17 +117,18 @@ if (account_id) {
     ========================= */
     let opening = 0;
     if (from_date) {
-      const [op] = await db.query(
-        `
-        SELECT COALESCE(SUM(debit) - SUM(credit), 0) AS bal
-        FROM journal_entries
-        WHERE ${where
-          .filter(w => !w.includes("je.journal_date >="))
-          .join(" AND ")}
-          AND journal_date < ?
-        `,
-        [...params.filter((_, i) => !where[i]?.includes("je.journal_date >=")), from_date]
-      );
+   const [op] = await db.query(
+  `
+  SELECT COALESCE(SUM(je.debit) - SUM(je.credit), 0) AS bal
+  FROM journal_entries je
+  WHERE ${where
+    .filter(w => !w.includes("je.journal_date >="))
+    .join(" AND ")}
+    AND je.journal_date < ?
+  `,
+  [...params.filter((_, i) => !where[i]?.includes("je.journal_date >=")), from_date]
+);
+
 
       opening = op[0]?.bal || 0;
     }
