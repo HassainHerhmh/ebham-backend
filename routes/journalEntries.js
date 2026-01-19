@@ -13,7 +13,7 @@ router.get("/", async (req, res) => {
     const { is_admin_branch, branch_id } = req.user;
     const headerBranch = req.headers["x-branch-id"];
 
-    let where = "WHERE j1.reference_type NOT IN ('receipt', 'payment') ";
+    let where = "WHERE j1.reference_type = 'manual' ";
     const params = [];
 
     if (is_admin_branch) {
@@ -29,31 +29,23 @@ router.get("/", async (req, res) => {
     const [rows] = await db.query(
       `
       SELECT
-        j1.reference_id,
-        j1.journal_date,
+        j1.reference_id                       AS voucher_no,
+        MIN(j1.journal_date)                 AS journal_date,
         MAX(CASE WHEN j1.debit  > 0 THEN a1.name_ar END) AS from_account,
         MAX(CASE WHEN j1.credit > 0 THEN a1.name_ar END) AS to_account,
-        SUM(j1.debit)                                   AS amount,
-        c.name_ar                                       AS currency_name,
-        MAX(j1.notes)                                  AS notes,
-        u.name                                          AS user_name,
-        br.name                                         AS branch_name,
-        MIN(j1.id)                                      AS id
+        SUM(j1.debit)                        AS amount,
+        MAX(c.name_ar)                       AS currency_name,
+        MAX(j1.notes)                       AS notes,
+        MAX(u.name)                         AS user_name,
+        MAX(br.name)                        AS branch_name,
+        MIN(j1.id)                          AS id
       FROM journal_entries j1
       LEFT JOIN accounts a1  ON a1.id = j1.account_id
       LEFT JOIN currencies c ON c.id = j1.currency_id
       LEFT JOIN users u      ON u.id = j1.created_by
       LEFT JOIN branches br  ON br.id = j1.branch_id
       ${where}
-      GROUP BY
-        j1.reference_id,
-        j1.journal_date,
-        j1.currency_id,
-        j1.created_by,
-        j1.branch_id,
-        c.name_ar,
-        u.name,
-        br.name
+      GROUP BY j1.reference_id
       ORDER BY id DESC
       `,
       params
@@ -66,12 +58,6 @@ router.get("/", async (req, res) => {
   }
 });
 
-
-
-
-
-
-
 /* =========================
    POST Journal Entry (Manual)
 ========================= */
@@ -82,9 +68,9 @@ router.post("/", async (req, res) => {
       journal_type_id,
       journal_date,
       currency_id,
-      account_id,
-      debit,
-      credit,
+      from_account_id,
+      to_account_id,
+      amount,
       notes,
       cost_center_id,
     } = req.body;
@@ -93,38 +79,62 @@ router.post("/", async (req, res) => {
 
     await conn.beginTransaction();
 
-    // 0) توليد رقم سند تسلسلي موحّد
-  const [[row]] = await conn.query(`
-  SELECT COALESCE(MAX(v), 9) AS last_no FROM (
-    SELECT voucher_no AS v FROM receipt_vouchers WHERE voucher_no < 1000000
-    UNION ALL
-    SELECT voucher_no AS v FROM payment_vouchers WHERE voucher_no < 1000000
-    UNION ALL
-    SELECT reference_id AS v FROM journal_entries WHERE reference_id < 1000000
-  ) t
-`);
+    // توليد رقم سند موحد بين كل الأنواع
+    const [[row]] = await conn.query(`
+      SELECT COALESCE(MAX(v), 9) AS last_no FROM (
+        SELECT voucher_no AS v FROM receipt_vouchers WHERE voucher_no < 1000000
+        UNION ALL
+        SELECT voucher_no AS v FROM payment_vouchers WHERE voucher_no < 1000000
+        UNION ALL
+        SELECT reference_id AS v FROM journal_entries WHERE reference_id < 1000000
+      ) t
+    `);
 
-const refNo = row.last_no + 1;
+    const refNo = row.last_no + 1;
 
+    const jType = journal_type_id || 1;
+    const jNotes = notes || "قيد يدوي";
 
-    // 1) إدخال القيد اليدوي
+    // القيد المدين
     await conn.query(
       `
       INSERT INTO journal_entries
       (journal_type_id, reference_type, reference_id, journal_date,
        currency_id, account_id, debit, credit, notes, cost_center_id,
        created_by, branch_id)
-      VALUES (?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, 'manual', ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
       `,
       [
-        journal_type_id || 1,
+        jType,
         refNo,
         journal_date,
         currency_id,
-        account_id,
-        debit || 0,
-        credit || 0,
-        notes || "قيد يدوي",
+        from_account_id,
+        amount,
+        jNotes,
+        cost_center_id || null,
+        user_id,
+        branch_id,
+      ]
+    );
+
+    // القيد الدائن
+    await conn.query(
+      `
+      INSERT INTO journal_entries
+      (journal_type_id, reference_type, reference_id, journal_date,
+       currency_id, account_id, debit, credit, notes, cost_center_id,
+       created_by, branch_id)
+      VALUES (?, 'manual', ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+      `,
+      [
+        jType,
+        refNo,
+        journal_date,
+        currency_id,
+        to_account_id,
+        amount,
+        jNotes,
         cost_center_id || null,
         user_id,
         branch_id,
