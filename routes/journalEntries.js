@@ -13,7 +13,7 @@ router.get("/", async (req, res) => {
     const { is_admin_branch, branch_id } = req.user;
     const headerBranch = req.headers["x-branch-id"];
 
-    let where = "WHERE j1.reference_type = 'manual' ";
+    let where = "WHERE 1=1 ";
     const params = [];
 
     if (is_admin_branch) {
@@ -25,40 +25,34 @@ router.get("/", async (req, res) => {
       where += " AND j1.branch_id = ? ";
       params.push(branch_id);
     }
-
-    const [rows] = await db.query(
-      `
-      SELECT
-        j1.reference_id            AS voucher_no,
-        j1.journal_date,
-        MAX(CASE WHEN j1.debit  > 0 THEN a1.name_ar END)  AS from_account,
-        MAX(CASE WHEN j1.credit > 0 THEN a1.name_ar END)  AS to_account,
-        SUM(j1.debit)                                    AS debit,
-        SUM(j1.credit)                                   AS credit,
-        c.name_ar                                        AS currency_name,
-        MAX(j1.notes)                                   AS notes,
-        u.name                                           AS user_name,
-        br.name                                          AS branch_name,
-        MIN(j1.id)                                       AS id
-      FROM journal_entries j1
-      LEFT JOIN accounts a1  ON a1.id = j1.account_id
-      LEFT JOIN currencies c ON c.id = j1.currency_id
-      LEFT JOIN users u      ON u.id = j1.created_by
-      LEFT JOIN branches br  ON br.id = j1.branch_id
-      ${where}
-      GROUP BY
-        j1.reference_id,
-        j1.journal_date,
-        j1.currency_id,
-        j1.created_by,
-        j1.branch_id,
-        c.name_ar,
-        u.name,
-        br.name
-      ORDER BY id DESC
-      `,
-      params
-    );
+const [rows] = await db.query(`
+SELECT
+  j1.reference_id,
+  j1.journal_date,
+  MAX(CASE WHEN j1.debit > 0 THEN a1.name_ar END)  AS from_account,
+  MAX(CASE WHEN j1.credit > 0 THEN a1.name_ar END) AS to_account,
+  SUM(j1.debit)                                   AS amount,
+  c.name_ar                                       AS currency_name,
+  MAX(j1.notes)                                  AS notes,
+  u.name                                          AS user_name,
+  br.name                                         AS branch_name,
+  MIN(j1.id)                                      AS id
+FROM journal_entries j1
+LEFT JOIN accounts a1   ON a1.id = j1.account_id
+LEFT JOIN currencies c  ON c.id = j1.currency_id
+LEFT JOIN users u       ON u.id = j1.created_by
+LEFT JOIN branches br   ON br.id = j1.branch_id
+GROUP BY
+  j1.reference_id,
+  j1.journal_date,
+  j1.currency_id,
+  j1.created_by,
+  j1.branch_id,
+  c.name_ar,
+  u.name,
+  br.name
+ORDER BY id DESC
+`);
 
     res.json({ success: true, list: rows });
   } catch (err) {
@@ -66,6 +60,9 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
+
+
 
 
 
