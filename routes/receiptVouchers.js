@@ -131,13 +131,14 @@ router.post("/", async (req, res) => {
     // 🔴 هنا التصحيح الحقيقي
     let boxAccount = null;
 
-    if (cash_box_account_id) {
-      const [[box]] = await conn.query(
-        "SELECT account_id FROM cash_boxes WHERE id = ?",
-        [cash_box_account_id]
-      );
-      boxAccount = box?.account_id;
-    }
+   if (cash_box_account_id) {
+  const [[box]] = await conn.query(
+    "SELECT parent_account_id FROM cash_boxes WHERE id = ?",
+    [cash_box_account_id]
+  );
+  boxAccount = box?.parent_account_id;
+}
+
 
     if (bank_account_id) {
       const [[bank]] = await conn.query(
