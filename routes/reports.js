@@ -9,7 +9,7 @@ router.use(auth);
 POST /reports/account-statement
 payload:
 {
-  account_id?: number,        // عند اختيار "حساب واحد" (حساب فرعي)
+  account_id?: number,        // عند اختيار "حساب واحد" (فرعي)
   currency_id?: number|null,
   from_date?: string|null,
   to_date?: string|null,
@@ -35,39 +35,34 @@ router.post("/account-statement", async (req, res) => {
     const params = [];
 
     /* =========================
-       تحديد نطاق الفروع
-    ========================= */
-    if (!is_admin_branch) {
-      where.push(`je.branch_id = ?`);
-      params.push(branch_id);
-    }
-
-    /* =========================
        تحديد الحسابات
     ========================= */
     let accountIds = [];
     let summaryGroupByParent = false;
 
     if (account_id) {
-      // حساب واحد (فرعي)
-      if (is_admin_branch) {
-        const [rows] = await db.query(
-          `SELECT id FROM accounts WHERE id = ?`,
-          [account_id]
-        );
-        accountIds = rows.map(r => r.id);
-      } else {
-        const [rows] = await db.query(
-          `SELECT id FROM accounts WHERE id = ? AND branch_id = ?`,
-          [account_id, branch_id]
-        );
-        accountIds = rows.map(r => r.id);
-      }
+      // حساب واحد (فرعي) – للإدارة أو الفرع
+      const [rows] = await db.query(
+        `SELECT id FROM accounts WHERE id = ?`,
+        [account_id]
+      );
+      accountIds = rows.map(r => r.id);
     } else {
       // كل الحسابات = الحسابات الرئيسية + فروعها
-      const [mains] = await db.query(
-        `SELECT id FROM accounts WHERE parent_id IS NULL`
-      );
+      let mainsSql = `SELECT id FROM accounts WHERE parent_id IS NULL`;
+      const mainsParams = [];
+
+      if (!is_admin_branch) {
+        // الفرع يرى الحسابات الرئيسية + فروعه فقط
+        mainsSql = `
+          SELECT id FROM accounts
+          WHERE parent_id IS NULL
+             OR (parent_id IS NOT NULL AND branch_id = ?)
+        `;
+        mainsParams.push(branch_id);
+      }
+
+      const [mains] = await db.query(mainsSql, mainsParams);
       const mainIds = mains.map(r => r.id);
 
       if (mainIds.length) {
