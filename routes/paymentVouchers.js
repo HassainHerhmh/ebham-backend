@@ -60,6 +60,7 @@ router.get("/", async (req, res) => {
    ➕ POST /payment-vouchers
 ===================================================== */
 router.post("/", async (req, res) => {
+  const conn = await db.getConnection();
   try {
     const {
       voucher_date,
@@ -69,7 +70,7 @@ router.post("/", async (req, res) => {
       transfer_no,
       currency_id,
       amount,
-      account_id,              // حساب المصروف
+      account_id,              // حساب المصروف (فرعي)
       analytic_account_id,
       cost_center_id,
       journal_type_id,
@@ -79,22 +80,23 @@ router.post("/", async (req, res) => {
 
     const { id: user_id, branch_id } = req.user;
 
+    await conn.beginTransaction();
+
     // 0) توليد رقم سند تسلسلي موحّد بين القبض/الصرف/القيود
-  const [[row]] = await conn.query(`
-  SELECT COALESCE(MAX(v), 9) AS last_no FROM (
-    SELECT voucher_no AS v FROM receipt_vouchers WHERE voucher_no < 1000000
-    UNION ALL
-    SELECT voucher_no AS v FROM payment_vouchers WHERE voucher_no < 1000000
-    UNION ALL
-    SELECT reference_id AS v FROM journal_entries WHERE reference_id < 1000000
-  ) t
-`);
+    const [[row]] = await conn.query(`
+      SELECT COALESCE(MAX(v), 9) AS last_no FROM (
+        SELECT voucher_no AS v FROM receipt_vouchers WHERE voucher_no < 1000000
+        UNION ALL
+        SELECT voucher_no AS v FROM payment_vouchers WHERE voucher_no < 1000000
+        UNION ALL
+        SELECT reference_id AS v FROM journal_entries WHERE reference_id < 1000000
+      ) t
+    `);
 
-const refNo = row.last_no + 1;
-
+    const voucher_no = (row?.last_no || 9) + 1; // يبدأ من 10
 
     // 1) حفظ السند
-    const [result] = await db.query(
+    const [result] = await conn.query(
       `
       INSERT INTO payment_vouchers
       (voucher_no, voucher_date, payment_type, cash_box_account_id, bank_account_id,
@@ -122,8 +124,6 @@ const refNo = row.last_no + 1;
       ]
     );
 
-    const voucherId = result.insertId;
-
     // تحديد حساب الدائن (الصندوق أو البنك)
     const creditAccount =
       payment_type === "cash"
@@ -131,17 +131,14 @@ const refNo = row.last_no + 1;
         : bank_account_id;
 
     if (!creditAccount) {
-      return res.status(400).json({
-        success: false,
-        message: "يجب تحديد حساب الصندوق أو البنك",
-      });
+      throw new Error("يجب تحديد حساب الصندوق أو البنك");
     }
 
     const jType = journal_type_id || 1;
     const jNotes = notes || "سند صرف";
 
-    // 2) القيد المدين: حساب المصروف
-    await db.query(
+    // 2) القيد المدين: حساب المصروف (فرعي)
+    await conn.query(
       `
       INSERT INTO journal_entries
       (journal_type_id, reference_type, reference_id, journal_date,
@@ -150,10 +147,10 @@ const refNo = row.last_no + 1;
       `,
       [
         jType,
-        voucher_no,          // نستخدم رقم السند الموحد
+        voucher_no,
         voucher_date,
         currency_id,
-        account_id,          // حساب المصروف (فرعي)
+        account_id,
         amount,
         jNotes,
         user_id,
@@ -162,7 +159,7 @@ const refNo = row.last_no + 1;
     );
 
     // 3) القيد الدائن: الصندوق أو البنك (فرعي)
-    await db.query(
+    await conn.query(
       `
       INSERT INTO journal_entries
       (journal_type_id, reference_type, reference_id, journal_date,
@@ -171,10 +168,10 @@ const refNo = row.last_no + 1;
       `,
       [
         jType,
-        voucher_no,          // نفس رقم السند
+        voucher_no,
         voucher_date,
         currency_id,
-        creditAccount,       // حساب الصندوق أو البنك (فرعي)
+        creditAccount,
         amount,
         jNotes,
         user_id,
@@ -182,10 +179,14 @@ const refNo = row.last_no + 1;
       ]
     );
 
-    res.json({ success: true, id: voucherId, voucher_no });
+    await conn.commit();
+    res.json({ success: true, voucher_no });
   } catch (err) {
+    await conn.rollback();
     console.error("ADD PAYMENT VOUCHER ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, message: err.message });
+  } finally {
+    conn.release();
   }
 });
 
