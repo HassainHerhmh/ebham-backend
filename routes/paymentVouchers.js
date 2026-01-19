@@ -80,7 +80,6 @@ router.post("/", async (req, res) => {
 
     const { id: user_id, branch_id } = req.user;
 
-
     await conn.beginTransaction();
 
     // 0) توليد رقم سند تسلسلي موحّد بين القبض/الصرف/القيود
@@ -94,11 +93,10 @@ router.post("/", async (req, res) => {
       ) t
     `);
 
-    const voucher_no = (row?.last_no || 9) + 1; // يبدأ من 10
-
+    const voucher_no = (row?.last_no || 9) + 1;
 
     // 1) حفظ السند
-    const [result] = await conn.query(
+    await conn.query(
       `
       INSERT INTO payment_vouchers
       (voucher_no, voucher_date, payment_type, cash_box_account_id, bank_account_id,
@@ -126,14 +124,27 @@ router.post("/", async (req, res) => {
       ]
     );
 
-    // تحديد حساب الدائن (الصندوق أو البنك)
-    const creditAccount =
-      payment_type === "cash"
-        ? cash_box_account_id
-        : bank_account_id;
+    // 🔴 تحويل الصندوق/البنك إلى الحساب المحاسبي الفرعي الحقيقي
+    let creditAccount = null;
+
+    if (payment_type === "cash" && cash_box_account_id) {
+      const [[box]] = await conn.query(
+        "SELECT parent_account_id FROM cash_boxes WHERE id = ?",
+        [cash_box_account_id]
+      );
+      creditAccount = box?.parent_account_id;
+    }
+
+    if (payment_type === "bank" && bank_account_id) {
+      const [[bank]] = await conn.query(
+        "SELECT parent_account_id FROM banks WHERE id = ?",
+        [bank_account_id]
+      );
+      creditAccount = bank?.parent_account_id;
+    }
 
     if (!creditAccount) {
-      throw new Error("يجب تحديد حساب الصندوق أو البنك");
+      throw new Error("لم يتم العثور على الحساب المحاسبي للصندوق/البنك");
     }
 
     const jType = journal_type_id || 1;
@@ -160,7 +171,7 @@ router.post("/", async (req, res) => {
       ]
     );
 
-    // 3) القيد الدائن: الصندوق أو البنك (فرعي)
+    // 3) القيد الدائن: الصندوق أو البنك (الحساب الفرعي الحقيقي)
     await conn.query(
       `
       INSERT INTO journal_entries
@@ -191,6 +202,7 @@ router.post("/", async (req, res) => {
     conn.release();
   }
 });
+
 
 
 /* =====================================================
