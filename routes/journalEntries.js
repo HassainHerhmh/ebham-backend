@@ -86,17 +86,18 @@ router.post("/", async (req, res) => {
     await conn.beginTransaction();
 
     // 0) توليد رقم سند تسلسلي موحّد
-    const [[row]] = await conn.query(`
-      SELECT MAX(v) AS last_no FROM (
-        SELECT MAX(voucher_no) AS v FROM receipt_vouchers
-        UNION ALL
-        SELECT MAX(voucher_no) AS v FROM payment_vouchers
-        UNION ALL
-        SELECT MAX(reference_id) AS v FROM journal_entries
-      ) t
-    `);
+  const [[row]] = await conn.query(`
+  SELECT COALESCE(MAX(v), 9) AS last_no FROM (
+    SELECT voucher_no AS v FROM receipt_vouchers WHERE voucher_no < 1000000
+    UNION ALL
+    SELECT voucher_no AS v FROM payment_vouchers WHERE voucher_no < 1000000
+    UNION ALL
+    SELECT reference_id AS v FROM journal_entries WHERE reference_id < 1000000
+  ) t
+`);
 
-    const refNo = (row?.last_no || 0) + 1;
+const refNo = row.last_no + 1;
+
 
     // 1) إدخال القيد اليدوي
     await conn.query(
