@@ -73,7 +73,7 @@ router.post("/", async (req, res) => {
       transfer_no,
       currency_id,
       amount,
-      account_id, // الحساب المقابل (العميل مثلاً)
+      account_id,
       analytic_account_id,
       cost_center_id,
       journal_type_id,
@@ -85,21 +85,20 @@ router.post("/", async (req, res) => {
 
     await conn.beginTransaction();
 
-    // 0) توليد رقم سند تسلسلي موحّد
-   const [[row]] = await conn.query(`
-  SELECT COALESCE(MAX(v), 9) AS last_no FROM (
-    SELECT voucher_no AS v FROM receipt_vouchers WHERE voucher_no < 1000000
-    UNION ALL
-    SELECT voucher_no AS v FROM payment_vouchers WHERE voucher_no < 1000000
-    UNION ALL
-    SELECT reference_id AS v FROM journal_entries WHERE reference_id < 1000000
-  ) t
-`);
+    // توليد رقم سند تسلسلي موحّد
+    const [[row]] = await conn.query(`
+      SELECT MAX(v) AS last_no FROM (
+        SELECT MAX(voucher_no) AS v FROM receipt_vouchers
+        UNION ALL
+        SELECT MAX(voucher_no) AS v FROM payment_vouchers
+        UNION ALL
+        SELECT MAX(reference_id) AS v FROM journal_entries
+      ) t
+    `);
 
-const refNo = row.last_no + 1;
+    const voucher_no = (row?.last_no || 9) + 1; // يبدأ من 10
 
-
-    // 1) حفظ سند القبض
+    // حفظ السند
     const [r] = await conn.query(
       `
       INSERT INTO receipt_vouchers
@@ -120,8 +119,7 @@ const refNo = row.last_no + 1;
         account_id,
         analytic_account_id || null,
         cost_center_id || null,
-        journal_type_id || 1
-        ,
+        journal_type_id || 1,
         notes || null,
         handling || null,
         user_id,
@@ -129,15 +127,10 @@ const refNo = row.last_no + 1;
       ]
     );
 
+    const refId = r.insertId;
     const boxAccount = cash_box_account_id || bank_account_id;
-    if (!boxAccount) {
-      throw new Error("يجب تحديد حساب الصندوق أو البنك");
-    }
 
-    const jType = journal_type_id || 1;
-    const jNotes = notes || "سند قبض";
-
-    // 2) القيد المدين: الصندوق / البنك
+    // مدين: الصندوق / البنك
     await conn.query(
       `
       INSERT INTO journal_entries
@@ -146,19 +139,19 @@ const refNo = row.last_no + 1;
       VALUES (?, 'receipt', ?, ?, ?, ?, ?, 0, ?, ?, ?)
       `,
       [
-        jType,
-        voucher_no,        // رقم السند الموحد
+        journal_type_id || 1,
+        refId,
         voucher_date,
         currency_id,
-        boxAccount,        // حساب الصندوق/البنك (فرعي)
+        boxAccount,
         amount,
-        jNotes,
+        notes || "سند قبض",
         user_id,
         branch_id,
       ]
     );
 
-    // 3) القيد الدائن: الحساب المقابل (عميل / إيراد ...)
+    // دائن: الحساب المقابل
     await conn.query(
       `
       INSERT INTO journal_entries
@@ -167,13 +160,13 @@ const refNo = row.last_no + 1;
       VALUES (?, 'receipt', ?, ?, ?, ?, 0, ?, ?, ?, ?)
       `,
       [
-        jType,
-        voucher_no,        // نفس الرقم
+        journal_type_id || 1,
+        refId,
         voucher_date,
         currency_id,
-        account_id,        // الحساب المقابل (فرعي)
+        account_id,
         amount,
-        jNotes,
+        notes || "سند قبض",
         user_id,
         branch_id,
       ]
