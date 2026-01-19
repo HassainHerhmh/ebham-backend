@@ -18,6 +18,8 @@ payload:
 */
 
 router.post("/account-statement", async (req, res) => {
+    console.log("REQ USER =>", req.user);
+
   try {
     const {
       account_id,     // هنا يمثل "حساب واحد" = فرعي
