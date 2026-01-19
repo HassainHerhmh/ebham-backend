@@ -272,14 +272,33 @@ router.put("/:id", async (req, res) => {
    DELETE /receipt-vouchers/:id
 ========================= */
 router.delete("/:id", async (req, res) => {
+  const conn = await db.getConnection();
   try {
-    await db.query(`DELETE FROM receipt_vouchers WHERE id = ?`, [
-      req.params.id,
-    ]);
+    const { id } = req.params;
+
+    await conn.beginTransaction();
+
+    // حذف القيود المرتبطة بالسند
+    await conn.query(
+      `DELETE FROM journal_entries 
+       WHERE reference_type = 'receipt' AND reference_id = ?`,
+      [id]
+    );
+
+    // حذف السند نفسه
+    await conn.query(
+      `DELETE FROM receipt_vouchers WHERE id = ?`,
+      [id]
+    );
+
+    await conn.commit();
     res.json({ success: true });
   } catch (err) {
+    await conn.rollback();
     console.error("DELETE RECEIPT VOUCHER ERROR:", err);
     res.status(500).json({ success: false });
+  } finally {
+    conn.release();
   }
 });
 
