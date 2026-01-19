@@ -70,6 +70,25 @@ router.post("/", async (req, res) => {
     const { code, name_ar, name_en, sort_order } = req.body;
     const { id: user_id, branch_id } = req.user;
 
+
+   
+    await conn.beginTransaction();
+
+// 0) توليد رقم سند تسلسلي موحّد باستخدام voucher_sequence
+const [[row]] = await conn.query(
+  "SELECT last_no FROM voucher_sequence WHERE id = 1 FOR UPDATE"
+);
+
+const voucher_no = row.last_no + 1;
+
+// تحديث العداد
+await conn.query(
+  "UPDATE voucher_sequence SET last_no = ? WHERE id = 1",
+  [voucher_no]
+);
+
+
+     
     if (!code || !name_ar || !sort_order) {
       return res.status(400).json({
         success: false,
