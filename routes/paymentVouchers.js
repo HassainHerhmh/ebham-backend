@@ -64,13 +64,13 @@ router.post("/", async (req, res) => {
     const {
       voucher_no,
       voucher_date,
-      payment_type,
+      payment_type,            // cash | bank
       cash_box_account_id,
       bank_account_id,
       transfer_no,
       currency_id,
       amount,
-      account_id,
+      account_id,              // حساب المصروف
       analytic_account_id,
       cost_center_id,
       journal_type_id,
@@ -80,7 +80,8 @@ router.post("/", async (req, res) => {
 
     const { id: user_id, branch_id } = req.user;
 
-    await db.query(
+    // 1) حفظ السند
+    const [result] = await db.query(
       `
       INSERT INTO payment_vouchers
       (voucher_no, voucher_date, payment_type, cash_box_account_id, bank_account_id,
@@ -102,13 +103,73 @@ router.post("/", async (req, res) => {
         cost_center_id || null,
         journal_type_id || 1,
         notes || null,
-        handling || null, // نصي
+        handling || null,
         user_id,
         branch_id,
       ]
     );
 
-    res.json({ success: true });
+    const voucherId = result.insertId;
+
+    // تحديد حساب الدائن (الصندوق أو البنك)
+    const creditAccount =
+      payment_type === "cash"
+        ? cash_box_account_id
+        : bank_account_id;
+
+    if (!creditAccount) {
+      return res.status(400).json({
+        success: false,
+        message: "يجب تحديد حساب الصندوق أو البنك",
+      });
+    }
+
+    const jType = journal_type_id || 1;
+    const jNotes = notes || "سند صرف";
+
+    // 2) القيد المدين: حساب المصروف
+    await db.query(
+      `
+      INSERT INTO journal_entries
+      (journal_type_id, reference_type, reference_id, journal_date,
+       currency_id, account_id, debit, credit, notes, created_by, branch_id)
+      VALUES (?, 'payment', ?, ?, ?, ?, ?, 0, ?, ?, ?)
+      `,
+      [
+        jType,
+        voucherId,
+        voucher_date,
+        currency_id,
+        account_id,
+        amount,
+        jNotes,
+        user_id,
+        branch_id,
+      ]
+    );
+
+    // 3) القيد الدائن: الصندوق أو البنك
+    await db.query(
+      `
+      INSERT INTO journal_entries
+      (journal_type_id, reference_type, reference_id, journal_date,
+       currency_id, account_id, debit, credit, notes, created_by, branch_id)
+      VALUES (?, 'payment', ?, ?, ?, ?, 0, ?, ?, ?, ?)
+      `,
+      [
+        jType,
+        voucherId,
+        voucher_date,
+        currency_id,
+        creditAccount,
+        amount,
+        jNotes,
+        user_id,
+        branch_id,
+      ]
+    );
+
+    res.json({ success: true, id: voucherId });
   } catch (err) {
     console.error("ADD PAYMENT VOUCHER ERROR:", err);
     res.status(500).json({ success: false });
