@@ -13,7 +13,7 @@ router.get("/", async (req, res) => {
     const { is_admin_branch, branch_id } = req.user;
     const headerBranch = req.headers["x-branch-id"];
 
-    let where = "WHERE 1=1 ";
+  let where = "WHERE j1.reference_type = 'manual' ";
     const params = [];
 
     if (is_admin_branch) {
