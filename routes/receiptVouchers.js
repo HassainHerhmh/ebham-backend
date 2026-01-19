@@ -58,7 +58,6 @@ router.get("/", async (req, res) => {
 
 
 
-
 /* =========================
    POST /receipt-vouchers
 ========================= */
@@ -85,7 +84,7 @@ router.post("/", async (req, res) => {
 
     await conn.beginTransaction();
 
-    // 0) توليد رقم سند تسلسلي موحّد بين القبض/الصرف/القيود
+    // توليد رقم سند (كما هو عندك الآن)
     const [[row]] = await conn.query(`
       SELECT COALESCE(MAX(v), 9) AS last_no FROM (
         SELECT voucher_no AS v FROM receipt_vouchers WHERE voucher_no < 1000000
@@ -96,7 +95,7 @@ router.post("/", async (req, res) => {
       ) t
     `);
 
-    const voucher_no = (row?.last_no || 9) + 1; // يبدأ من 10
+    const voucher_no = (row?.last_no || 9) + 1;
 
     // حفظ السند
     const [r] = await conn.query(
@@ -128,9 +127,31 @@ router.post("/", async (req, res) => {
     );
 
     const refId = r.insertId;
-    const boxAccount = cash_box_account_id || bank_account_id;
 
-    // مدين: الصندوق / البنك
+    // 🔴 هنا التصحيح الحقيقي
+    let boxAccount = null;
+
+    if (cash_box_account_id) {
+      const [[box]] = await conn.query(
+        "SELECT account_id FROM cash_boxes WHERE id = ?",
+        [cash_box_account_id]
+      );
+      boxAccount = box?.account_id;
+    }
+
+    if (bank_account_id) {
+      const [[bank]] = await conn.query(
+        "SELECT account_id FROM banks WHERE id = ?",
+        [bank_account_id]
+      );
+      boxAccount = bank?.account_id;
+    }
+
+    if (!boxAccount) {
+      throw new Error("لم يتم العثور على الحساب المحاسبي للصندوق/البنك");
+    }
+
+    // مدين: الصندوق / البنك (الحساب الفرعي الحقيقي)
     await conn.query(
       `
       INSERT INTO journal_entries
@@ -151,7 +172,7 @@ router.post("/", async (req, res) => {
       ]
     );
 
-    // دائن: الحساب المقابل
+    // دائن: الحساب المقابل (الفرعي الذي تختاره من الواجهة)
     await conn.query(
       `
       INSERT INTO journal_entries
