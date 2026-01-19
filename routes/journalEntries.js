@@ -29,25 +29,32 @@ router.get("/", async (req, res) => {
     const [rows] = await db.query(
       `
       SELECT
-        j1.reference_id,
-        MIN(j1.journal_date)                           AS journal_date,
-        MAX(CASE WHEN j1.debit  > 0 THEN a1.name_ar END) AS from_account,
-        MAX(CASE WHEN j1.credit > 0 THEN a1.name_ar END) AS to_account,
-        SUM(j1.debit)                                   AS amount,
-        MAX(c.name_ar)                                  AS currency_name,
+        j1.reference_id            AS voucher_no,
+        j1.journal_date,
+        MAX(CASE WHEN j1.debit  > 0 THEN a1.name_ar END)  AS from_account,
+        MAX(CASE WHEN j1.credit > 0 THEN a1.name_ar END)  AS to_account,
+        SUM(j1.debit)                                    AS debit,
+        SUM(j1.credit)                                   AS credit,
+        c.name_ar                                        AS currency_name,
         MAX(j1.notes)                                   AS notes,
-        MAX(u.name)                                     AS user_name,
-        MAX(br.name)                                    AS branch_name,
-        MIN(j1.id)                                      AS id
+        u.name                                           AS user_name,
+        br.name                                          AS branch_name,
+        MIN(j1.id)                                       AS id
       FROM journal_entries j1
-      LEFT JOIN accounts a1   ON a1.id = j1.account_id
-      LEFT JOIN currencies c  ON c.id = j1.currency_id
-      LEFT JOIN users u       ON u.id = j1.created_by
-      LEFT JOIN branches br   ON br.id = j1.branch_id
+      LEFT JOIN accounts a1  ON a1.id = j1.account_id
+      LEFT JOIN currencies c ON c.id = j1.currency_id
+      LEFT JOIN users u      ON u.id = j1.created_by
+      LEFT JOIN branches br  ON br.id = j1.branch_id
       ${where}
       GROUP BY
         j1.reference_id,
-        j1.branch_id
+        j1.journal_date,
+        j1.currency_id,
+        j1.created_by,
+        j1.branch_id,
+        c.name_ar,
+        u.name,
+        br.name
       ORDER BY id DESC
       `,
       params
@@ -59,7 +66,6 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-
 
 
 
