@@ -9,9 +9,9 @@ router.use(auth);
 /*
 GET /currency-exchange/form-data?type=cash|account
 - يرجع العملات كاملة بسعرها وحدودها
-- ويرجع الحسابات حسب النوع:
-  cash    => الصناديق فقط
-  account => الحسابات الفرعية فقط
+- ويرجع العناصر حسب النوع:
+  cash    => الصناديق فقط (من cash_boxes)
+  account => الحسابات الفرعية فقط (من accounts)
 */
 router.get("/form-data", async (req, res) => {
   try {
@@ -36,14 +36,13 @@ router.get("/form-data", async (req, res) => {
     let items = [];
 
     if (type === "cash") {
-      // الصناديق من جدول الصناديق
+      // الصناديق
       const [cashBoxes] = await db.query(`
         SELECT id, name AS name_ar
         FROM cash_boxes
         WHERE is_active = 1
         ORDER BY name ASC
       `);
-
       items = cashBoxes;
     } else if (type === "account") {
       // الحسابات الفرعية فقط
@@ -54,7 +53,6 @@ router.get("/form-data", async (req, res) => {
           AND parent_id IS NOT NULL
         ORDER BY name_ar ASC
       `);
-
       items = accounts;
     }
 
@@ -70,7 +68,7 @@ router.get("/form-data", async (req, res) => {
         is_local: c.is_local,
         convert_mode: c.convert_mode,
       })),
-      items, // هنا إما صناديق أو حسابات حسب النوع
+      items,
     });
   } catch (err) {
     console.error("FORM DATA ERROR:", err);
@@ -78,5 +76,96 @@ router.get("/form-data", async (req, res) => {
   }
 });
 
+/*
+POST /currency-exchange
+- يستقبل عملية المصارفة
+- ينشئ قيدين محاسبيين (مدين / دائن)
+*/
+router.post("/", async (req, res) => {
+  const conn = await db.getConnection();
+  try {
+    const {
+      reference,
+      date,
+      type,
+
+      from_currency,
+      from_amount,
+      from_rate,
+      from_account,
+
+      to_currency,
+      to_amount,
+      to_rate,
+      to_account,
+
+      customer_name,
+      customer_phone,
+      notes,
+    } = req.body;
+
+    if (
+      !reference || !date || !type ||
+      !from_currency || !from_amount || !from_rate || !from_account ||
+      !to_currency || !to_amount || !to_rate || !to_account
+    ) {
+      return res.status(400).json({ success: false, message: "بيانات ناقصة" });
+    }
+
+    await conn.beginTransaction();
+
+    // سجل العملية الرئيسية
+    const [exRes] = await conn.query(
+      `INSERT INTO currency_exchanges
+      (reference, date, type, customer_name, customer_phone, notes)
+      VALUES (?, ?, ?, ?, ?, ?)`,
+      [reference, date, type, customer_name || null, customer_phone || null, notes || null]
+    );
+
+    const exchangeId = exRes.insertId;
+
+    // القيد المدين (من)
+    await conn.query(
+      `INSERT INTO journal_entries
+      (exchange_id, account_id, currency_id, amount, rate, direction, date, reference)
+      VALUES (?, ?, ?, ?, ?, 'debit', ?, ?)`,
+      [
+        exchangeId,
+        from_account,
+        from_currency,
+        from_amount,
+        from_rate,
+        date,
+        reference,
+      ]
+    );
+
+    // القيد الدائن (إلى)
+    await conn.query(
+      `INSERT INTO journal_entries
+      (exchange_id, account_id, currency_id, amount, rate, direction, date, reference)
+      VALUES (?, ?, ?, ?, ?, 'credit', ?, ?)`,
+      [
+        exchangeId,
+        to_account,
+        to_currency,
+        to_amount,
+        to_rate,
+        date,
+        reference,
+      ]
+    );
+
+    await conn.commit();
+
+    res.json({ success: true, id: exchangeId });
+  } catch (err) {
+    await conn.rollback();
+    console.error("CURRENCY EXCHANGE SAVE ERROR:", err);
+    res.status(500).json({ success: false, message: "فشل حفظ العملية" });
+  } finally {
+    conn.release();
+  }
+});
 
 export default router;
