@@ -9,7 +9,7 @@ router.use(auth);
 POST /reports/account-statement
 payload:
 {
-  account_id?: number,        // عند اختيار "حساب واحد" (فرعي)
+  account_id?: number,
   currency_id?: number|null,
   from_date?: string|null,
   to_date?: string|null,
@@ -131,6 +131,7 @@ router.post("/account-statement", async (req, res) => {
       if (summaryGroupByParent) {
         sql = `
           SELECT
+            c.name_ar AS currency_name,
             p.name_ar AS account_name,
             ROUND(SUM(je.debit), 2)  AS debit,
             ROUND(SUM(je.credit), 2) AS credit,
@@ -138,22 +139,25 @@ router.post("/account-statement", async (req, res) => {
           FROM journal_entries je
           JOIN accounts a ON a.id = je.account_id
           JOIN accounts p ON p.id = COALESCE(a.parent_id, a.id)
+          JOIN currencies c ON c.id = je.currency_id
           ${whereSql}
-          GROUP BY p.id, p.name_ar
-          ORDER BY p.name_ar
+          GROUP BY c.id, p.id, p.name_ar
+          ORDER BY c.name_ar, p.name_ar
         `;
       } else {
         sql = `
           SELECT
+            c.name_ar AS currency_name,
             a.name_ar AS account_name,
             ROUND(SUM(je.debit), 2)  AS debit,
             ROUND(SUM(je.credit), 2) AS credit,
             ROUND(SUM(je.debit) - SUM(je.credit), 2) AS balance
           FROM journal_entries je
           JOIN accounts a ON a.id = je.account_id
+          JOIN currencies c ON c.id = je.currency_id
           ${whereSql}
-          GROUP BY a.id, a.name_ar
-          ORDER BY a.name_ar
+          GROUP BY c.id, a.id, a.name_ar
+          ORDER BY c.name_ar, a.name_ar
         `;
       }
     } else {
@@ -161,6 +165,7 @@ router.post("/account-statement", async (req, res) => {
         SELECT
           je.id,
           je.journal_date,
+          c.name_ar AS currency_name,
           p.name_ar AS parent_account,
           a.name_ar AS account_name,
           ROUND(je.debit, 2)  AS debit,
@@ -171,8 +176,9 @@ router.post("/account-statement", async (req, res) => {
              journal_entries je
         JOIN accounts a ON a.id = je.account_id
         JOIN accounts p ON p.id = COALESCE(a.parent_id, a.id)
+        JOIN currencies c ON c.id = je.currency_id
         ${whereSql}
-        ORDER BY p.name_ar, a.name_ar, je.journal_date, je.id
+        ORDER BY c.name_ar, p.name_ar, a.name_ar, je.journal_date, je.id
       `;
       runParams = [opening, ...params];
     }
