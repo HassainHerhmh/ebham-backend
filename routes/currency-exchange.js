@@ -71,3 +71,5 @@ router.get("/form-data", async (req, res) => {
     res.status(500).json({ success: false, message: "خطأ في جلب البيانات" });
   }
 });
+
+export default router;
