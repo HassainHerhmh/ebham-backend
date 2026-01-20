@@ -1,4 +1,3 @@
-
 import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
@@ -9,7 +8,7 @@ const router = express.Router();
 router.use(auth);
 
 /* =========================
-   Currencies API (with branches)
+   Currencies API (with branches + convert_mode)
 ========================= */
 
 // 🟢 جلب العملات
@@ -33,7 +32,6 @@ router.get("/", async (req, res) => {
         where += " AND branch_id = ?";
         params.push(Number(selectedBranch));
       }
-      // بدون اختيار فرع → تجيب الكل
     } else {
       // مستخدم فرع → يرى عملات فرعه فقط
       where += " AND branch_id = ?";
@@ -69,6 +67,7 @@ router.post("/", async (req, res) => {
       min_rate,
       max_rate,
       is_local,
+      convert_mode, // multiply | divide
     } = req.body;
 
     const { is_admin_branch, branch_id } = req.user;
@@ -91,12 +90,13 @@ router.post("/", async (req, res) => {
     }
 
     const rate = is_local ? 1 : exchange_rate;
+    const mode = convert_mode || (is_local ? "multiply" : "divide");
 
     await db.query(
       `
       INSERT INTO currencies
-      (name_ar, name_en, code, symbol, exchange_rate, min_rate, max_rate, is_local, branch_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (name_ar, name_en, code, symbol, exchange_rate, min_rate, max_rate, is_local, convert_mode, branch_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         name_ar,
@@ -107,6 +107,7 @@ router.post("/", async (req, res) => {
         min_rate || null,
         max_rate || null,
         is_local ? 1 : 0,
+        mode,
         finalBranchId,
       ]
     );
@@ -130,9 +131,11 @@ router.put("/:id", async (req, res) => {
       min_rate,
       max_rate,
       is_local,
+      convert_mode, // multiply | divide
     } = req.body;
 
     const rate = is_local ? 1 : exchange_rate;
+    const mode = convert_mode || (is_local ? "multiply" : "divide");
 
     await db.query(
       `
@@ -144,7 +147,8 @@ router.put("/:id", async (req, res) => {
         exchange_rate = ?,
         min_rate = ?,
         max_rate = ?,
-        is_local = ?
+        is_local = ?,
+        convert_mode = ?
       WHERE id = ?
       `,
       [
@@ -155,6 +159,7 @@ router.put("/:id", async (req, res) => {
         min_rate || null,
         max_rate || null,
         is_local ? 1 : 0,
+        mode,
         id,
       ]
     );
