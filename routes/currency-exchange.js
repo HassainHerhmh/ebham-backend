@@ -8,16 +8,11 @@ router.use(auth);
 
 /*
 GET /currency-exchange/form-data?type=cash|account
-- يرجع العملات كاملة بسعرها وحدودها
-- ويرجع العناصر حسب النوع:
-  cash    => الصناديق فقط (من cash_boxes)
-  account => الحسابات الفرعية فقط (من accounts)
 */
 router.get("/form-data", async (req, res) => {
   try {
     const { type } = req.query; // cash | account
 
-    // العملات
     const [currencies] = await db.query(`
       SELECT 
         id,
@@ -36,7 +31,6 @@ router.get("/form-data", async (req, res) => {
     let items = [];
 
     if (type === "cash") {
-      // الصناديق
       const [cashBoxes] = await db.query(`
         SELECT id, name AS name_ar
         FROM cash_boxes
@@ -45,7 +39,6 @@ router.get("/form-data", async (req, res) => {
       `);
       items = cashBoxes;
     } else if (type === "account") {
-      // الحسابات الفرعية فقط
       const [accounts] = await db.query(`
         SELECT id, name_ar
         FROM accounts
@@ -78,8 +71,6 @@ router.get("/form-data", async (req, res) => {
 
 /*
 POST /currency-exchange
-- يستقبل عملية المصارفة
-- ينشئ قيدين محاسبيين (مدين / دائن)
 */
 router.post("/", async (req, res) => {
   const conn = await db.getConnection();
@@ -87,7 +78,6 @@ router.post("/", async (req, res) => {
     const {
       reference,
       date,
-      type,
 
       from_currency,
       from_amount,
@@ -99,13 +89,11 @@ router.post("/", async (req, res) => {
       to_rate,
       to_account,
 
-      customer_name,
-      customer_phone,
       notes,
     } = req.body;
 
     if (
-      !reference || !date || !type ||
+      !reference || !date ||
       !from_currency || !from_amount || !from_rate || !from_account ||
       !to_currency || !to_amount || !to_rate || !to_account
     ) {
@@ -114,47 +102,43 @@ router.post("/", async (req, res) => {
 
     await conn.beginTransaction();
 
-    // سجل العملية الرئيسية
+    // سجل عملية المصارفة
     const [exRes] = await conn.query(
       `INSERT INTO currency_exchanges
-      (reference, date, type, customer_name, customer_phone, notes)
-      VALUES (?, ?, ?, ?, ?, ?)`,
-      [reference, date, type, customer_name || null, customer_phone || null, notes || null]
+      (
+        reference,
+        exchange_date,
+        from_currency_id,
+        to_currency_id,
+        amount,
+        rate,
+        result,
+        from_account_id,
+        to_account_id,
+        notes,
+        created_by,
+        branch_id
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        reference,
+        date,
+        from_currency,
+        to_currency,
+        from_amount,
+        from_rate,
+        to_amount,
+        from_account,
+        to_account,
+        notes || null,
+        req.user.id,
+        req.user.branch_id,
+      ]
     );
 
     const exchangeId = exRes.insertId;
 
-    // القيد المدين (من)
-    await conn.query(
-      `INSERT INTO journal_entries
-      (exchange_id, account_id, currency_id, amount, rate, direction, date, reference)
-      VALUES (?, ?, ?, ?, ?, 'debit', ?, ?)`,
-      [
-        exchangeId,
-        from_account,
-        from_currency,
-        from_amount,
-        from_rate,
-        date,
-        reference,
-      ]
-    );
-
-    // القيد الدائن (إلى)
-    await conn.query(
-      `INSERT INTO journal_entries
-      (exchange_id, account_id, currency_id, amount, rate, direction, date, reference)
-      VALUES (?, ?, ?, ?, ?, 'credit', ?, ?)`,
-      [
-        exchangeId,
-        to_account,
-        to_currency,
-        to_amount,
-        to_rate,
-        date,
-        reference,
-      ]
-    );
+    // يمكنك لاحقًا إنشاء قيود journal هنا إن أردت
 
     await conn.commit();
 
