@@ -7,135 +7,67 @@ const router = express.Router();
 router.use(auth);
 
 /*
-POST /currency-exchange/preview
-يعطيك السعر المسموح به للعملة المختارة
+GET /currency-exchange/form-data?type=cash|account
+- يرجع العملات كاملة بسعرها وحدودها
+- ويرجع الحسابات حسب النوع:
+  cash    => الصناديق فقط
+  account => الحسابات الفرعية فقط
 */
-router.post("/preview", async (req, res) => {
-  const { currency_id } = req.body;
+router.get("/form-data", async (req, res) => {
+  try {
+    const { type } = req.query; // cash | account
 
-  const [rows] = await db.query(
-    `SELECT id, name_ar, rate, min_rate, max_rate
-     FROM currencies
-     WHERE id = ?`,
-    [currency_id]
-  );
+    // العملات
+    const [currencies] = await db.query(`
+      SELECT 
+        id,
+        name_ar,
+        code,
+        exchange_rate,
+        min_rate,
+        max_rate,
+        is_local,
+        convert_mode
+      FROM currencies
+      WHERE is_active = 1
+      ORDER BY is_local DESC, id ASC
+    `);
 
-  if (!rows.length) {
-    return res.json({ success: false, message: "عملة غير موجودة" });
+    // الحسابات حسب النوع
+    let accountsSql = `
+      SELECT id, name_ar
+      FROM accounts
+      WHERE is_active = 1
+    `;
+
+    if (type === "cash") {
+      // الصناديق فقط
+      accountsSql += ` AND type = 'cash'`;
+    } else if (type === "account") {
+      // الحسابات الفرعية فقط (غير الرئيسية)
+      accountsSql += ` AND parent_id IS NOT NULL`;
+    }
+
+    accountsSql += ` ORDER BY name_ar ASC`;
+
+    const [accounts] = await db.query(accountsSql);
+
+    res.json({
+      success: true,
+      currencies: currencies.map(c => ({
+        id: c.id,
+        name_ar: c.name_ar,
+        code: c.code,
+        rate: Number(c.exchange_rate),
+        min_rate: c.min_rate ? Number(c.min_rate) : null,
+        max_rate: c.max_rate ? Number(c.max_rate) : null,
+        is_local: c.is_local,
+        convert_mode: c.convert_mode, // multiply | divide
+      })),
+      accounts,
+    });
+  } catch (err) {
+    console.error("FORM DATA ERROR:", err);
+    res.status(500).json({ success: false, message: "خطأ في جلب البيانات" });
   }
-
-  const c = rows[0];
-
-  res.json({
-    success: true,
-    currency: {
-      id: c.id,
-      name: c.name_ar,
-      rate: Number(c.rate),
-      min_rate: c.min_rate ? Number(c.min_rate) : null,
-      max_rate: c.max_rate ? Number(c.max_rate) : null,
-    },
-  });
 });
-
-/*
-POST /currency-exchange
-ينفذ عملية المصارفة ويولد قيود محاسبية
-payload:
-{
-  from_currency_id,
-  to_currency_id,
-  amount,
-  rate,
-  from_account_id,
-  to_account_id,
-  journal_date,
-  notes?
-}
-*/
-router.post("/", async (req, res) => {
-  const {
-    from_currency_id,
-    to_currency_id,
-    amount,
-    rate,
-    from_account_id,
-    to_account_id,
-    journal_date,
-    notes,
-  } = req.body;
-
-  // تحقق من الحدود
-  const [rows] = await db.query(
-    `SELECT id, rate, min_rate, max_rate FROM currencies WHERE id = ?`,
-    [from_currency_id]
-  );
-
-  if (!rows.length) {
-    return res.json({ success: false, message: "عملة غير موجودة" });
-  }
-
-  const c = rows[0];
-
-  if (c.min_rate && rate < c.min_rate) {
-    return res.json({ success: false, message: "السعر أقل من الحد الأدنى" });
-  }
-  if (c.max_rate && rate > c.max_rate) {
-    return res.json({ success: false, message: "السعر أعلى من الحد الأعلى" });
-  }
-
-  const converted = Number(amount) * Number(rate);
-  const ref = Date.now();
-
-  const base = {
-    journal_type_id: 2, // نوع مصارفة
-    reference_type: "exchange",
-    reference_id: ref,
-    journal_date,
-    notes: notes || "مصارفة عملة",
-  };
-
-  // من الحساب (العملة الأصلية)
-  await db.query(
-    `INSERT INTO journal_entries
-     (journal_type_id, reference_type, reference_id, journal_date, currency_id, account_id, debit, credit, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      base.journal_type_id,
-      base.reference_type,
-      base.reference_id,
-      base.journal_date,
-      from_currency_id,
-      from_account_id,
-      0,
-      amount,
-      base.notes,
-    ]
-  );
-
-  // إلى الحساب (العملة المحولة)
-  await db.query(
-    `INSERT INTO journal_entries
-     (journal_type_id, reference_type, reference_id, journal_date, currency_id, account_id, debit, credit, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      base.journal_type_id,
-      base.reference_type,
-      base.reference_id,
-      base.journal_date,
-      to_currency_id,
-      to_account_id,
-      converted,
-      0,
-      base.notes,
-    ]
-  );
-
-  res.json({
-    success: true,
-    converted,
-    reference_id: ref,
-  });
-});
-
-export default router;
