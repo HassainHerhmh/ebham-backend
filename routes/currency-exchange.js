@@ -33,24 +33,30 @@ router.get("/form-data", async (req, res) => {
       ORDER BY is_local DESC, id ASC
     `);
 
-    // الحسابات حسب النوع
-    let accountsSql = `
-      SELECT id, name_ar
-      FROM accounts
-      WHERE is_active = 1
-    `;
+    let items = [];
 
     if (type === "cash") {
-      // الصناديق فقط
-      accountsSql += ` AND type = 'cash'`;
+      // الصناديق من جدول الصناديق
+      const [cashBoxes] = await db.query(`
+        SELECT id, name AS name_ar
+        FROM cash_boxes
+        WHERE is_active = 1
+        ORDER BY name ASC
+      `);
+
+      items = cashBoxes;
     } else if (type === "account") {
-      // الحسابات الفرعية فقط (غير الرئيسية)
-      accountsSql += ` AND parent_id IS NOT NULL`;
+      // الحسابات الفرعية فقط
+      const [accounts] = await db.query(`
+        SELECT id, name_ar
+        FROM accounts
+        WHERE is_active = 1
+          AND parent_id IS NOT NULL
+        ORDER BY name_ar ASC
+      `);
+
+      items = accounts;
     }
-
-    accountsSql += ` ORDER BY name_ar ASC`;
-
-    const [accounts] = await db.query(accountsSql);
 
     res.json({
       success: true,
@@ -62,14 +68,15 @@ router.get("/form-data", async (req, res) => {
         min_rate: c.min_rate ? Number(c.min_rate) : null,
         max_rate: c.max_rate ? Number(c.max_rate) : null,
         is_local: c.is_local,
-        convert_mode: c.convert_mode, // multiply | divide
+        convert_mode: c.convert_mode,
       })),
-      accounts,
+      items, // هنا إما صناديق أو حسابات حسب النوع
     });
   } catch (err) {
     console.error("FORM DATA ERROR:", err);
     res.status(500).json({ success: false, message: "خطأ في جلب البيانات" });
   }
 });
+
 
 export default router;
