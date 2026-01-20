@@ -172,4 +172,24 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
+// حذف قيد كامل بواسطة reference_id
+router.delete("/by-ref/:ref", async (req, res) => {
+  try {
+    const { ref } = req.params;
+
+    const [result] = await db.query(
+      `DELETE FROM journal_entries WHERE reference_id = ?`,
+      [ref]
+    );
+
+    res.json({
+      success: true,
+      deleted: result.affectedRows,
+    });
+  } catch (err) {
+    console.error("DELETE BY REF ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
 export default router;
