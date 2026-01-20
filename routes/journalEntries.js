@@ -156,22 +156,6 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-/* =========================
-   DELETE Journal Entry
-========================= */
-router.delete("/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    await db.query(`DELETE FROM journal_entries WHERE id = ?`, [id]);
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error("DELETE JOURNAL ENTRY ERROR:", err);
-    res.status(500).json({ success: false });
-  }
-});
-
 // حذف قيد كامل بواسطة reference_id
 router.delete("/by-ref/:ref", async (req, res) => {
   try {
@@ -191,5 +175,22 @@ router.delete("/by-ref/:ref", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
+/* =========================
+   DELETE Journal Entry (سطر واحد)
+========================= */
+router.delete("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await db.query(`DELETE FROM journal_entries WHERE id = ?`, [id]);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("DELETE JOURNAL ENTRY ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
 
 export default router;
