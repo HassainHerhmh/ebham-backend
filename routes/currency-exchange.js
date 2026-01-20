@@ -143,8 +143,20 @@ router.post("/", async (req, res) => {
     // القيد المدين (من)
     await conn.query(
       `INSERT INTO journal_entries
-       (journal_type_id, reference_type, reference_id, journal_date, currency_id, account_id, debit, credit, notes)
-       VALUES (1, 'currency_exchange', ?, ?, ?, ?, ?, 0, ?)`,
+       (
+         journal_type_id,
+         reference_type,
+         reference_id,
+         journal_date,
+         currency_id,
+         account_id,
+         debit,
+         credit,
+         notes,
+         created_by,
+         branch_id
+       )
+       VALUES (1, 'currency_exchange', ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
       [
         exchangeId,
         date,
@@ -152,14 +164,28 @@ router.post("/", async (req, res) => {
         from_account,
         from_amount,
         notes || "مصارفة عملة",
+        req.user.id,
+        req.user.branch_id,
       ]
     );
 
     // القيد الدائن (إلى)
     await conn.query(
       `INSERT INTO journal_entries
-       (journal_type_id, reference_type, reference_id, journal_date, currency_id, account_id, debit, credit, notes)
-       VALUES (1, 'currency_exchange', ?, ?, ?, ?, 0, ?, ?)`,
+       (
+         journal_type_id,
+         reference_type,
+         reference_id,
+         journal_date,
+         currency_id,
+         account_id,
+         debit,
+         credit,
+         notes,
+         created_by,
+         branch_id
+       )
+       VALUES (1, 'currency_exchange', ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
       [
         exchangeId,
         date,
@@ -167,6 +193,8 @@ router.post("/", async (req, res) => {
         to_account,
         to_amount,
         notes || "مصارفة عملة",
+        req.user.id,
+        req.user.branch_id,
       ]
     );
 
