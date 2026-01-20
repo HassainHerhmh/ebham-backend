@@ -27,13 +27,11 @@ router.get("/", async (req, res) => {
     const params = [];
 
     if (is_admin_branch) {
-      // إدارة عامة
       if (selectedBranch) {
         where += " AND branch_id = ?";
         params.push(Number(selectedBranch));
       }
     } else {
-      // مستخدم فرع → يرى عملات فرعه فقط
       where += " AND branch_id = ?";
       params.push(branch_id);
     }
@@ -67,7 +65,7 @@ router.post("/", async (req, res) => {
       min_rate,
       max_rate,
       is_local,
-      convert_mode, // multiply | divide
+      convert_mode, // "*" | "/"
     } = req.body;
 
     const { is_admin_branch, branch_id } = req.user;
@@ -81,7 +79,6 @@ router.post("/", async (req, res) => {
 
     // تحديد الفرع
     let finalBranchId = branch_id;
-
     if (is_admin_branch) {
       const selected = req.headers["x-branch-id"];
       if (selected && selected !== "all") {
@@ -90,7 +87,11 @@ router.post("/", async (req, res) => {
     }
 
     const rate = is_local ? 1 : exchange_rate;
-    const mode = convert_mode || (is_local ? "multiply" : "divide");
+
+    // الافتراضي: المحلية ضرب، غير المحلية قسمة
+    const mode = convert_mode === "/" || convert_mode === "*"
+      ? convert_mode
+      : (is_local ? "*" : "/");
 
     await db.query(
       `
@@ -131,11 +132,14 @@ router.put("/:id", async (req, res) => {
       min_rate,
       max_rate,
       is_local,
-      convert_mode, // multiply | divide
+      convert_mode, // "*" | "/"
     } = req.body;
 
     const rate = is_local ? 1 : exchange_rate;
-    const mode = convert_mode || (is_local ? "multiply" : "divide");
+
+    const mode = convert_mode === "/" || convert_mode === "*"
+      ? convert_mode
+      : (is_local ? "*" : "/");
 
     await db.query(
       `
