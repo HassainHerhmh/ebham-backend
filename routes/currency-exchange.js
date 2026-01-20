@@ -71,6 +71,8 @@ router.get("/form-data", async (req, res) => {
 
 /*
 POST /currency-exchange
+- يحفظ عملية المصارفة
+- ينشئ قيدين محاسبيين في journal_entries
 */
 router.post("/", async (req, res) => {
   const conn = await db.getConnection();
@@ -102,7 +104,7 @@ router.post("/", async (req, res) => {
 
     await conn.beginTransaction();
 
-    // سجل عملية المصارفة
+    // حفظ سجل المصارفة
     const [exRes] = await conn.query(
       `INSERT INTO currency_exchanges
       (
@@ -138,7 +140,35 @@ router.post("/", async (req, res) => {
 
     const exchangeId = exRes.insertId;
 
-    // يمكنك لاحقًا إنشاء قيود journal هنا إن أردت
+    // القيد المدين (من)
+    await conn.query(
+      `INSERT INTO journal_entries
+       (journal_type_id, reference_type, reference_id, journal_date, currency_id, account_id, debit, credit, notes)
+       VALUES (1, 'currency_exchange', ?, ?, ?, ?, ?, 0, ?)`,
+      [
+        exchangeId,
+        date,
+        from_currency,
+        from_account,
+        from_amount,
+        notes || "مصارفة عملة",
+      ]
+    );
+
+    // القيد الدائن (إلى)
+    await conn.query(
+      `INSERT INTO journal_entries
+       (journal_type_id, reference_type, reference_id, journal_date, currency_id, account_id, debit, credit, notes)
+       VALUES (1, 'currency_exchange', ?, ?, ?, ?, 0, ?, ?)`,
+      [
+        exchangeId,
+        date,
+        to_currency,
+        to_account,
+        to_amount,
+        notes || "مصارفة عملة",
+      ]
+    );
 
     await conn.commit();
 
