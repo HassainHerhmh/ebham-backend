@@ -268,6 +268,13 @@ import restaurantsExtra from "./routes/restaurants-extra.js";
 
 app.use("/api/restaurants", restaurantsExtra);
 
+
+/* =========================
+    مصارفة عملة
+========================= */
+import currencyExchange from "./routes/currency-exchange.js";
+app.use("/api/currency-exchange", currencyExchange);
+
 /* =========================
    Start Server
 ========================= */
