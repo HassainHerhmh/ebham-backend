@@ -160,28 +160,35 @@ router.post("/account-statement", async (req, res) => {
           ORDER BY c.name_ar, a.name_ar
         `;
       }
-    } else {
-      sql = `
-        SELECT
-          je.id,
-          je.journal_date,
-          c.name_ar AS currency_name,
-          p.name_ar AS parent_account,
-          a.name_ar AS account_name,
-          ROUND(je.debit, 2)  AS debit,
-          ROUND(je.credit, 2) AS credit,
-          je.notes,
-          ROUND(@run := @run + je.debit - je.credit, 2) AS balance
-        FROM (SELECT @run := ?) r,
-             journal_entries je
-        JOIN accounts a ON a.id = je.account_id
-        JOIN accounts p ON p.id = COALESCE(a.parent_id, a.id)
-        JOIN currencies c ON c.id = je.currency_id
-        ${whereSql}
-        ORDER BY c.name_ar, p.name_ar, a.name_ar, je.journal_date, je.id
-      `;
-      runParams = [opening, ...params];
-    }
+   } else {
+  sql = `
+    SELECT
+      je.id,
+      je.journal_date,
+      c.name_ar AS currency_name,
+      p.name_ar AS parent_account,
+      a.name_ar AS account_name,
+      ROUND(je.debit, 2)  AS debit,
+      ROUND(je.credit, 2) AS credit,
+      je.notes,
+      ROUND(
+        @run := IF(@cur = je.currency_id,
+                   @run + je.debit - je.credit,
+                   je.debit - je.credit),
+        2
+      ) AS balance,
+      @cur := je.currency_id AS _cur_marker
+    FROM (SELECT @run := 0, @cur := NULL) r,
+         journal_entries je
+    JOIN accounts a ON a.id = je.account_id
+    JOIN accounts p ON p.id = COALESCE(a.parent_id, a.id)
+    JOIN currencies c ON c.id = je.currency_id
+    ${whereSql}
+    ORDER BY c.id, p.name_ar, a.name_ar, je.journal_date, je.id
+  `;
+  runParams = [...params];
+}
+
 
     const [rows] = await db.query(sql, runParams);
 
