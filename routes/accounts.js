@@ -288,5 +288,45 @@ router.get("/sub-for-ceiling", auth, async (req, res) => {
   }
 });
 
+// GET /accounts/select?type=box | account
+router.get("/select", async (req, res) => {
+  try {
+    const { type } = req.query; // box | account
+    const { branch_id, is_admin_branch } = req.user;
+
+    let where = "WHERE is_active = 1";
+    const params = [];
+
+    // تقييد بالفرع للمستخدم غير الإداري
+    if (!is_admin_branch) {
+      where += " AND branch_id = ?";
+      params.push(branch_id);
+    }
+
+    if (type === "box") {
+      // الصناديق فقط
+      where += " AND is_cash_box = 1";
+    } else if (type === "account") {
+      // الحسابات الفرعية فقط (ليست رئيسية)
+      where += " AND parent_id IS NOT NULL";
+    }
+
+    const [rows] = await db.query(
+      `
+      SELECT id, name_ar
+      FROM accounts
+      ${where}
+      ORDER BY name_ar ASC
+      `,
+      params
+    );
+
+    res.json({ success: true, list: rows });
+  } catch (err) {
+    console.error("GET SELECT ACCOUNTS ERROR:", err);
+    res.status(500).json({ success: false, message: "خطأ في جلب الحسابات" });
+  }
+});
+
 
 export default router;
