@@ -1,167 +1,184 @@
-import React, { useEffect, useState } from "react";
-import api from "../../services/api";
 
-type Currency = {
-  id: number;
-  name_ar: string;
-  code: string;
-  exchange_rate: number;
-  min_rate?: number | null;
-  max_rate?: number | null;
-  is_local: number;
-};
+import express from "express";
+import db from "../db.js";
+import auth from "../middlewares/auth.js";
 
-type Account = {
-  id: number;
-  name_ar: string;
-};
+const router = express.Router();
 
-const today = new Date().toLocaleDateString("en-CA");
+// حماية جميع المسارات
+router.use(auth);
 
-const CurrencyExchange: React.FC = () => {
-  const [currencies, setCurrencies] = useState<Currency[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
+/* =========================
+   Currencies API (with branches)
+========================= */
 
-  const [fromCurrency, setFromCurrency] = useState<Currency | null>(null);
-  const [toCurrency, setToCurrency] = useState<Currency | null>(null);
+// 🟢 جلب العملات
+router.get("/", async (req, res) => {
+  try {
+    const { is_admin_branch, branch_id } = req.user;
 
-  const [rate, setRate] = useState("");
-  const [amount, setAmount] = useState("");
-  const [result, setResult] = useState(0);
+    // الفرع المختار من الهيدر (للإدارة)
+    let selectedBranch = req.headers["x-branch-id"];
 
-  const [fromAccount, setFromAccount] = useState("");
-  const [toAccount, setToAccount] = useState("");
-  const [date, setDate] = useState(today);
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
-    const [cRes, aRes] = await Promise.all([
-      api.get("/currencies"),
-      api.get("/accounts"),
-    ]);
-
-    setCurrencies(cRes.data.currencies || []);
-    setAccounts(aRes.data.list || []);
-  };
-
-  useEffect(() => {
-    if (!fromCurrency || !toCurrency) return;
-
-    const a = Number(amount);
-    const r = Number(rate);
-
-    if (!a || !r) {
-      setResult(0);
-      return;
+    if (selectedBranch === "all") {
+      selectedBranch = null;
     }
 
-    // المحلي = ضرب، غير المحلي = قسمة
-    const value =
-      fromCurrency.is_local === 1 ? a * r : a / r;
+    let where = "WHERE is_active = 1";
+    const params = [];
 
-    setResult(Number(value.toFixed(2)));
-  }, [amount, rate, fromCurrency, toCurrency]);
-
-  const onSelectFrom = (id: string) => {
-    const cur = currencies.find((c) => c.id === Number(id)) || null;
-    setFromCurrency(cur);
-
-    if (!cur) return;
-
-    setRate(String(cur.exchange_rate));
-  };
-
-  const onRateChange = (val: string) => {
-    if (!fromCurrency) return;
-
-    const num = Number(val);
-
-    if (
-      (fromCurrency.min_rate && num < fromCurrency.min_rate) ||
-      (fromCurrency.max_rate && num > fromCurrency.max_rate)
-    ) {
-      return; // خارج المدى المسموح
+    if (is_admin_branch) {
+      // إدارة عامة
+      if (selectedBranch) {
+        where += " AND branch_id = ?";
+        params.push(Number(selectedBranch));
+      }
+      // بدون اختيار فرع → تجيب الكل
+    } else {
+      // مستخدم فرع → يرى عملات فرعه فقط
+      where += " AND branch_id = ?";
+      params.push(branch_id);
     }
 
-    setRate(val);
-  };
+    const [rows] = await db.query(
+      `
+      SELECT *
+      FROM currencies
+      ${where}
+      ORDER BY is_local DESC, id ASC
+      `,
+      params
+    );
 
-  const submit = async () => {
-    if (!fromCurrency || !toCurrency || !amount || !rate) {
-      alert("يرجى إدخال جميع البيانات");
-      return;
+    res.json({ success: true, currencies: rows });
+  } catch (err) {
+    console.error("GET CURRENCIES ERROR:", err);
+    res.status(500).json({ success: false, message: "خطأ في جلب العملات" });
+  }
+});
+
+// ➕ إضافة عملة
+router.post("/", async (req, res) => {
+  try {
+    const {
+      name_ar,
+      name_en,
+      code,
+      symbol,
+      exchange_rate,
+      min_rate,
+      max_rate,
+      is_local,
+    } = req.body;
+
+    const { is_admin_branch, branch_id } = req.user;
+
+    if (!name_ar || !code) {
+      return res.status(400).json({
+        success: false,
+        message: "الحقول الأساسية مطلوبة",
+      });
     }
 
-    alert("جاهز للربط مع السيرفر");
-  };
+    // تحديد الفرع
+    let finalBranchId = branch_id;
 
-  return (
-    <div className="space-y-4">
-      <h2 className="text-xl font-bold">مصارفة عملة</h2>
+    if (is_admin_branch) {
+      const selected = req.headers["x-branch-id"];
+      if (selected && selected !== "all") {
+        finalBranchId = Number(selected);
+      }
+    }
 
-      <div className="bg-[#e9efe6] p-4 rounded-lg grid grid-cols-3 gap-4">
-        <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+    const rate = is_local ? 1 : exchange_rate;
 
-        <select className="input" onChange={(e) => onSelectFrom(e.target.value)}>
-          <option value="">-- العملة المصدر --</option>
-          {currencies.map((c) => (
-            <option key={c.id} value={c.id}>{c.name_ar}</option>
-          ))}
-        </select>
+    await db.query(
+      `
+      INSERT INTO currencies
+      (name_ar, name_en, code, symbol, exchange_rate, min_rate, max_rate, is_local, branch_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        name_ar,
+        name_en || "",
+        code.toUpperCase(),
+        symbol || null,
+        rate,
+        min_rate || null,
+        max_rate || null,
+        is_local ? 1 : 0,
+        finalBranchId,
+      ]
+    );
 
-        <select className="input" onChange={(e) => setToCurrency(
-          currencies.find(c => c.id === Number(e.target.value)) || null
-        )}>
-          <option value="">-- العملة المقابلة --</option>
-          {currencies.map((c) => (
-            <option key={c.id} value={c.id}>{c.name_ar}</option>
-          ))}
-        </select>
+    res.json({ success: true, message: "تمت إضافة العملة" });
+  } catch (err) {
+    console.error("ADD CURRENCY ERROR:", err);
+    res.status(500).json({ success: false, message: "خطأ في إضافة العملة" });
+  }
+});
 
-        <input className="input" placeholder="المبلغ" value={amount} onChange={(e) => setAmount(e.target.value)} />
+// ✏️ تعديل عملة
+router.put("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      name_ar,
+      name_en,
+      symbol,
+      exchange_rate,
+      min_rate,
+      max_rate,
+      is_local,
+    } = req.body;
 
-        <input
-          className="input"
-          placeholder="سعر الصرف"
-          value={rate}
-          onChange={(e) => onRateChange(e.target.value)}
-          disabled={!!(fromCurrency && !fromCurrency.min_rate && !fromCurrency.max_rate)}
-        />
+    const rate = is_local ? 1 : exchange_rate;
 
-        <input className="input bg-gray-100" disabled value={result || ""} placeholder="الناتج" />
+    await db.query(
+      `
+      UPDATE currencies
+      SET
+        name_ar = ?,
+        name_en = ?,
+        symbol = ?,
+        exchange_rate = ?,
+        min_rate = ?,
+        max_rate = ?,
+        is_local = ?
+      WHERE id = ?
+      `,
+      [
+        name_ar,
+        name_en || "",
+        symbol || null,
+        rate,
+        min_rate || null,
+        max_rate || null,
+        is_local ? 1 : 0,
+        id,
+      ]
+    );
 
-        <div className="col-span-3 text-sm text-gray-600">
-          المعامل: {fromCurrency?.is_local === 1 ? "ضرب" : "قسمة"}
-        </div>
+    res.json({ success: true, message: "تم التحديث" });
+  } catch (err) {
+    console.error("UPDATE CURRENCY ERROR:", err);
+    res.status(500).json({ success: false, message: "خطأ في التحديث" });
+  }
+});
 
-        <select className="input" value={fromAccount} onChange={(e) => setFromAccount(e.target.value)}>
-          <option value="">-- من حساب --</option>
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>{a.name_ar}</option>
-          ))}
-        </select>
+// 🗑️ تعطيل عملة
+router.delete("/:id", async (req, res) => {
+  try {
+    await db.query(
+      `UPDATE currencies SET is_active = 0 WHERE id = ?`,
+      [req.params.id]
+    );
 
-        <select className="input" value={toAccount} onChange={(e) => setToAccount(e.target.value)}>
-          <option value="">-- إلى حساب --</option>
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>{a.name_ar}</option>
-          ))}
-        </select>
+    res.json({ success: true });
+  } catch (err) {
+    console.error("DELETE CURRENCY ERROR:", err);
+    res.status(500).json({ success: false, message: "خطأ في الحذف" });
+  }
+});
 
-        <div className="col-span-3 flex justify-end">
-          <button onClick={submit} className="btn-green">تنفيذ المصارفة</button>
-        </div>
-      </div>
-
-      <style>{`
-        .input { padding:10px; border-radius:8px; border:1px solid #ccc; }
-        .btn-green { background:#14532d; color:#fff; padding:10px 20px; border-radius:8px; }
-      `}</style>
-    </div>
-  );
-};
-
-export default CurrencyExchange;
+export default router;
