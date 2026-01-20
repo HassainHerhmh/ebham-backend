@@ -5,6 +5,18 @@ import auth from "../middlewares/auth.js";
 const router = express.Router();
 router.use(auth);
 
+/*
+POST /reports/account-statement
+payload:
+{
+  account_id?: number,
+  currency_id?: number|null,
+  from_date?: string|null,
+  to_date?: string|null,
+  report_mode: "detailed" | "summary"
+}
+*/
+
 router.post("/account-statement", async (req, res) => {
   try {
     const {
@@ -65,12 +77,16 @@ router.post("/account-statement", async (req, res) => {
     }
 
     if (!accountIds.length) {
-      return res.json({ success: true, currencies: [] });
+      return res.json({ success: true, opening_balance: 0, list: [] });
     }
 
     where.push(`je.account_id IN (${accountIds.map(() => "?").join(",")})`);
     params.push(...accountIds);
 
+    if (currency_id) {
+      where.push(`je.currency_id = ?`);
+      params.push(currency_id);
+    }
     if (from_date) {
       where.push(`je.journal_date >= ?`);
       params.push(from_date);
@@ -80,159 +96,99 @@ router.post("/account-statement", async (req, res) => {
       params.push(to_date);
     }
 
-    const baseWhereSql = `WHERE ${where.join(" AND ")}`;
+    const whereSql = `WHERE ${where.join(" AND ")}`;
 
     /* =========================
-       في حالة عملة واحدة
+       الرصيد الافتتاحي
     ========================= */
-    if (currency_id) {
-      const whereOne = [...where, "je.currency_id = ?"];
-      const paramsOne = [...params, currency_id];
-      const whereSql = `WHERE ${whereOne.join(" AND ")}`;
+    let opening = 0;
+    if (from_date) {
+      const whereOpening = where.filter(w => !w.includes("je.journal_date >="));
+      const paramsOpening = params.filter(
+        (_, i) => !where[i]?.includes("je.journal_date >=")
+      );
 
-      let opening = 0;
-      if (from_date) {
-        const [op] = await db.query(
-          `
-          SELECT ROUND(COALESCE(SUM(je.debit) - SUM(je.credit), 0), 2) AS bal
-          FROM journal_entries je
-          ${whereSql}
-            AND je.journal_date < ?
-          `,
-          [...paramsOne, from_date]
-        );
-        opening = op[0]?.bal || 0;
-      }
+      const [op] = await db.query(
+        `
+        SELECT ROUND(COALESCE(SUM(je.debit) - SUM(je.credit), 0), 2) AS bal
+        FROM journal_entries je
+        WHERE ${whereOpening.join(" AND ")}
+          AND je.journal_date < ?
+        `,
+        [...paramsOpening, from_date]
+      );
 
-      let sql;
-      let runParams = [...paramsOne];
+      opening = op[0]?.bal || 0;
+    }
 
-      if (report_mode === "summary") {
+    /* =========================
+       الجلب
+    ========================= */
+    let sql;
+    let runParams = [...params];
+
+    if (report_mode === "summary") {
+      if (summaryGroupByParent) {
         sql = `
           SELECT
+            c.name_ar AS currency_name,
+            p.name_ar AS account_name,
+            ROUND(SUM(je.debit), 2)  AS debit,
+            ROUND(SUM(je.credit), 2) AS credit,
+            ROUND(SUM(je.debit) - SUM(je.credit), 2) AS balance
+          FROM journal_entries je
+          JOIN accounts a ON a.id = je.account_id
+          JOIN accounts p ON p.id = COALESCE(a.parent_id, a.id)
+          JOIN currencies c ON c.id = je.currency_id
+          ${whereSql}
+          GROUP BY c.id, p.id, p.name_ar
+          ORDER BY c.name_ar, p.name_ar
+        `;
+      } else {
+        sql = `
+          SELECT
+            c.name_ar AS currency_name,
             a.name_ar AS account_name,
             ROUND(SUM(je.debit), 2)  AS debit,
             ROUND(SUM(je.credit), 2) AS credit,
             ROUND(SUM(je.debit) - SUM(je.credit), 2) AS balance
           FROM journal_entries je
           JOIN accounts a ON a.id = je.account_id
+          JOIN currencies c ON c.id = je.currency_id
           ${whereSql}
-          GROUP BY a.id, a.name_ar
-          ORDER BY a.name_ar
+          GROUP BY c.id, a.id, a.name_ar
+          ORDER BY c.name_ar, a.name_ar
         `;
-      } else {
-        sql = `
-          SELECT
-            je.id,
-            je.journal_date,
-            a.name_ar AS account_name,
-            ROUND(je.debit, 2)  AS debit,
-            ROUND(je.credit, 2) AS credit,
-            je.notes,
-            ROUND(@run := @run + je.debit - je.credit, 2) AS balance
-          FROM (SELECT @run := ?) r,
-               journal_entries je
-          JOIN accounts a ON a.id = je.account_id
-          ${whereSql}
-          ORDER BY je.journal_date, je.id
-        `;
-        runParams = [opening, ...paramsOne];
       }
-
-      const [rows] = await db.query(sql, runParams);
-
-      return res.json({
-        success: true,
-        opening_balance: opening,
-        list: rows,
-      });
+    } else {
+      sql = `
+        SELECT
+          je.id,
+          je.journal_date,
+          c.name_ar AS currency_name,
+          p.name_ar AS parent_account,
+          a.name_ar AS account_name,
+          ROUND(je.debit, 2)  AS debit,
+          ROUND(je.credit, 2) AS credit,
+          je.notes,
+          ROUND(@run := @run + je.debit - je.credit, 2) AS balance
+        FROM (SELECT @run := ?) r,
+             journal_entries je
+        JOIN accounts a ON a.id = je.account_id
+        JOIN accounts p ON p.id = COALESCE(a.parent_id, a.id)
+        JOIN currencies c ON c.id = je.currency_id
+        ${whereSql}
+        ORDER BY c.name_ar, p.name_ar, a.name_ar, je.journal_date, je.id
+      `;
+      runParams = [opening, ...params];
     }
 
-    /* =========================
-       حالة كل العملات
-    ========================= */
-    const [currs] = await db.query(
-      `
-      SELECT DISTINCT c.id, c.name_ar
-      FROM journal_entries je
-      JOIN currencies c ON c.id = je.currency_id
-      ${baseWhereSql}
-      ORDER BY c.name_ar
-      `,
-      params
-    );
-
-    const result = [];
-
-    for (const cur of currs) {
-      const whereCur = [...where, "je.currency_id = ?"];
-      const paramsCur = [...params, cur.id];
-      const whereSql = `WHERE ${whereCur.join(" AND ")}`;
-
-      let opening = 0;
-      if (from_date) {
-        const [op] = await db.query(
-          `
-          SELECT ROUND(COALESCE(SUM(je.debit) - SUM(je.credit), 0), 2) AS bal
-          FROM journal_entries je
-          ${whereSql}
-            AND je.journal_date < ?
-          `,
-          [...paramsCur, from_date]
-        );
-        opening = op[0]?.bal || 0;
-      }
-
-      let sql;
-      let runParams = [...paramsCur];
-
-      if (report_mode === "summary") {
-        sql = `
-          SELECT
-            a.name_ar AS account_name,
-            ROUND(SUM(je.debit), 2)  AS debit,
-            ROUND(SUM(je.credit), 2) AS credit,
-            ROUND(SUM(je.debit) - SUM(je.credit), 2) AS balance
-          FROM journal_entries je
-          JOIN accounts a ON a.id = je.account_id
-          ${whereSql}
-          GROUP BY a.id, a.name_ar
-          ORDER BY a.name_ar
-        `;
-      } else {
-        sql = `
-          SELECT
-            je.id,
-            je.journal_date,
-            a.name_ar AS account_name,
-            ROUND(je.debit, 2)  AS debit,
-            ROUND(je.credit, 2) AS credit,
-            je.notes,
-            ROUND(@run := @run + je.debit - je.credit, 2) AS balance
-          FROM (SELECT @run := ?) r,
-               journal_entries je
-          JOIN accounts a ON a.id = je.account_id
-          ${whereSql}
-          ORDER BY je.journal_date, je.id
-        `;
-        runParams = [opening, ...paramsCur];
-      }
-
-      const [rows] = await db.query(sql, runParams);
-
-      if (rows.length || opening !== 0) {
-        result.push({
-          currency_id: cur.id,
-          currency_name: cur.name_ar,
-          opening_balance: opening,
-          rows,
-        });
-      }
-    }
+    const [rows] = await db.query(sql, runParams);
 
     res.json({
       success: true,
-      currencies: result,
+      opening_balance: opening,
+      list: rows,
     });
   } catch (err) {
     console.error("ACCOUNT STATEMENT ERROR:", err);
@@ -241,3 +197,4 @@ router.post("/account-statement", async (req, res) => {
 });
 
 export default router;
+عدل ورسل كامامل 
