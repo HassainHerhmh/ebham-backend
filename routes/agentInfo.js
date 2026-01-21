@@ -9,6 +9,9 @@ router.use(auth);
    GET /agent-info
 ========================= */
 router.get("/", async (req, res) => {
+  console.log("REQ USER =>", req.user);
+
+   
   try {
     const [rows] = await db.query(`
       SELECT 
