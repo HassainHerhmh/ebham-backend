@@ -11,7 +11,6 @@ router.use(auth);
 router.get("/", async (req, res) => {
   console.log("REQ USER =>", req.user);
 
-   
   try {
     const [rows] = await db.query(`
       SELECT 
@@ -23,13 +22,11 @@ router.get("/", async (req, res) => {
         c.contract_end,
         c.is_active,
 
-        a.name AS agent_name,
-        k.name AS captain_name,
+        COALESCE(a.name, k.name) AS agent_name,
         g.name AS group_name,
 
         acc1.name_ar AS agent_account_name,
         acc2.name_ar AS commission_account_name,
-
         cur.code AS currency_code,
 
         CASE 
@@ -58,7 +55,7 @@ router.get("/", async (req, res) => {
     res.json(rows);
   } catch (e) {
     console.error(e);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, error: e.message });
   }
 });
 
@@ -87,7 +84,6 @@ router.post("/", async (req, res) => {
     return res.json({ success: false, message: "تاريخ النهاية غير صحيح" });
   }
 
-  // منع وجود عقد نشط لنفس الحساب
   const [exists] = await db.query(
     `
     SELECT id FROM commissions
@@ -127,20 +123,21 @@ router.post("/", async (req, res) => {
     `,
     [
       account_type,
-      account_id,
-      group_id || null,
+      Number(account_id),
+      group_id ? Number(group_id) : null,
       commission_type,
-      commission_value,
+      Number(commission_value || 0),
       contract_start,
       contract_end,
-      agent_account_id || null,
-      commission_account_id || null,
-      currency_id || null,
+      agent_account_id ? Number(agent_account_id) : null,
+      commission_account_id ? Number(commission_account_id) : null,
+      currency_id ? Number(currency_id) : null,
     ]
   );
 
   res.json({ success: true });
 });
+
 
 /* =========================
    PUT /agent-info/:id
