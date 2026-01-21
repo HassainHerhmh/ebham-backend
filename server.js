@@ -276,6 +276,13 @@ import currencyExchange from "./routes/currency-exchange.js";
 app.use("/api/currency-exchange", currencyExchange);
 
 /* =========================
+    الحسابات الوسيطة
+========================= */
+import transitAccounts from "./routes/transit-accounts.js";
+
+app.use("/api/settings/transit-accounts", transitAccounts);
+
+/* =========================
    Start Server
 ========================= */
 const PORT = process.env.PORT || 8080;
