@@ -5,7 +5,9 @@ import auth from "../middlewares/auth.js";
 const router = express.Router();
 router.use(auth);
 
-/* GET /agent-info */
+/* =========================
+   GET /agent-info
+========================= */
 router.get("/", async (req, res) => {
   try {
     const [rows] = await db.query(`
@@ -20,7 +22,13 @@ router.get("/", async (req, res) => {
 
         a.name AS agent_name,
         k.name AS captain_name,
-        g.name AS group_name
+        g.name AS group_name,
+
+        CASE 
+          WHEN CURDATE() BETWEEN c.contract_start AND c.contract_end 
+          THEN 1 ELSE 0 
+        END AS is_valid_now
+
       FROM commissions c
       LEFT JOIN agents a ON c.account_type='agent' AND a.id = c.account_id
       LEFT JOIN captains k ON c.account_type='captain' AND k.id = c.account_id
@@ -35,7 +43,9 @@ router.get("/", async (req, res) => {
   }
 });
 
-/* POST /agent-info */
+/* =========================
+   POST /agent-info
+========================= */
 router.post("/", async (req, res) => {
   const {
     account_type,
@@ -47,15 +57,36 @@ router.post("/", async (req, res) => {
     contract_end,
   } = req.body;
 
-  if (!account_type || !account_id) {
+  if (!account_type || !account_id || !contract_start || !contract_end) {
     return res.json({ success: false, message: "بيانات ناقصة" });
+  }
+
+  if (new Date(contract_end) < new Date(contract_start)) {
+    return res.json({ success: false, message: "تاريخ النهاية غير صحيح" });
+  }
+
+  // منع وجود عقد نشط آخر لنفس الحساب
+  const [exists] = await db.query(`
+    SELECT id FROM commissions
+    WHERE account_type = ?
+      AND account_id = ?
+      AND CURDATE() BETWEEN contract_start AND contract_end
+      AND is_active = 1
+    LIMIT 1
+  `, [account_type, account_id]);
+
+  if (exists.length) {
+    return res.json({
+      success: false,
+      message: "يوجد عقد نشط لهذا الحساب بالفعل"
+    });
   }
 
   await db.query(
     `
     INSERT INTO commissions
-    (account_type, account_id, group_id, commission_type, commission_value, contract_start, contract_end)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    (account_type, account_id, group_id, commission_type, commission_value, contract_start, contract_end, is_active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
     `,
     [
       account_type,
@@ -65,6 +96,42 @@ router.post("/", async (req, res) => {
       commission_value,
       contract_start,
       contract_end,
+    ]
+  );
+
+  res.json({ success: true });
+});
+
+/* =========================
+   PUT /agent-info/:id
+   تعديل / تمديد العقد
+========================= */
+router.put("/:id", async (req, res) => {
+  const {
+    commission_type,
+    commission_value,
+    contract_start,
+    contract_end,
+    is_active
+  } = req.body;
+
+  await db.query(
+    `
+    UPDATE commissions SET
+      commission_type = ?,
+      commission_value = ?,
+      contract_start = ?,
+      contract_end = ?,
+      is_active = ?
+    WHERE id = ?
+    `,
+    [
+      commission_type,
+      commission_value,
+      contract_start,
+      contract_end,
+      is_active ? 1 : 0,
+      req.params.id
     ]
   );
 
