@@ -24,15 +24,31 @@ router.get("/", async (req, res) => {
         k.name AS captain_name,
         g.name AS group_name,
 
+        acc1.name_ar AS agent_account_name,
+        acc2.name_ar AS commission_account_name,
+
+        cur.code AS currency_code,
+
         CASE 
           WHEN CURDATE() BETWEEN c.contract_start AND c.contract_end 
           THEN 1 ELSE 0 
         END AS is_valid_now
 
       FROM commissions c
-      LEFT JOIN agents a ON c.account_type='agent' AND a.id = c.account_id
-      LEFT JOIN captains k ON c.account_type='captain' AND k.id = c.account_id
-      LEFT JOIN agent_groups g ON g.id = c.group_id
+      LEFT JOIN agents a 
+        ON c.account_type = 'agent' AND a.id = c.account_id
+      LEFT JOIN captains k 
+        ON c.account_type = 'captain' AND k.id = c.account_id
+      LEFT JOIN agent_groups g 
+        ON g.id = c.group_id
+
+      LEFT JOIN accounts acc1 
+        ON acc1.id = c.agent_account_id
+      LEFT JOIN accounts acc2 
+        ON acc2.id = c.commission_account_id
+      LEFT JOIN currencies cur
+        ON cur.id = c.currency_id
+
       ORDER BY c.id DESC
     `);
 
@@ -55,6 +71,9 @@ router.post("/", async (req, res) => {
     commission_value,
     contract_start,
     contract_end,
+    agent_account_id,
+    commission_account_id,
+    currency_id,
   } = req.body;
 
   if (!account_type || !account_id || !contract_start || !contract_end) {
@@ -65,28 +84,43 @@ router.post("/", async (req, res) => {
     return res.json({ success: false, message: "تاريخ النهاية غير صحيح" });
   }
 
-  // منع وجود عقد نشط آخر لنفس الحساب
-  const [exists] = await db.query(`
+  // منع وجود عقد نشط لنفس الحساب
+  const [exists] = await db.query(
+    `
     SELECT id FROM commissions
     WHERE account_type = ?
       AND account_id = ?
       AND CURDATE() BETWEEN contract_start AND contract_end
       AND is_active = 1
     LIMIT 1
-  `, [account_type, account_id]);
+    `,
+    [account_type, account_id]
+  );
 
   if (exists.length) {
     return res.json({
       success: false,
-      message: "يوجد عقد نشط لهذا الحساب بالفعل"
+      message: "يوجد عقد نشط لهذا الحساب بالفعل",
     });
   }
 
   await db.query(
     `
     INSERT INTO commissions
-    (account_type, account_id, group_id, commission_type, commission_value, contract_start, contract_end, is_active)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+    (
+      account_type,
+      account_id,
+      group_id,
+      commission_type,
+      commission_value,
+      contract_start,
+      contract_end,
+      agent_account_id,
+      commission_account_id,
+      currency_id,
+      is_active
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
     `,
     [
       account_type,
@@ -96,6 +130,9 @@ router.post("/", async (req, res) => {
       commission_value,
       contract_start,
       contract_end,
+      agent_account_id || null,
+      commission_account_id || null,
+      currency_id || null,
     ]
   );
 
@@ -104,7 +141,6 @@ router.post("/", async (req, res) => {
 
 /* =========================
    PUT /agent-info/:id
-   تعديل / تمديد العقد
 ========================= */
 router.put("/:id", async (req, res) => {
   const {
@@ -112,7 +148,7 @@ router.put("/:id", async (req, res) => {
     commission_value,
     contract_start,
     contract_end,
-    is_active
+    is_active,
   } = req.body;
 
   await db.query(
@@ -131,7 +167,7 @@ router.put("/:id", async (req, res) => {
       contract_start,
       contract_end,
       is_active ? 1 : 0,
-      req.params.id
+      req.params.id,
     ]
   );
 
