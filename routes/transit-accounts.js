@@ -1,3 +1,4 @@
+// routes/settings-transit.js
 import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
@@ -22,9 +23,15 @@ router.get("/", async (req, res) => {
       LIMIT 1
     `);
 
+    // إذا ما فيه صف، نرجع قيم فاضية
     res.json({
       success: true,
-      data: rows[0] || {},
+      data: rows[0] || {
+        commission_income_account: null,
+        courier_commission_account: null,
+        transfer_guarantee_account: null,
+        currency_exchange_account: null,
+      },
     });
   } catch (err) {
     console.error("GET TRANSIT SETTINGS ERROR:", err);
@@ -34,7 +41,7 @@ router.get("/", async (req, res) => {
 
 /*
 POST /settings/transit-accounts
-يحفظ الإعدادات
+يحفظ الإعدادات (مع إنشاء السجل إن لم يكن موجودًا)
 */
 router.post("/", async (req, res) => {
   try {
@@ -45,22 +52,45 @@ router.post("/", async (req, res) => {
       currency_exchange_account,
     } = req.body;
 
-    await db.query(
-      `
-      UPDATE settings SET
-        commission_income_account = ?,
-        courier_commission_account = ?,
-        transfer_guarantee_account = ?,
-        currency_exchange_account = ?
-      WHERE id = 1
-      `,
-      [
-        commission_income_account || null,
-        courier_commission_account || null,
-        transfer_guarantee_account || null,
-        currency_exchange_account || null,
-      ]
+    // نتأكد هل السجل موجود
+    const [exists] = await db.query(
+      `SELECT id FROM settings WHERE id = 1 LIMIT 1`
     );
+
+    if (exists.length === 0) {
+      // إنشاء السجل لأول مرة
+      await db.query(
+        `
+        INSERT INTO settings
+        (id, commission_income_account, courier_commission_account, transfer_guarantee_account, currency_exchange_account)
+        VALUES (1, ?, ?, ?, ?)
+        `,
+        [
+          commission_income_account || null,
+          courier_commission_account || null,
+          transfer_guarantee_account || null,
+          currency_exchange_account || null,
+        ]
+      );
+    } else {
+      // تحديث السجل الموجود
+      await db.query(
+        `
+        UPDATE settings SET
+          commission_income_account = ?,
+          courier_commission_account = ?,
+          transfer_guarantee_account = ?,
+          currency_exchange_account = ?
+        WHERE id = 1
+        `,
+        [
+          commission_income_account || null,
+          courier_commission_account || null,
+          transfer_guarantee_account || null,
+          currency_exchange_account || null,
+        ]
+      );
+    }
 
     res.json({ success: true });
   } catch (err) {
