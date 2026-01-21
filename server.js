@@ -129,6 +129,14 @@ app.use("/api/restaurants", restaurantsRoutes);
 import captainsRoutes from "./routes/captains.js";
 app.use("/api/captains", captainsRoutes);
 
+
+/* =========================
+   مجموعة الكباتن
+========================= */
+import captainGroups from "./routes/captainGroups.js";
+app.use("/api/captain-groups", captainGroups);
+
+
 /* =========================
    طرق الدفع
 ========================= */
