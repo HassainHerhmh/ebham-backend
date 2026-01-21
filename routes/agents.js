@@ -22,6 +22,7 @@ const generatePassword = (length = 8) => {
    جلب الوكلاء
 ========================= */
 router.get("/", auth, async (req, res) => {
+   console.log("REQ USER =>", req.user);
   try {
     const { is_admin_branch, is_admin, branch_id } = req.user;
     const selectedBranch = req.headers["x-branch-id"];
