@@ -15,13 +15,13 @@ router.get("/", auth, async (req, res) => {
     const user = req.user;
 
     let sql = `
-      SELECT id, name, email, phone, address, is_active
+      SELECT id, name, email, phone, address, is_active, branch_id
       FROM agents
     `;
     const params = [];
 
-    // غير الإداري يرى وكلاء فرعه فقط
-    if (!user.is_admin) {
+    // فقط المستخدم العادي يُقيد بفرعه
+    if (!user.is_admin && !user.is_admin_branch) {
       sql += " WHERE branch_id = ?";
       params.push(user.branch_id);
     }
@@ -36,6 +36,7 @@ router.get("/", auth, async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 /* =========================
    POST /agents
