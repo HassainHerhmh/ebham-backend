@@ -23,32 +23,47 @@ const generatePassword = (length = 8) => {
 ========================= */
 router.get("/", auth, async (req, res) => {
   try {
-    const user = req.user;
+    const { is_admin_branch, is_admin, branch_id } = req.user;
+    const selectedBranch = req.headers["x-branch-id"];
 
-    let sql = `
-      SELECT 
-        a.id,
-        a.name,
-        a.email,
-        a.phone,
-        a.address,
-        a.is_active,
-        a.branch_id,
-        b.name AS branch_name
-      FROM agents a
-      LEFT JOIN branches b ON b.id = a.branch_id
-    `;
-    const params = [];
+    let rows;
 
-    // فقط المستخدم العادي يُقيد بفرعه
-    if (!user.is_admin && !user.is_admin_branch) {
-      sql += " WHERE a.branch_id = ?";
-      params.push(user.branch_id);
+    if (is_admin_branch || is_admin) {
+      // مستخدم من الإدارة العامة
+
+      if (selectedBranch && Number(selectedBranch) !== Number(branch_id)) {
+        [rows] = await db.query(
+          `
+          SELECT a.*, b.name AS branch_name
+          FROM agents a
+          LEFT JOIN branches b ON b.id = a.branch_id
+          WHERE a.branch_id = ?
+          ORDER BY a.id DESC
+          `,
+          [selectedBranch]
+        );
+      } else {
+        // الإدارة العامة → كل الوكلاء من كل الفروع
+        [rows] = await db.query(`
+          SELECT a.*, b.name AS branch_name
+          FROM agents a
+          LEFT JOIN branches b ON b.id = a.branch_id
+          ORDER BY a.id DESC
+        `);
+      }
+    } else {
+      // مستخدم فرع عادي → يرى فرعه فقط
+      [rows] = await db.query(
+        `
+        SELECT a.*, b.name AS branch_name
+        FROM agents a
+        LEFT JOIN branches b ON b.id = a.branch_id
+        WHERE a.branch_id = ?
+        ORDER BY a.id DESC
+        `,
+        [branch_id]
+      );
     }
-
-    sql += " ORDER BY a.id DESC";
-
-    const [rows] = await db.query(sql, params);
 
     res.json({ success: true, agents: rows });
   } catch (err) {
