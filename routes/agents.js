@@ -6,6 +6,17 @@ import jwt from "jsonwebtoken";
 
 const router = express.Router();
 
+/* توليد كلمة مرور عشوائية */
+const generatePassword = (length = 8) => {
+  const chars =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let pass = "";
+  for (let i = 0; i < length; i++) {
+    pass += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return pass;
+};
+
 /* =========================
    GET /agents
    جلب الوكلاء
@@ -37,7 +48,6 @@ router.get("/", auth, async (req, res) => {
   }
 });
 
-
 /* =========================
    POST /agents
    إضافة وكيل
@@ -45,10 +55,12 @@ router.get("/", auth, async (req, res) => {
 router.post("/", auth, async (req, res) => {
   try {
     const user = req.user;
-    const { name, email, phone, address, password, branch_id } = req.body;
+    const { name, email, phone, address, branch_id } = req.body;
 
-    if (!name || !password) {
-      return res.status(400).json({ success: false, message: "بيانات ناقصة" });
+    if (!name) {
+      return res
+        .status(400)
+        .json({ success: false, message: "الاسم مطلوب" });
     }
 
     const finalBranch =
@@ -60,7 +72,8 @@ router.post("/", auth, async (req, res) => {
         .json({ success: false, message: "الفرع مطلوب" });
     }
 
-    const hash = await bcrypt.hash(password, 10);
+    const plainPassword = generatePassword(8);
+    const hash = await bcrypt.hash(plainPassword, 10);
 
     await db.query(
       `
@@ -71,7 +84,10 @@ router.post("/", auth, async (req, res) => {
       [name, email || null, phone || null, address || null, hash, finalBranch]
     );
 
-    res.json({ success: true });
+    res.json({
+      success: true,
+      password: plainPassword, // تُعرض للإدارة مرة واحدة
+    });
   } catch (err) {
     console.error("ADD AGENT ERROR:", err);
     res.status(500).json({ success: false });
