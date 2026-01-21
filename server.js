@@ -299,6 +299,15 @@ import agentgroups from "./routes/agent-groups.js";
 app.use("/api/agent-groups", agentgroups);
 
 
+/* =========================
+    معلومات  الوكلاء
+========================= */
+
+import agentInfoRouter from "./routes/agentInfo.js";
+
+app.use("/api/agent-info", agentInfoRouter);
+
+
 
 /* =========================
    Start Server
