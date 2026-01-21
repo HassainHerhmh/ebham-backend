@@ -236,5 +236,32 @@ router.post("/login", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+/* =========================
+   POST /agents/:id/reset-password
+   إعادة تعيين كلمة المرور
+========================= */
+router.post("/:id/reset-password", auth, async (req, res) => {
+  try {
+    // توليد كلمة مرور عشوائية 8 حروف/أرقام
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let newPassword = "";
+    for (let i = 0; i < 8; i++) {
+      newPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+
+    const hash = await bcrypt.hash(newPassword, 10);
+
+    await db.query(
+      `UPDATE agents SET password = ? WHERE id = ?`,
+      [hash, req.params.id]
+    );
+
+    // نرجع كلمة المرور الجديدة مرة واحدة فقط
+    res.json({ success: true, password: newPassword });
+  } catch (err) {
+    console.error("RESET PASSWORD ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
 
 export default router;
