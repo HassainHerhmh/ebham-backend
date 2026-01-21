@@ -282,6 +282,16 @@ import transitAccounts from "./routes/transit-accounts.js";
 
 app.use("/api/settings/transit-accounts", transitAccounts);
 
+
+
+/* =========================
+    مجموعة الوكلاء
+========================= */
+
+import agentgroups from "./routes/agent-groups.js";
+
+app.use("/api/agent-groups", agentgroups);
+
 /* =========================
    Start Server
 ========================= */
