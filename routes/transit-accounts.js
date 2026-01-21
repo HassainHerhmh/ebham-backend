@@ -1,102 +1,124 @@
-// routes/settings-transit.js
-import express from "express";
-import db from "../db.js";
-import auth from "../middlewares/auth.js";
+import { useEffect, useState } from "react";
+import api from "../../services/api";
 
-const router = express.Router();
-router.use(auth);
+type Account = {
+  id: number;
+  name_ar: string;
+};
 
-/*
-GET /settings/transit-accounts
-يرجع الإعدادات الحالية
-*/
-router.get("/", async (req, res) => {
-  try {
-    const [rows] = await db.query(`
-      SELECT
-        commission_income_account,
-        courier_commission_account,
-        transfer_guarantee_account,
-        currency_exchange_account
-      FROM settings
-      WHERE id = 1
-      LIMIT 1
-    `);
+const TransitAccountsSettings = () => {
+  const [accounts, setAccounts] = useState<Account[]>([]);
 
-    // إذا ما فيه صف، نرجع قيم فاضية
-    res.json({
-      success: true,
-      data: rows[0] || {
-        commission_income_account: null,
-        courier_commission_account: null,
-        transfer_guarantee_account: null,
-        currency_exchange_account: null,
-      },
-    });
-  } catch (err) {
-    console.error("GET TRANSIT SETTINGS ERROR:", err);
-    res.status(500).json({ success: false });
-  }
-});
+  const [commissionIncome, setCommissionIncome] = useState<number | "">("");
+  const [courierCommission, setCourierCommission] = useState<number | "">("");
+  const [transferGuarantee, setTransferGuarantee] = useState<number | "">("");
+  const [currencyExchange, setCurrencyExchange] = useState<number | "">("");
 
-/*
-POST /settings/transit-accounts
-يحفظ الإعدادات (مع إنشاء السجل إن لم يكن موجودًا)
-*/
-router.post("/", async (req, res) => {
-  try {
-    const {
-      commission_income_account,
-      courier_commission_account,
-      transfer_guarantee_account,
-      currency_exchange_account,
-    } = req.body;
+    useEffect(() => {
+    (async () => {
+      const res = await (api as any).accounts.getAccounts();
 
-    // نتأكد هل السجل موجود
-    const [exists] = await db.query(
-      `SELECT id FROM settings WHERE id = 1 LIMIT 1`
-    );
-
-    if (exists.length === 0) {
-      // إنشاء السجل لأول مرة
-      await db.query(
-        `
-        INSERT INTO settings
-        (id, commission_income_account, courier_commission_account, transfer_guarantee_account, currency_exchange_account)
-        VALUES (1, ?, ?, ?, ?)
-        `,
-        [
-          commission_income_account || null,
-          courier_commission_account || null,
-          transfer_guarantee_account || null,
-          currency_exchange_account || null,
-        ]
+      // نأخذ الحسابات الفرعية فقط
+      const subs = (res.list || []).filter(
+        (a: Account) => a.parent_id !== null
       );
-    } else {
-      // تحديث السجل الموجود
-      await db.query(
-        `
-        UPDATE settings SET
-          commission_income_account = ?,
-          courier_commission_account = ?,
-          transfer_guarantee_account = ?,
-          currency_exchange_account = ?
-        WHERE id = 1
-        `,
-        [
-          commission_income_account || null,
-          courier_commission_account || null,
-          transfer_guarantee_account || null,
-          currency_exchange_account || null,
-        ]
-      );
+
+      setAccounts(subs);
+
+    // جلب القيم المحفوظة
+    (async () => {
+      const res = await api.get("/settings/transit-accounts");
+      const d = res.data?.data || {};
+      setCommissionIncome(d.commission_income_account || "");
+      setCourierCommission(d.courier_commission_account || "");
+      setTransferGuarantee(d.transfer_guarantee_account || "");
+      setCurrencyExchange(d.currency_exchange_account || "");
+    })();
+  }, []);
+
+  const save = async () => {
+    const payload = {
+      commission_income_account: commissionIncome || null,
+      courier_commission_account: courierCommission || null,
+      transfer_guarantee_account: transferGuarantee || null,
+      currency_exchange_account: currencyExchange || null,
+    };
+
+    try {
+      await api.post("/settings/transit-accounts", payload);
+      alert("تم حفظ الإعدادات بنجاح");
+    } catch {
+      alert("فشل حفظ الإعدادات");
     }
+  };
 
-    res.json({ success: true });
-  } catch (err) {
-    console.error("SAVE TRANSIT SETTINGS ERROR:", err);
-    res.status(500).json({ success: false });
-  }
-});
+  const Field = ({
+    label,
+    value,
+    onChange,
+  }: {
+    label: string;
+    value: number | "";
+    onChange: (v: number | "") => void;
+  }) => (
+    <div className="bg-white border rounded-xl p-4 space-y-2 shadow-sm">
+      <div className="text-sm font-semibold text-gray-700">{label}</div>
+      <select
+        className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+        value={value}
+        onChange={(e) =>
+          e.target.value ? onChange(Number(e.target.value)) : onChange("")
+        }
+      >
+        <option value="">اختر حساب</option>
+        {accounts.map((a) => (
+          <option key={a.id} value={a.id}>
+            {a.name_ar}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
 
-export default router;
+  return (
+    <div className="space-y-6" dir="rtl">
+      <h2 className="text-lg font-bold text-green-700">
+        الحسابات الوسيطة (Transit)
+      </h2>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Field
+          label="حساب وسيط إيرادات العمولات"
+          value={commissionIncome}
+          onChange={setCommissionIncome}
+        />
+        <Field
+          label="حساب وسيط عمولات الموصلين"
+          value={courierCommission}
+          onChange={setCourierCommission}
+        />
+        <Field
+          label="حساب وسيط اعتماد الحوالات"
+          value={transferGuarantee}
+          onChange={setTransferGuarantee}
+        />
+        <Field
+          label="حساب وسيط مصارفة العملة"
+          value={currencyExchange}
+          onChange={setCurrencyExchange}
+        />
+      </div>
+
+      <div className="flex justify-end">
+        <button
+          onClick={save}
+          className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700"
+        >
+          حفظ الإعدادات
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default TransitAccountsSettings;
