@@ -1,5 +1,3 @@
-
-export default router;
 import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
