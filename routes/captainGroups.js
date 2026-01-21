@@ -9,7 +9,7 @@ router.use(auth);
 router.get("/", async (req, res) => {
   try {
     const [rows] = await db.query(
-      "SELECT * FROM captain_groups ORDER BY id DESC"
+      "SELECT id, name FROM captain_groups ORDER BY id DESC"
     );
     res.json(rows);
   } catch (e) {
@@ -20,18 +20,22 @@ router.get("/", async (req, res) => {
 
 /* POST /captain-groups */
 router.post("/", async (req, res) => {
-  const { name, code } = req.body;
+  const { name } = req.body;
 
-  if (!name || !code) {
+  if (!name) {
     return res.json({ success: false, message: "بيانات ناقصة" });
   }
 
-  await db.query(
-    "INSERT INTO captain_groups (name, code) VALUES (?, ?)",
-    [name, code]
+  const [result] = await db.query(
+    "INSERT INTO captain_groups (name) VALUES (?)",
+    [name]
   );
 
-  res.json({ success: true });
+  res.json({
+    success: true,
+    id: result.insertId,
+    name,
+  });
 });
 
 /* DELETE /captain-groups/:id */
