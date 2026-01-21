@@ -16,10 +16,15 @@ router.get("/", async (req, res) => {
       SELECT 
         c.id,
         c.account_type,
+        c.account_id,
+        c.group_id,
         c.commission_type,
         c.commission_value,
         c.contract_start,
         c.contract_end,
+        c.agent_account_id,
+        c.commission_account_id,
+        c.currency_id,
         c.is_active,
 
         COALESCE(a.name, k.name) AS agent_name,
@@ -58,6 +63,7 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false, error: e.message });
   }
 });
+
 
 /* =========================
    POST /agent-info
