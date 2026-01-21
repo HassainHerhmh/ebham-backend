@@ -16,6 +16,7 @@ router.get("/", async (req, res) => {
         account_number,
         owner_name,
         address,
+        account_id,
         CAST(is_active AS UNSIGNED) AS is_active,
         sort_order
       FROM payment_methods
@@ -40,7 +41,8 @@ router.get("/active", async (req, res) => {
         company,
         account_number,
         owner_name,
-        address
+        address,
+        account_id
       FROM payment_methods
       WHERE CAST(is_active AS UNSIGNED) = 1
       ORDER BY sort_order ASC
@@ -58,13 +60,27 @@ router.get("/active", async (req, res) => {
 ======================== */
 router.post("/", async (req, res) => {
   try {
-    const { company, account_number, owner_name, address } = req.body;
+    const { company, account_number, owner_name, address, account_id } = req.body;
+
+    if (!account_id) {
+      return res.json({ success: false, message: "يجب اختيار حساب فرعي" });
+    }
+
+    // التحقق أن الحساب فرعي
+    const [[acc]] = await db.query(
+      "SELECT id FROM accounts WHERE id=? AND parent_id IS NOT NULL",
+      [account_id]
+    );
+
+    if (!acc) {
+      return res.json({ success: false, message: "الحساب المختار ليس فرعيًا" });
+    }
 
     await db.query(
       `INSERT INTO payment_methods
-       (company, account_number, owner_name, address, sort_order, is_active)
-       VALUES (?, ?, ?, ?, 9999, 1)`,
-      [company, account_number, owner_name, address]
+       (company, account_number, owner_name, address, account_id, sort_order, is_active)
+       VALUES (?, ?, ?, ?, ?, 9999, 1)`,
+      [company, account_number, owner_name, address, account_id]
     );
 
     res.json({ success: true, message: "✅ تم إضافة طريقة الدفع" });
@@ -79,13 +95,26 @@ router.post("/", async (req, res) => {
 ======================== */
 router.put("/:id", async (req, res) => {
   try {
-    const { company, account_number, owner_name, address } = req.body;
+    const { company, account_number, owner_name, address, account_id } = req.body;
+
+    if (!account_id) {
+      return res.json({ success: false, message: "يجب اختيار حساب فرعي" });
+    }
+
+    const [[acc]] = await db.query(
+      "SELECT id FROM accounts WHERE id=? AND parent_id IS NOT NULL",
+      [account_id]
+    );
+
+    if (!acc) {
+      return res.json({ success: false, message: "الحساب المختار ليس فرعيًا" });
+    }
 
     await db.query(
       `UPDATE payment_methods
-       SET company=?, account_number=?, owner_name=?, address=?
+       SET company=?, account_number=?, owner_name=?, address=?, account_id=?
        WHERE id=?`,
-      [company, account_number, owner_name, address, req.params.id]
+      [company, account_number, owner_name, address, account_id, req.params.id]
     );
 
     res.json({ success: true, message: "✅ تم التعديل" });
@@ -100,11 +129,7 @@ router.put("/:id", async (req, res) => {
 ======================== */
 router.delete("/:id", async (req, res) => {
   try {
-    await db.query(
-      "DELETE FROM payment_methods WHERE id=?",
-      [req.params.id]
-    );
-
+    await db.query("DELETE FROM payment_methods WHERE id=?", [req.params.id]);
     res.json({ success: true, message: "🗑️ تم الحذف" });
   } catch (err) {
     console.error("Delete payment method error:", err);
