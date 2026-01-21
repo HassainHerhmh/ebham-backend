@@ -5,69 +5,70 @@ import auth from "../middlewares/auth.js";
 const router = express.Router();
 router.use(auth);
 
-/* =========================
-   GET /agent-info
-========================= */
+/* GET /agent-info */
 router.get("/", async (req, res) => {
   try {
     const [rows] = await db.query(`
-      SELECT ai.id,
-             a.name AS agent_name,
-             g.name AS group_name,
-             acc1.name_ar AS agent_account_name,
-             acc2.name_ar AS commission_account_name,
-             ai.commission
-      FROM agent_info ai
-      JOIN agents a ON a.id = ai.agent_id
-      JOIN agent_groups g ON g.id = ai.group_id
-      JOIN accounts acc1 ON acc1.id = ai.agent_account_id
-      JOIN accounts acc2 ON acc2.id = ai.commission_account_id
-      ORDER BY ai.id DESC
+      SELECT 
+        c.id,
+        c.account_type,
+        c.commission_type,
+        c.commission_value,
+        c.contract_start,
+        c.contract_end,
+        c.is_active,
+
+        a.name AS agent_name,
+        k.name AS captain_name,
+        g.name AS group_name
+      FROM commissions c
+      LEFT JOIN agents a ON c.account_type='agent' AND a.id = c.account_id
+      LEFT JOIN captains k ON c.account_type='captain' AND k.id = c.account_id
+      LEFT JOIN agent_groups g ON g.id = c.group_id
+      ORDER BY c.id DESC
     `);
 
     res.json(rows);
-  } catch (err) {
-    console.error("AGENT INFO GET ERROR:", err);
+  } catch (e) {
+    console.error(e);
     res.status(500).json({ success: false });
   }
 });
 
-/* =========================
-   POST /agent-info
-========================= */
+/* POST /agent-info */
 router.post("/", async (req, res) => {
-  try {
-    const {
-      agent_id,
-      group_id,
-      agent_account_id,
-      commission_account_id,
-      commission,
-    } = req.body;
+  const {
+    account_type,
+    account_id,
+    group_id,
+    commission_type,
+    commission_value,
+    contract_start,
+    contract_end,
+  } = req.body;
 
-    if (!agent_id || !group_id || !agent_account_id || !commission_account_id) {
-      return res.status(400).json({ success: false, message: "بيانات ناقصة" });
-    }
-
-    await db.query(
-      `
-      INSERT INTO agent_info
-      (agent_id, group_id, agent_account_id, commission_account_id, commission)
-      VALUES (?, ?, ?, ?, ?)
-      `,
-      [
-        agent_id,
-        group_id,
-        agent_account_id,
-        commission || 0,
-      ]
-    );
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error("AGENT INFO ADD ERROR:", err);
-    res.status(500).json({ success: false });
+  if (!account_type || !account_id) {
+    return res.json({ success: false, message: "بيانات ناقصة" });
   }
+
+  await db.query(
+    `
+    INSERT INTO commissions
+    (account_type, account_id, group_id, commission_type, commission_value, contract_start, contract_end)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      account_type,
+      account_id,
+      group_id || null,
+      commission_type,
+      commission_value,
+      contract_start,
+      contract_end,
+    ]
+  );
+
+  res.json({ success: true });
 });
 
 export default router;
