@@ -63,6 +63,7 @@ router.get("/", async (req, res) => {
    POST /agent-info
 ========================= */
 router.post("/", async (req, res) => {
+     console.log("REQ USER =>", req.user);
   const {
     account_type,
     account_id,
