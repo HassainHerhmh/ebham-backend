@@ -26,18 +26,27 @@ router.get("/", auth, async (req, res) => {
     const user = req.user;
 
     let sql = `
-      SELECT id, name, email, phone, address, is_active, branch_id
-      FROM agents
+      SELECT 
+        a.id,
+        a.name,
+        a.email,
+        a.phone,
+        a.address,
+        a.is_active,
+        a.branch_id,
+        b.name AS branch_name
+      FROM agents a
+      LEFT JOIN branches b ON b.id = a.branch_id
     `;
     const params = [];
 
     // فقط المستخدم العادي يُقيد بفرعه
     if (!user.is_admin && !user.is_admin_branch) {
-      sql += " WHERE branch_id = ?";
+      sql += " WHERE a.branch_id = ?";
       params.push(user.branch_id);
     }
 
-    sql += " ORDER BY id DESC";
+    sql += " ORDER BY a.id DESC";
 
     const [rows] = await db.query(sql, params);
 
@@ -47,6 +56,7 @@ router.get("/", auth, async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 /* =========================
    POST /agents
