@@ -93,11 +93,27 @@ router.post("/", async (req, res) => {
 
     const baseAmount = Number(amount) * Number(rate || 1);
 
-    // إنشاء قيد محاسبي
+    // العملة الأساسية للنظام
+    const [[baseCur]] = await conn.query(
+      `SELECT id FROM currencies WHERE is_local=1 LIMIT 1`
+    );
+
+    const userId = req.user.id;
+    const branchId = req.user.branch_id;
+
+    // إنشاء قيد محاسبي كامل
     const [je] = await conn.query(
-      `INSERT INTO journal_entries (journal_date, notes)
-       VALUES (NOW(), ?)`,
-      [`إضافة تأمين للعميل #${customer_id}`]
+      `INSERT INTO journal_entries
+       (journal_type_id, journal_date, currency_id, account_id, notes, created_by, branch_id)
+       VALUES (?, NOW(), ?, ?, ?, ?, ?)`,
+      [
+        5, // نوع قيد التأمين (عدّل حسب نظامك)
+        baseCur.id,
+        s.customer_guarantee_account,
+        `إضافة تأمين للعميل #${customer_id}`,
+        userId,
+        branchId,
+      ]
     );
 
     const journalId = je.insertId;
@@ -140,5 +156,6 @@ router.post("/", async (req, res) => {
     conn.release();
   }
 });
+
 
 export default router;
