@@ -189,6 +189,11 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     if (map_url !== undefined) { updates.push("map_url=?"); params.push(map_url || null); }
     if (type_id !== undefined) { updates.push("type_id=?"); params.push(type_id || null); }
 
+     if (agent_id !== undefined) {
+  updates.push("agent_id=?");
+  params.push(agent_id || null);
+}
+
     if (req.file) {
       const result = await uploadToCloudinary(req.file.path, "restaurants");
       updates.push("image_url=?");
