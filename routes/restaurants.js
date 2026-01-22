@@ -91,6 +91,7 @@ router.post("/", upload.single("image"), async (req, res) => {
       category_ids = [],
       schedule = "[]",
       type_id = null,
+       agent_id || null, // 👈 هنا الربط
     } = req.body;
 
     if (!name) {
@@ -120,7 +121,7 @@ router.post("/", upload.single("image"), async (req, res) => {
       `INSERT INTO restaurants
        (name, type_id, address, phone, image_url, map_url, sort_order, branch_id, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [name, type_id || null, address, phone, image_url, map_url, maxOrder + 1, finalBranchId]
+      [name, type_id || null, address, phone, image_url, map_url, maxOrder + 1, finalBranchId, agent_id || null,]
     );
 
     const restaurantId = result.insertId;
@@ -173,6 +174,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       category_ids,
       schedule,
       type_id = null,
+         agent_id = null, // 👈 جديد
     } = req.body;
 
     const updates = [];
