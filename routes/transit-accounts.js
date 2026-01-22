@@ -17,7 +17,8 @@ router.get("/", async (req, res) => {
         commission_income_account,
         courier_commission_account,
         transfer_guarantee_account,
-        currency_exchange_account
+        currency_exchange_account,
+        customer_guarantee_account   -- 🆕
       FROM settings
       WHERE id = 1
       LIMIT 1
@@ -31,6 +32,7 @@ router.get("/", async (req, res) => {
         courier_commission_account: null,
         transfer_guarantee_account: null,
         currency_exchange_account: null,
+        customer_guarantee_account: null, // 🆕
       },
     });
   } catch (err) {
@@ -50,6 +52,7 @@ router.post("/", async (req, res) => {
       courier_commission_account,
       transfer_guarantee_account,
       currency_exchange_account,
+      customer_guarantee_account, // 🆕
     } = req.body;
 
     // نتأكد هل السجل موجود
@@ -62,14 +65,22 @@ router.post("/", async (req, res) => {
       await db.query(
         `
         INSERT INTO settings
-        (id, commission_income_account, courier_commission_account, transfer_guarantee_account, currency_exchange_account)
-        VALUES (1, ?, ?, ?, ?)
+        (
+          id,
+          commission_income_account,
+          courier_commission_account,
+          transfer_guarantee_account,
+          currency_exchange_account,
+          customer_guarantee_account
+        )
+        VALUES (1, ?, ?, ?, ?, ?)
         `,
         [
           commission_income_account || null,
           courier_commission_account || null,
           transfer_guarantee_account || null,
           currency_exchange_account || null,
+          customer_guarantee_account || null,
         ]
       );
     } else {
@@ -80,7 +91,8 @@ router.post("/", async (req, res) => {
           commission_income_account = ?,
           courier_commission_account = ?,
           transfer_guarantee_account = ?,
-          currency_exchange_account = ?
+          currency_exchange_account = ?,
+          customer_guarantee_account = ?
         WHERE id = 1
         `,
         [
@@ -88,6 +100,7 @@ router.post("/", async (req, res) => {
           courier_commission_account || null,
           transfer_guarantee_account || null,
           currency_exchange_account || null,
+          customer_guarantee_account || null,
         ]
       );
     }
