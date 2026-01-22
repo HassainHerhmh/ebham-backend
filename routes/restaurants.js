@@ -91,7 +91,7 @@ router.post("/", upload.single("image"), async (req, res) => {
       category_ids = [],
       schedule = "[]",
       type_id = null,
-       agent_id || null, // 👈 هنا الربط
+       agent_id = null, 
     } = req.body;
 
     if (!name) {
