@@ -16,18 +16,18 @@ router.get("/", async (req, res) => {
   try {
     const user = req.user;
 
-    // الإدارة العامة: كل العملاء من كل الفروع
-    if (user.is_admin_branch === 1 || user.is_admin_branch === true) {
-      const [rows] = await db.query(`
-        SELECT c.*, b.name AS branch_name
-        FROM customers c
-        LEFT JOIN branches b ON b.id = c.branch_id
-        WHERE b.is_admin = 0
-        ORDER BY c.id DESC
-      `);
+  // الإدارة العامة: كل العملاء من كل الفروع (بما فيها فرع الإدارة)
+if (user.is_admin_branch === 1 || user.is_admin_branch === true) {
+  const [rows] = await db.query(`
+    SELECT c.*, b.name AS branch_name
+    FROM customers c
+    LEFT JOIN branches b ON b.id = c.branch_id
+    ORDER BY c.id DESC
+  `);
 
-      return res.json({ success: true, mode: "admin", customers: rows });
-    }
+  return res.json({ success: true, mode: "admin", customers: rows });
+}
+
 
     // فرع عادي: عملاء الفرع فقط
     if (!user.branch_id) {
