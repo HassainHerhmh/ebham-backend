@@ -10,8 +10,8 @@ router.use(auth);
    جلب المحافظ مع الرصيد
 ========================= */
 router.get("/", async (req, res) => {
-     console.log("REQ USER =>", req.user);
   try {
+         console.log("ROWS FROM DB:", rows); // <
     const [rows] = await db.query(`
       SELECT
         cg.id,
