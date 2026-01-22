@@ -65,7 +65,7 @@ router.get("/", async (req, res) => {
       params
     );
 
-    res.json({ success: true, cashBoxes: rows });
+    res.json({ success: true, list: rows });
   } catch (err) {
     console.error("GET CASH BOXES ERROR:", err);
     res.status(500).json({ success: false });
