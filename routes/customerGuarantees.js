@@ -29,8 +29,7 @@ router.get("/", async (req, res) => {
       LEFT JOIN customer_guarantee_moves m ON m.guarantee_id = cg.id
 
       LEFT JOIN users u ON u.id = cg.created_by
-     LEFT JOIN branches b ON b.id = c.branch_id
-
+      LEFT JOIN branches b ON b.id = cg.branch_id
 
       GROUP BY cg.id
       ORDER BY cg.id DESC
@@ -66,11 +65,21 @@ router.post("/", async (req, res) => {
   try {
     await conn.beginTransaction();
 
-    // إنشاء محفظة العميل
+    const userId = req.user.id;
+    const branchId = req.user.branch_id;
+
+    // إنشاء محفظة العميل مع حفظ الفرع والمستخدم
     const [r] = await conn.query(
-      `INSERT INTO customer_guarantees (customer_id, type, account_id)
-       VALUES (?, ?, ?)`,
-      [customer_id, type, type === "account" ? account_id : null]
+      `INSERT INTO customer_guarantees
+       (customer_id, type, account_id, branch_id, created_by)
+       VALUES (?, ?, ?, ?, ?)`,
+      [
+        customer_id,
+        type,
+        type === "account" ? account_id : null,
+        branchId,
+        userId,
+      ]
     );
 
     const guaranteeId = r.insertId;
@@ -102,83 +111,60 @@ router.post("/", async (req, res) => {
       `SELECT id FROM currencies WHERE is_local=1 LIMIT 1`
     );
 
-    const userId = req.user.id;
-    const branchId = req.user.branch_id;
+    // حساب المصدر (صندوق / بنك)
+    let sourceAccountId = null;
 
-    // إنشاء قيد محاسبي كامل
-    const [je] = await conn.query(
+    if (type === "cash") {
+      const [[row]] = await conn.query(
+        `SELECT parent_account_id FROM cash_boxes WHERE id=?`,
+        [source_id]
+      );
+      sourceAccountId = row?.parent_account_id;
+    } else if (type === "bank") {
+      const [[row]] = await conn.query(
+        `SELECT parent_account_id FROM banks WHERE id=?`,
+        [source_id]
+      );
+      sourceAccountId = row?.parent_account_id;
+    } else {
+      throw new Error("نوع التأمين لا يدعم إنشاء قيد تلقائي");
+    }
+
+    if (!sourceAccountId) {
+      throw new Error("لم يتم العثور على الحساب المرتبط بالمصدر");
+    }
+
+    // دائن: المصدر
+    await conn.query(
       `INSERT INTO journal_entries
-       (journal_type_id, journal_date, currency_id, account_id, notes, created_by, branch_id)
-       VALUES (?, NOW(), ?, ?, ?, ?, ?)`,
+       (journal_type_id, journal_date, currency_id, account_id, credit, notes, created_by, branch_id)
+       VALUES (?, NOW(), ?, ?, ?, ?, ?, ?)`,
       [
-        5, // نوع قيد التأمين (عدّل حسب نظامك)
+        5,
         baseCur.id,
-        s.customer_guarantee_account,
+        sourceAccountId,
+        baseAmount,
         `إضافة تأمين للعميل #${customer_id}`,
         userId,
         branchId,
       ]
     );
 
-    const journalId = je.insertId;
-
-    // طرف المصدر (صندوق أو بنك)
-let sourceAccountId = null;
-
-if (type === "cash") {
-  const [[row]] = await conn.query(
-    `SELECT parent_account_id FROM cash_boxes WHERE id=?`,
-    [source_id]
-  );
-  sourceAccountId = row?.parent_account_id;
-} else if (type === "bank") {
-  const [[row]] = await conn.query(
-    `SELECT parent_account_id FROM banks WHERE id=?`,
-    [source_id]
-  );
-  sourceAccountId = row?.parent_account_id;
-} else {
-  throw new Error("نوع التأمين لا يدعم إنشاء قيد تلقائي");
-}
-
-if (!sourceAccountId) {
-  throw new Error("لم يتم العثور على الحساب المرتبط بالمصدر");
-}
-
-
-
-   // دائن: المصدر
-await conn.query(
-  `INSERT INTO journal_entries
-   (journal_type_id, journal_date, currency_id, account_id, credit, notes, created_by, branch_id)
-   VALUES (?, NOW(), ?, ?, ?, ?, ?, ?)`,
-  [
-    5,
-    baseCur.id,
-    sourceAccountId,
-    baseAmount,
-    `إضافة تأمين للعميل #${customer_id}`,
-    userId,
-    branchId,
-  ]
-);
-
-// مدين: حساب وسيط التأمين
-await conn.query(
-  `INSERT INTO journal_entries
-   (journal_type_id, journal_date, currency_id, account_id, debit, notes, created_by, branch_id)
-   VALUES (?, NOW(), ?, ?, ?, ?, ?, ?)`,
-  [
-    5,
-    baseCur.id,
-    s.customer_guarantee_account,
-    baseAmount,
-    `إضافة تأمين للعميل #${customer_id}`,
-    userId,
-    branchId,
-  ]
-);
-
+    // مدين: حساب وسيط التأمين
+    await conn.query(
+      `INSERT INTO journal_entries
+       (journal_type_id, journal_date, currency_id, account_id, debit, notes, created_by, branch_id)
+       VALUES (?, NOW(), ?, ?, ?, ?, ?, ?)`,
+      [
+        5,
+        baseCur.id,
+        s.customer_guarantee_account,
+        baseAmount,
+        `إضافة تأمين للعميل #${customer_id}`,
+        userId,
+        branchId,
+      ]
+    );
 
     // تسجيل الحركة في محفظة العميل
     await conn.query(
@@ -198,6 +184,5 @@ await conn.query(
     conn.release();
   }
 });
-
 
 export default router;
