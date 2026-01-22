@@ -10,6 +10,7 @@ router.use(auth);
    جلب المحافظ مع الرصيد
 ========================= */
 router.get("/", async (req, res) => {
+     console.log("REQ USER =>", req.user);
   try {
     const [rows] = await db.query(`
       SELECT
@@ -39,6 +40,8 @@ router.get("/", async (req, res) => {
    إنشاء حساب تأمين
 ========================= */
 router.post("/", async (req, res) => {
+     console.log("REQ USER =>", req.user);
+   
   const { customer_id, type, account_id } = req.body;
 
   if (!customer_id || !type) {
