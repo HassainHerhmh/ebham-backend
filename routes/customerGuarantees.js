@@ -18,7 +18,12 @@ router.get("/", async (req, res) => {
         c.name AS customer_name,
         cg.type,
         a.name_ar AS account_name,
-        IFNULL(SUM(m.amount_base), 0) AS balance,
+
+        -- لو حساب مباشر نأخذ الرصيد من الحساب المحاسبي
+        CASE 
+          WHEN cg.type = 'account' THEN IFNULL(a.balance, 0)
+          ELSE IFNULL(SUM(m.amount_base), 0)
+        END AS balance,
 
         u.name AS created_by_name,
         b.name AS branch_name
@@ -27,7 +32,6 @@ router.get("/", async (req, res) => {
       LEFT JOIN customers c ON c.id = cg.customer_id
       LEFT JOIN accounts a ON a.id = cg.account_id
       LEFT JOIN customer_guarantee_moves m ON m.guarantee_id = cg.id
-
       LEFT JOIN users u ON u.id = cg.created_by
       LEFT JOIN branches b ON b.id = cg.branch_id
 
@@ -51,7 +55,7 @@ router.post("/", async (req, res) => {
     customer_id,
     type,            // cash | bank | account
     account_id,      // فقط عند type=account
-    source_id,       // صندوق أو بنك (عند وجود مبلغ)
+    source_id,       // صندوق أو بنك
     currency_id,
     rate,
     amount,
@@ -77,7 +81,6 @@ router.post("/", async (req, res) => {
     let guaranteeId;
 
     if (!existing) {
-      // إنشاء محفظة جديدة
       const [r] = await conn.query(
         `INSERT INTO customer_guarantees
          (customer_id, type, account_id, branch_id, created_by)
@@ -90,104 +93,94 @@ router.post("/", async (req, res) => {
           userId,
         ]
       );
-
       guaranteeId = r.insertId;
     } else {
-      // استخدام المحفظة الموجودة
       guaranteeId = existing.id;
     }
 
-    // إذا لم يوجد مبلغ → نكتفي بإنشاء المحفظة فقط
+    // لو حساب مباشر → لا قيود ولا حركات
+    if (type === "account") {
+      await conn.commit();
+      return res.json({ success: true });
+    }
+
+    // لو لا يوجد مبلغ → نكتفي بإنشاء المحفظة
     if (!amount) {
       await conn.commit();
       return res.json({ success: true });
     }
 
-    // تحقق من بيانات الإضافة
     if (!source_id || !currency_id) {
       throw new Error("بيانات الإضافة ناقصة");
     }
 
-    // جلب حساب وسيط التأمين من الإعدادات
     const [[s]] = await conn.query(
       `SELECT customer_guarantee_account FROM settings WHERE id=1 LIMIT 1`
     );
-
     if (!s?.customer_guarantee_account) {
       throw new Error("لم يتم تحديد حساب وسيط التأمين");
     }
 
     const baseAmount = Number(amount) * Number(rate || 1);
 
-    // العملة الأساسية للنظام
     const [[baseCur]] = await conn.query(
       `SELECT id FROM currencies WHERE is_local=1 LIMIT 1`
     );
 
-    // حساب المصدر (صندوق / بنك)
- let sourceAccountId = null;
+    let sourceAccountId = null;
 
-if (type === "cash") {
-  const [[row]] = await conn.query(
-    `SELECT parent_account_id FROM cash_boxes WHERE id=?`,
-    [source_id]
-  );
-  sourceAccountId = row?.parent_account_id;
-}
-else if (type === "bank") {
-  const [[row]] = await conn.query(
-    `SELECT parent_account_id FROM banks WHERE id=?`,
-    [source_id]
-  );
-  sourceAccountId = row?.parent_account_id;
-}
-else if (type === "account") {
-  // في حالة "حساب مباشر" نستخدم الحساب المختار مباشرة
-  sourceAccountId = account_id;
-}
-else {
-  throw new Error("نوع التأمين غير مدعوم");
-}
+    if (type === "cash") {
+      const [[row]] = await conn.query(
+        `SELECT parent_account_id FROM cash_boxes WHERE id=?`,
+        [source_id]
+      );
+      sourceAccountId = row?.parent_account_id;
+    } else if (type === "bank") {
+      const [[row]] = await conn.query(
+        `SELECT parent_account_id FROM banks WHERE id=?`,
+        [source_id]
+      );
+      sourceAccountId = row?.parent_account_id;
+    } else {
+      throw new Error("نوع التأمين غير مدعوم");
+    }
 
-if (!sourceAccountId) {
-  throw new Error("لم يتم العثور على الحساب المصدر");
-}
+    if (!sourceAccountId) {
+      throw new Error("لم يتم العثور على الحساب المصدر");
+    }
 
+    // مدين: المصدر
+    await conn.query(
+      `INSERT INTO journal_entries
+       (journal_type_id, journal_date, currency_id, account_id, debit, notes, created_by, branch_id)
+       VALUES (?, NOW(), ?, ?, ?, ?, ?, ?)`,
+      [
+        5,
+        baseCur.id,
+        sourceAccountId,
+        baseAmount,
+        `إضافة تأمين للعميل #${customer_id}`,
+        userId,
+        branchId,
+      ]
+    );
 
-  // مدين: المصدر (الصندوق / البنك / الحساب)
-await conn.query(
-  `INSERT INTO journal_entries
-   (journal_type_id, journal_date, currency_id, account_id, debit, notes, created_by, branch_id)
-   VALUES (?, NOW(), ?, ?, ?, ?, ?, ?)`,
-  [
-    5,
-    baseCur.id,
-    sourceAccountId,
-    baseAmount,
-    `إضافة تأمين للعميل #${customer_id}`,
-    userId,
-    branchId,
-  ]
-);
+    // دائن: حساب وسيط التأمين
+    await conn.query(
+      `INSERT INTO journal_entries
+       (journal_type_id, journal_date, currency_id, account_id, credit, notes, created_by, branch_id)
+       VALUES (?, NOW(), ?, ?, ?, ?, ?, ?)`,
+      [
+        5,
+        baseCur.id,
+        s.customer_guarantee_account,
+        baseAmount,
+        `إضافة تأمين للعميل #${customer_id}`,
+        userId,
+        branchId,
+      ]
+    );
 
-// دائن: حساب وسيط التأمين (يصبح له)
-await conn.query(
-  `INSERT INTO journal_entries
-   (journal_type_id, journal_date, currency_id, account_id, credit, notes, created_by, branch_id)
-   VALUES (?, NOW(), ?, ?, ?, ?, ?, ?)`,
-  [
-    5,
-    baseCur.id,
-    s.customer_guarantee_account,
-    baseAmount,
-    `إضافة تأمين للعميل #${customer_id}`,
-    userId,
-    branchId,
-  ]
-);
-
-
-    // تسجيل الحركة في محفظة العميل
     await conn.query(
       `INSERT INTO customer_guarantee_moves
        (guarantee_id, currency_id, rate, amount, amount_base)
@@ -205,6 +198,5 @@ await conn.query(
     conn.release();
   }
 });
-
 
 export default router;
