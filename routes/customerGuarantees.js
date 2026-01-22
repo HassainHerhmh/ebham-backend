@@ -21,9 +21,10 @@ router.get("/", async (req, res) => {
         a.name_ar AS account_name,
         IFNULL(SUM(m.amount_base), 0) AS balance
       FROM customer_guarantees cg
-      JOIN customers c ON c.id = cg.customer_id
-      LEFT JOIN accounts a ON a.id = cg.account_id
-      LEFT JOIN customer_guarantee_moves m ON m.guarantee_id = cg.id
+LEFT JOIN customers c ON c.id = cg.customer_id
+LEFT JOIN accounts a ON a.id = cg.account_id
+LEFT JOIN customer_guarantee_moves m ON m.guarantee_id = cg.id
+
       GROUP BY cg.id
       ORDER BY cg.id DESC
     `);
