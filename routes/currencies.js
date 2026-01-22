@@ -49,7 +49,7 @@ router.get("/", async (req, res) => {
     res.json({
   success: true,
   list: rows,        // لصفحة محفظة العملاء
-  cashBoxes: rows,   // لصفحة إدارة الصناديق
+  currencies: rows,   // لصفحة إدارة العملات
 });
 
   } catch (err) {
