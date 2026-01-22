@@ -11,6 +11,11 @@ router.use(auth);
 ========================= */
 router.get("/", async (req, res) => {
   try {
+
+         const [raw] = await db.query(`SELECT * FROM customer_guarantees`);
+    console.log("RAW customer_guarantees:", raw);
+
+     
     const [rows] = await db.query(`
       SELECT
         cg.id,
