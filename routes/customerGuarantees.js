@@ -125,27 +125,34 @@ router.post("/", async (req, res) => {
     );
 
     // حساب المصدر (صندوق / بنك)
-    let sourceAccountId = null;
+ let sourceAccountId = null;
 
-    if (type === "cash") {
-      const [[row]] = await conn.query(
-        `SELECT parent_account_id FROM cash_boxes WHERE id=?`,
-        [source_id]
-      );
-      sourceAccountId = row?.parent_account_id;
-    } else if (type === "bank") {
-      const [[row]] = await conn.query(
-        `SELECT parent_account_id FROM banks WHERE id=?`,
-        [source_id]
-      );
-      sourceAccountId = row?.parent_account_id;
-    } else {
-      throw new Error("نوع التأمين لا يدعم إنشاء قيد تلقائي");
-    }
+if (type === "cash") {
+  const [[row]] = await conn.query(
+    `SELECT parent_account_id FROM cash_boxes WHERE id=?`,
+    [source_id]
+  );
+  sourceAccountId = row?.parent_account_id;
+}
+else if (type === "bank") {
+  const [[row]] = await conn.query(
+    `SELECT parent_account_id FROM banks WHERE id=?`,
+    [source_id]
+  );
+  sourceAccountId = row?.parent_account_id;
+}
+else if (type === "account") {
+  // في حالة "حساب مباشر" نستخدم الحساب المختار مباشرة
+  sourceAccountId = account_id;
+}
+else {
+  throw new Error("نوع التأمين غير مدعوم");
+}
 
-    if (!sourceAccountId) {
-      throw new Error("لم يتم العثور على الحساب المرتبط بالمصدر");
-    }
+if (!sourceAccountId) {
+  throw new Error("لم يتم العثور على الحساب المصدر");
+}
+
 
     // دائن: المصدر
     await conn.query(
