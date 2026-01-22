@@ -65,7 +65,12 @@ router.get("/", async (req, res) => {
       params
     );
 
-    res.json({ success: true, list: rows });
+  res.json({
+  success: true,
+  list: rows,        // لصفحة محفظة العملاء
+  cashBoxes: rows,   // لصفحة إدارة الصناديق
+});
+
   } catch (err) {
     console.error("GET CASH BOXES ERROR:", err);
     res.status(500).json({ success: false });
