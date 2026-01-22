@@ -122,10 +122,28 @@ router.post("/", async (req, res) => {
     const journalId = je.insertId;
 
     // طرف المصدر (صندوق أو بنك)
-    const sourceAccountId =
-      type === "cash"
-        ? (await conn.query(`SELECT account_id FROM cash_boxes WHERE id=?`, [source_id]))[0][0].account_id
-        : (await conn.query(`SELECT account_id FROM banks WHERE id=?`, [source_id]))[0][0].account_id;
+   let sourceAccountId = null;
+
+if (type === "cash") {
+  const [[row]] = await conn.query(
+    `SELECT account_id FROM cash_boxes WHERE id=?`,
+    [source_id]
+  );
+  sourceAccountId = row?.account_id;
+} else if (type === "bank") {
+  const [[row]] = await conn.query(
+    `SELECT account_id FROM banks WHERE id=?`,
+    [source_id]
+  );
+  sourceAccountId = row?.account_id;
+} else {
+  throw new Error("نوع التأمين لا يدعم إنشاء قيد تلقائي");
+}
+
+if (!sourceAccountId) {
+  throw new Error("لم يتم العثور على الحساب المرتبط بالمصدر");
+}
+
 
    // دائن: المصدر
 await conn.query(
