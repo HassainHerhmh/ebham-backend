@@ -127,19 +127,38 @@ router.post("/", async (req, res) => {
         ? (await conn.query(`SELECT account_id FROM cash_boxes WHERE id=?`, [source_id]))[0][0].account_id
         : (await conn.query(`SELECT account_id FROM banks WHERE id=?`, [source_id]))[0][0].account_id;
 
-    // دائن: المصدر
-    await conn.query(
-      `INSERT INTO journal_items (journal_id, account_id, credit)
-       VALUES (?, ?, ?)`,
-      [journalId, sourceAccountId, baseAmount]
-    );
+   // دائن: المصدر
+await conn.query(
+  `INSERT INTO journal_entries
+   (journal_type_id, journal_date, currency_id, account_id, credit, notes, created_by, branch_id)
+   VALUES (?, NOW(), ?, ?, ?, ?, ?, ?)`,
+  [
+    5,
+    baseCur.id,
+    sourceAccountId,
+    baseAmount,
+    `إضافة تأمين للعميل #${customer_id}`,
+    userId,
+    branchId,
+  ]
+);
 
-    // مدين: حساب وسيط التأمين
-    await conn.query(
-      `INSERT INTO journal_items (journal_id, account_id, debit)
-       VALUES (?, ?, ?)`,
-      [journalId, s.customer_guarantee_account, baseAmount]
-    );
+// مدين: حساب وسيط التأمين
+await conn.query(
+  `INSERT INTO journal_entries
+   (journal_type_id, journal_date, currency_id, account_id, debit, notes, created_by, branch_id)
+   VALUES (?, NOW(), ?, ?, ?, ?, ?, ?)`,
+  [
+    5,
+    baseCur.id,
+    s.customer_guarantee_account,
+    baseAmount,
+    `إضافة تأمين للعميل #${customer_id}`,
+    userId,
+    branchId,
+  ]
+);
+
 
     // تسجيل الحركة في محفظة العميل
     await conn.query(
