@@ -154,37 +154,38 @@ if (!sourceAccountId) {
 }
 
 
-    // دائن: المصدر
-    await conn.query(
-      `INSERT INTO journal_entries
-       (journal_type_id, journal_date, currency_id, account_id, credit, notes, created_by, branch_id)
-       VALUES (?, NOW(), ?, ?, ?, ?, ?, ?)`,
-      [
-        5,
-        baseCur.id,
-        sourceAccountId,
-        baseAmount,
-        `إضافة تأمين للعميل #${customer_id}`,
-        userId,
-        branchId,
-      ]
-    );
+  // مدين: المصدر (الصندوق / البنك / الحساب)
+await conn.query(
+  `INSERT INTO journal_entries
+   (journal_type_id, journal_date, currency_id, account_id, debit, notes, created_by, branch_id)
+   VALUES (?, NOW(), ?, ?, ?, ?, ?, ?)`,
+  [
+    5,
+    baseCur.id,
+    sourceAccountId,
+    baseAmount,
+    `إضافة تأمين للعميل #${customer_id}`,
+    userId,
+    branchId,
+  ]
+);
 
-    // مدين: حساب وسيط التأمين
-    await conn.query(
-      `INSERT INTO journal_entries
-       (journal_type_id, journal_date, currency_id, account_id, debit, notes, created_by, branch_id)
-       VALUES (?, NOW(), ?, ?, ?, ?, ?, ?)`,
-      [
-        5,
-        baseCur.id,
-        s.customer_guarantee_account,
-        baseAmount,
-        `إضافة تأمين للعميل #${customer_id}`,
-        userId,
-        branchId,
-      ]
-    );
+// دائن: حساب وسيط التأمين (يصبح له)
+await conn.query(
+  `INSERT INTO journal_entries
+   (journal_type_id, journal_date, currency_id, account_id, credit, notes, created_by, branch_id)
+   VALUES (?, NOW(), ?, ?, ?, ?, ?, ?)`,
+  [
+    5,
+    baseCur.id,
+    s.customer_guarantee_account,
+    baseAmount,
+    `إضافة تأمين للعميل #${customer_id}`,
+    userId,
+    branchId,
+  ]
+);
+
 
     // تسجيل الحركة في محفظة العميل
     await conn.query(
