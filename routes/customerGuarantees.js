@@ -5,14 +5,11 @@ import auth from "../middlewares/auth.js";
 const router = express.Router();
 router.use(auth);
 
-/* =========================
-   GET /customer-guarantees
-   جلب المحافظ مع الرصيد
-========================= */
 router.get("/", async (req, res) => {
   try {
-   const [rows] = await db.query(`SELECT * FROM customer_guarantees`);
-    console.log("ROWS FROM DB:", rows);
+    const [raw] = await db.query(`SELECT * FROM customer_guarantees`);
+    console.log("RAW customer_guarantees:", raw);
+
     const [rows] = await db.query(`
       SELECT
         cg.id,
@@ -22,20 +19,21 @@ router.get("/", async (req, res) => {
         a.name_ar AS account_name,
         IFNULL(SUM(m.amount_base), 0) AS balance
       FROM customer_guarantees cg
-LEFT JOIN customers c ON c.id = cg.customer_id
-LEFT JOIN accounts a ON a.id = cg.account_id
-LEFT JOIN customer_guarantee_moves m ON m.guarantee_id = cg.id
-
+      LEFT JOIN customers c ON c.id = cg.customer_id
+      LEFT JOIN accounts a ON a.id = cg.account_id
+      LEFT JOIN customer_guarantee_moves m ON m.guarantee_id = cg.id
       GROUP BY cg.id
       ORDER BY cg.id DESC
     `);
 
+    console.log("JOIN RESULT:", rows);
     res.json({ success: true, list: rows });
   } catch (e) {
     console.error(e);
     res.status(500).json({ success: false });
   }
 });
+
 
 /* =========================
    POST /customer-guarantees
