@@ -142,7 +142,8 @@ app.use("/api/captain-groups", captainGroups);
 ========================= */
 import paymentMethodsRoutes from "./routes/payment-methods.js";
 
-app.use("/api/payment/banks", paymentMethodsRoutes);
+app.use("/api/payments/banks", paymentMethodsRoutes);
+
 /* =========================
  الفروع
 ========================= */
