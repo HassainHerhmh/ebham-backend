@@ -315,6 +315,12 @@ import agentInfoRouter from "./routes/agentInfo.js";
 
 app.use("/api/agent-info", agentInfoRouter);
 
+/* =========================
+صفحة التامين
+========================= */
+import customerGuarantees from "./routes/customerGuarantees.js";
+
+app.use("/api/customer-guarantees", customerGuarantees);
 
 
 /* =========================
