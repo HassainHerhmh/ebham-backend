@@ -11,11 +11,6 @@ router.use(auth);
 ========================= */
 router.get("/", async (req, res) => {
   try {
-
-         const [raw] = await db.query(`SELECT * FROM customer_guarantees`);
-    console.log("RAW customer_guarantees:", raw);
-
-     
     const [rows] = await db.query(`
       SELECT
         cg.id,
@@ -23,11 +18,19 @@ router.get("/", async (req, res) => {
         c.name AS customer_name,
         cg.type,
         a.name_ar AS account_name,
-        IFNULL(SUM(m.amount_base), 0) AS balance
+        IFNULL(SUM(m.amount_base), 0) AS balance,
+
+        u.name AS created_by_name,
+        b.name AS branch_name
+
       FROM customer_guarantees cg
       LEFT JOIN customers c ON c.id = cg.customer_id
       LEFT JOIN accounts a ON a.id = cg.account_id
       LEFT JOIN customer_guarantee_moves m ON m.guarantee_id = cg.id
+
+      LEFT JOIN users u ON u.id = cg.created_by
+      LEFT JOIN branches b ON b.id = cg.branch_id
+
       GROUP BY cg.id
       ORDER BY cg.id DESC
     `);
