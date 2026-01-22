@@ -95,7 +95,7 @@ router.post("/", async (req, res) => {
 
     // إنشاء قيد محاسبي
     const [je] = await conn.query(
-      `INSERT INTO journal_entries (date, notes)
+      `INSERT INTO journal_entries (journal_date, notes)
        VALUES (NOW(), ?)`,
       [`إضافة تأمين للعميل #${customer_id}`]
     );
