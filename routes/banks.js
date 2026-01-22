@@ -58,7 +58,12 @@ router.get("/", auth, async (req, res) => {
       params
     );
 
-    res.json({ success: true, banks: rows });
+  res.json({
+  success: true,
+  list: rows,        // لصفحة محفظة العملاء
+  cashBoxes: rows,   // لصفحة إدارة الصناديق
+});
+
   } catch (err) {
     console.error("GET BANKS ERROR:", err);
     res.status(500).json({ success: false });
