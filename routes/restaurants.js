@@ -44,13 +44,16 @@ router.get("/", async (req, res) => {
         r.sort_order,
         r.type_id,
         r.branch_id,
+        r.agent_id,
         b.name AS branch_name,
+        a.name AS agent_name,
 
         COALESCE(GROUP_CONCAT(DISTINCT c.name SEPARATOR ', '), '') AS categories,
         COALESCE(GROUP_CONCAT(DISTINCT c.id SEPARATOR ','), '')    AS category_ids
 
       FROM restaurants r
       LEFT JOIN branches b ON b.id = r.branch_id
+      LEFT JOIN agents a ON a.id = r.agent_id
       LEFT JOIN restaurant_categories rc 
         ON r.id = rc.restaurant_id
       LEFT JOIN categories c 
