@@ -29,7 +29,8 @@ router.get("/", async (req, res) => {
       LEFT JOIN customer_guarantee_moves m ON m.guarantee_id = cg.id
 
       LEFT JOIN users u ON u.id = cg.created_by
-      LEFT JOIN branches b ON b.id = cg.branch_id
+     LEFT JOIN branches b ON b.id = c.branch_id
+
 
       GROUP BY cg.id
       ORDER BY cg.id DESC
