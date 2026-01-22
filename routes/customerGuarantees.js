@@ -44,7 +44,7 @@ router.get("/", async (req, res) => {
 
 /* =========================
    POST /customer-guarantees
-   إنشاء حساب تأمين + (اختياري) إضافة مبلغ أولي
+   إنشاء حساب تأمين (مرة واحدة) + إضافة مبلغ عند الحاجة
 ========================= */
 router.post("/", async (req, res) => {
   const {
@@ -68,23 +68,36 @@ router.post("/", async (req, res) => {
     const userId = req.user.id;
     const branchId = req.user.branch_id;
 
-    // إنشاء محفظة العميل مع حفظ الفرع والمستخدم
-    const [r] = await conn.query(
-      `INSERT INTO customer_guarantees
-       (customer_id, type, account_id, branch_id, created_by)
-       VALUES (?, ?, ?, ?, ?)`,
-      [
-        customer_id,
-        type,
-        type === "account" ? account_id : null,
-        branchId,
-        userId,
-      ]
+    // هل لدى العميل محفظة مسبقًا؟
+    const [[existing]] = await conn.query(
+      `SELECT id FROM customer_guarantees WHERE customer_id=? LIMIT 1`,
+      [customer_id]
     );
 
-    const guaranteeId = r.insertId;
+    let guaranteeId;
 
-    // إذا لم يوجد مبلغ → نكتفي بإنشاء الحساب فقط
+    if (!existing) {
+      // إنشاء محفظة جديدة
+      const [r] = await conn.query(
+        `INSERT INTO customer_guarantees
+         (customer_id, type, account_id, branch_id, created_by)
+         VALUES (?, ?, ?, ?, ?)`,
+        [
+          customer_id,
+          type,
+          type === "account" ? account_id : null,
+          branchId,
+          userId,
+        ]
+      );
+
+      guaranteeId = r.insertId;
+    } else {
+      // استخدام المحفظة الموجودة
+      guaranteeId = existing.id;
+    }
+
+    // إذا لم يوجد مبلغ → نكتفي بإنشاء المحفظة فقط
     if (!amount) {
       await conn.commit();
       return res.json({ success: true });
@@ -179,10 +192,11 @@ router.post("/", async (req, res) => {
   } catch (e) {
     await conn.rollback();
     console.error(e);
-    res.status(500).json({ success: false, message: e.message });
+    res.status(400).json({ success: false, message: e.message });
   } finally {
     conn.release();
   }
 });
+
 
 export default router;
