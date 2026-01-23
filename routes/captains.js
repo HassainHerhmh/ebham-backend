@@ -19,37 +19,37 @@ router.get("/", async (req, res) => {
 
     let rows;
 
-    if (is_admin_branch) {
-      // مستخدم من الإدارة العامة
+    const baseSelect = `
+      SELECT 
+        c.*,
+        b.name AS branch_name,
+        a.code AS account_code,
+        a.name_ar AS account_name
+      FROM captains c
+      LEFT JOIN branches b ON b.id = c.branch_id
+      LEFT JOIN accounts a ON a.id = c.account_id
+    `;
 
-      // إذا الهيدر مختار فرع (غير فرع الإدارة العامة)
+    if (is_admin_branch) {
       if (selectedBranch && Number(selectedBranch) !== Number(branch_id)) {
         [rows] = await db.query(
           `
-          SELECT c.*, b.name AS branch_name
-          FROM captains c
-          LEFT JOIN branches b ON b.id = c.branch_id
+          ${baseSelect}
           WHERE c.branch_id = ?
           ORDER BY c.id DESC
           `,
           [selectedBranch]
         );
       } else {
-        // داخل الإدارة العامة → كل الكباتن من كل الفروع
         [rows] = await db.query(`
-          SELECT c.*, b.name AS branch_name
-          FROM captains c
-          LEFT JOIN branches b ON b.id = c.branch_id
+          ${baseSelect}
           ORDER BY c.id DESC
         `);
       }
     } else {
-      // مستخدم فرع عادي → يرى فرعه فقط
       [rows] = await db.query(
         `
-        SELECT c.*, b.name AS branch_name
-        FROM captains c
-        LEFT JOIN branches b ON b.id = c.branch_id
+        ${baseSelect}
         WHERE c.branch_id = ?
         ORDER BY c.id DESC
         `,
@@ -60,7 +60,7 @@ router.get("/", async (req, res) => {
     res.json({ success: true, captains: rows });
   } catch (err) {
     console.error("GET CAPTAINS ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, message: "فشل في جلب الكباتن" });
   }
 });
 
@@ -76,12 +76,13 @@ router.post("/", async (req, res) => {
     vehicle_type,
     vehicle_number,
     status,
+    account_id,
   } = req.body;
 
-  if (!name || !phone || !password) {
+  if (!name || !phone || !password || !account_id) {
     return res.json({
       success: false,
-      message: "الاسم، الجوال، وكلمة المرور مطلوبة",
+      message: "الاسم، الجوال، كلمة المرور، والحساب المحاسبي مطلوبة",
     });
   }
 
@@ -98,8 +99,8 @@ router.post("/", async (req, res) => {
     await db.query(
       `
       INSERT INTO captains
-      (name, email, phone, password, vehicle_type, vehicle_number, status, branch_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      (name, email, phone, password, vehicle_type, vehicle_number, status, branch_id, account_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
       `,
       [
         name,
@@ -110,13 +111,14 @@ router.post("/", async (req, res) => {
         vehicle_number || null,
         status || "available",
         finalBranchId,
+        account_id,
       ]
     );
 
     res.json({ success: true });
   } catch (err) {
     console.error("ADD CAPTAIN ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, message: "فشل في إضافة الكابتن" });
   }
 });
 
@@ -132,6 +134,7 @@ router.put("/:id", async (req, res) => {
     vehicle_type,
     vehicle_number,
     status,
+    account_id,
   } = req.body;
 
   const fields = [];
@@ -144,6 +147,7 @@ router.put("/:id", async (req, res) => {
   if (vehicle_type) { fields.push("vehicle_type=?"); values.push(vehicle_type); }
   if (vehicle_number) { fields.push("vehicle_number=?"); values.push(vehicle_number); }
   if (status) { fields.push("status=?"); values.push(status); }
+  if (account_id) { fields.push("account_id=?"); values.push(account_id); }
 
   if (!fields.length) {
     return res.json({
@@ -165,7 +169,7 @@ router.put("/:id", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error("UPDATE CAPTAIN ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, message: "فشل في التحديث" });
   }
 });
 
@@ -178,7 +182,7 @@ router.delete("/:id", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error("DELETE CAPTAIN ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, message: "فشل في الحذف" });
   }
 });
 
@@ -205,7 +209,7 @@ router.put("/:id/status", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error("UPDATE CAPTAIN STATUS ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, message: "فشل في تحديث الحالة" });
   }
 });
 
