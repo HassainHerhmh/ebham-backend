@@ -13,21 +13,31 @@ router.get("/", async (req, res) => {
     const user = req.user;
 
     const baseQuery = `
-      SELECT 
-        o.id,
-        c.name AS customer_name,
-        c.phone AS customer_phone,
-        o.status,
-        o.total_amount,
-        o.delivery_fee,
-        o.extra_store_fee,
-        o.stores_count,
-        o.created_at,
-        cap.name AS captain_name,
-        o.payment_method
-      FROM orders o
-      JOIN customers c ON c.id = o.customer_id
-      LEFT JOIN captains cap ON cap.id = o.captain_id
+     SELECT 
+  o.id,
+  c.name AS customer_name,
+  c.phone AS customer_phone,
+  o.status,
+  o.total_amount,
+  o.delivery_fee,
+  o.extra_store_fee,
+  o.stores_count,
+  o.created_at,
+  cap.name AS captain_name,
+  o.payment_method,
+
+  CASE o.payment_method
+    WHEN 'cod' THEN 'الدفع عند الاستلام'
+    WHEN 'bank' THEN 'إيداع بنكي'
+    WHEN 'wallet' THEN 'من الرصيد'
+    WHEN 'online' THEN 'دفع إلكتروني'
+    ELSE '-'
+  END AS payment_method_label
+
+FROM orders o
+JOIN customers c ON c.id = o.customer_id
+LEFT JOIN captains cap ON cap.id = o.captain_id
+
     `;
 
     let rows;
