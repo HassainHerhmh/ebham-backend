@@ -337,4 +337,23 @@ router.put("/:id/status", async (req, res) => {
   }
 });
 
+/* =========================
+   POST /orders/:id/assign
+========================= */
+router.post("/:id/assign", async (req, res) => {
+  try {
+    const { captain_id } = req.body;
+
+    await db.query(
+      "UPDATE orders SET captain_id=? WHERE id=?",
+      [captain_id, req.params.id]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("ASSIGN CAPTAIN ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
 export default router;
