@@ -332,10 +332,10 @@ router.get("/:id", async (req, res) => {
 /* =========================
    PUT /orders/:id/status
 ========================= */
-/* =========================
+/* =====================================================
    PUT /orders/:id/status
-   تحديث حالة الطلب وإنشاء القيود المحاسبية الآلية
-========================= */
+   تحديث حالة الطلب وإنشاء القيود المحاسبية الآلية الشاملة
+===================================================== */
 router.put("/:id/status", async (req, res) => {
   const conn = await db.getConnection();
   try {
@@ -345,26 +345,21 @@ router.put("/:id/status", async (req, res) => {
     await conn.beginTransaction();
 
     // 1. تحديث حالة الطلب في قاعدة البيانات
-    await conn.query(
-      "UPDATE orders SET status=? WHERE id=?",
-      [status, orderId]
-    );
+    await conn.query("UPDATE orders SET status=? WHERE id=?", [status, orderId]);
 
-    // الحسابات والقيود تتم فقط عند انتقال الحالة إلى "جاري التوصيل" (أو حسب منطق عملك)
+    // تبدأ العمليات المالية عند انتقال الحالة إلى "delivering"
     if (status === "delivering") {
       
       // 2. جلب الحسابات الوسيطة من جدول الإعدادات (settings)
       const [[settings]] = await conn.query("SELECT * FROM settings LIMIT 1");
 
-      // 3. جلب بيانات الطلب مع ربط حسابات الوكلاء والكباتن من جدول العمولات
+      // 3. جلب بيانات الطلب والربط مع العمولات لتعويض النقص في جدول المطاعم
       const [orderRows] = await conn.query(`
         SELECT 
           o.*,
-          -- بيانات حساب وعمولة الوكيل (المطعم)
           r_comm.agent_account_id AS res_acc_id,
           r_comm.commission_type AS res_comm_type,
           r_comm.commission_value AS res_comm_val,
-          -- بيانات حساب وعمولة الكابتن
           c_comm.agent_account_id AS cap_acc_id,
           c_comm.commission_type AS cap_comm_type,
           c_comm.commission_value AS cap_comm_val
@@ -388,63 +383,45 @@ router.put("/:id/status", async (req, res) => {
       const order = orderRows[0];
 
       if (order) {
-        // حساب صافي مبلغ المطعم (الإجمالي - التوصيل - الرسوم الإضافية)
-        const restaurantAmount =
-          Number(order.total_amount || 0) -
-          Number(order.delivery_fee || 0) -
-          Number(order.extra_store_fee || 0);
-
-        const [[baseCur]] = await conn.query(
-          "SELECT id FROM currencies WHERE is_local=1 LIMIT 1"
-        );
-
-        const journalTypeId = 5; // نوع القيد المحاسبي
+        // حساب صافي مبلغ المطعم
+        const restaurantAmount = Number(order.total_amount || 0) - Number(order.delivery_fee || 0) - Number(order.extra_store_fee || 0);
+        const [[baseCur]] = await conn.query("SELECT id FROM currencies WHERE is_local=1 LIMIT 1");
+        const journalTypeId = 5; 
         const notesPrefix = `طلب #${order.id}: `;
 
-        // --- أ- تحديد حساب الطرف المدين بناءً على طريقة الدفع ---
+        // --- أ- تحديد حساب الطرف المدين (حسب نوع الدفع) ---
         let debitAccount = null;
         let paymentMethodLabel = "";
 
         if (order.payment_method === "cod") {
           debitAccount = order.cap_acc_id; // الكاش عند الكابتن
-          paymentMethodLabel = "دفع نقدي";
+          paymentMethodLabel = "نقدي";
         } else if (order.payment_method === "bank" || order.payment_method === "online") {
           debitAccount = settings.transfer_guarantee_account; // حساب وسيط التحويلات
-          paymentMethodLabel = "إيداع بنكي/إلكتروني";
+          paymentMethodLabel = "تحويل بنكي";
         } else if (order.payment_method === "ready") {
-          debitAccount = settings.customer_guarantee_account; // حساب وسيط التأمينات
+          debitAccount = settings.customer_guarantee_account; // حساب وسيط التأمينات (رقم 51)
           paymentMethodLabel = "محفظة ريدي";
         }
 
-        // تنفيذ القيد الأساسي (من حساب الدفع إلى حساب المطعم)
+        // تنفيذ القيود المحاسبية إذا توفرت الحسابات والمبالغ
         if (debitAccount && order.res_acc_id && restaurantAmount > 0) {
-          // مدين: حساب وسيط الدفع أو الكابتن
+          // 1. قيد إثبات مستحق المطعم (من حساب الدفع إلى حساب المطعم)
           await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, debitAccount, restaurantAmount, 0, `${notesPrefix} إثبات مستحق مطعم (${paymentMethodLabel})`, req);
-          // دائن: حساب المطعم (الوكيل)
           await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.res_acc_id, 0, restaurantAmount, `${notesPrefix} صافي مبيعات المطعم`, req);
 
-          // --- ب- خصم عمولة الوكيل (المطعم) ---
+          // 2. خصم عمولة الوكيل (المطعم) -> تذهب لحساب إيراد عمولات الوكلاء (رقم 48)
           if (settings.commission_income_account && order.res_comm_val > 0) {
-            let resComm = order.res_comm_type === 'percentage' 
-              ? (restaurantAmount * order.res_comm_val / 100) 
-              : order.res_comm_val;
-
-            // مدين: حساب المطعم (نخصم منه)
-            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.res_acc_id, resComm, 0, `${notesPrefix} خصم عمولة الشركة من الوكيل`, req);
-            // دائن: حساب إيراد عمولات الوكلاء
-            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, settings.commission_income_account, 0, resComm, `${notesPrefix} إيراد عمولة وكلاء`, req);
+            let resComm = order.res_comm_type === 'percentage' ? (restaurantAmount * order.res_comm_val / 100) : order.res_comm_val;
+            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.res_acc_id, resComm, 0, `${notesPrefix} خصم عمولة الوكيل`, req);
+            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, settings.commission_income_account, 0, resComm, `${notesPrefix} إيراد عمولات وكلاء`, req);
           }
 
-          // --- ج- خصم عمولة الكابتن ---
+          // 3. خصم عمولة الكابتن -> تذهب لحساب إيراد عمولات الكباتن (رقم 49)
           if (settings.courier_commission_account && order.cap_comm_val > 0 && order.cap_acc_id) {
-            let capComm = order.cap_comm_type === 'percentage' 
-              ? (order.delivery_fee * order.cap_comm_val / 100) 
-              : order.cap_comm_val;
-
-            // مدين: حساب الكابتن (نخصم منه نسبة التوصيل)
-            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.cap_acc_id, capComm, 0, `${notesPrefix} خصم عمولة الشركة من الكابتن`, req);
-            // دائن: حساب إيراد عمولات الكباتن
-            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, settings.courier_commission_account, 0, capComm, `${notesPrefix} إيراد عمولة كباتن`, req);
+            let capComm = order.cap_comm_type === 'percentage' ? (order.delivery_fee * order.cap_comm_val / 100) : order.cap_comm_val;
+            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.cap_acc_id, capComm, 0, `${notesPrefix} خصم عمولة الكابتن`, req);
+            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, settings.courier_commission_account, 0, capComm, `${notesPrefix} إيراد عمولات كباتن`, req);
           }
         }
       }
@@ -453,48 +430,25 @@ router.put("/:id/status", async (req, res) => {
     await conn.commit();
     res.json({ success: true });
   } catch (err) {
-    await conn.rollback();
+    if (conn) await conn.rollback();
     console.error("UPDATE ORDER STATUS ERROR:", err);
     res.status(500).json({ success: false, message: err.message });
   } finally {
-    conn.release();
+    if (conn) conn.release();
   }
 });
 
 /**
- * دالة مساعدة لعمل إدخال في دفتر اليومية
+ * دالة مساعدة لعمل إدخال في دفتر اليومية لتقليل تكرار الكود
  */
 async function insertJournalEntry(conn, type, refId, cur, acc, debit, credit, notes, req) {
   return conn.query(
     `INSERT INTO journal_entries 
     (journal_type_id, reference_type, reference_id, journal_date, currency_id, account_id, debit, credit, notes, created_by, branch_id)
     VALUES (?, 'order', ?, CURDATE(), ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      type, 
-      refId, 
-      cur, 
-      acc, 
-      debit || 0, 
-      credit || 0, 
-      notes, 
-      req.user.id, 
-      req.user.branch_id
-    ]
+    [type, refId, cur, acc, debit || 0, credit || 0, notes, req.user.id, req.user.branch_id]
   );
 }
-      }
-    }
-
-    await conn.commit();
-    res.json({ success: true });
-  } catch (err) {
-    await conn.rollback();
-    console.error("UPDATE ORDER STATUS ERROR:", err);
-    res.status(500).json({ success: false, message: err.message });
-  } finally {
-    conn.release();
-  }
-});
 
 
 /* =========================
