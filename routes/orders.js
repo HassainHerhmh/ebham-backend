@@ -73,6 +73,7 @@ router.post("/", async (req, res) => {
 
     const user = req.user;
 
+
     if (!restaurants || !restaurants.length) {
       return res.json({ success: false, message: "لا توجد مطاعم" });
     }
@@ -152,36 +153,36 @@ router.post("/", async (req, res) => {
       }
     }
 
-    const [result] = await db.query(
-      `
-      INSERT INTO orders 
-        (
-          customer_id,
-          address_id,
-          restaurant_id,
-          gps_link,
-          stores_count,
-          branch_id,
-          delivery_fee,
-          extra_store_fee,
-          payment_method,
-          bank_id
-        )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        customer_id,
-        address_id,
-        mainRestaurantId,
-        gps_link || null,
-        storesCount,
-        branchId,
-        deliveryFee,
-        extraStoreFee,
-        payment_method || null,
-        bank_id || null,
-      ]
-    );
+   const [result] = await db.query(
+  `
+  INSERT INTO orders 
+    (
+      customer_id,
+      address_id,
+      restaurant_id,
+      gps_link,
+      stores_count,
+      branch_id,
+      delivery_fee,
+      extra_store_fee,
+      payment_method,
+      bank_id
+    )
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `,
+  [
+    customer_id,
+    address_id,
+    mainRestaurantId,
+    gps_link || null,
+    storesCount,
+    branchId,
+    deliveryFee,
+    extraStoreFee,
+    payment_method || null,
+    bank_id || null,
+  ]
+);
 
     const orderId = result.insertId;
 
@@ -238,28 +239,29 @@ router.get("/:id", async (req, res) => {
   try {
     const orderId = req.params.id;
 
-    const [[order]] = await db.query(
-      `
-      SELECT 
-        o.id,
-        c.name AS customer_name,
-        c.phone AS customer_phone,
-        a.district AS neighborhood_name,
-        a.address AS customer_address,
-        a.latitude,
-        a.longitude,
-        o.delivery_fee,
-        o.extra_store_fee,
-        o.total_amount,
-        o.payment_method,
-        o.bank_id
-      FROM orders o
-      JOIN customers c ON c.id = o.customer_id
-      JOIN customer_addresses a ON a.id = o.address_id
-      WHERE o.id=?
-      `,
-      [orderId]
-    );
+  const [[order]] = await db.query(
+  `
+  SELECT 
+    o.id,
+    c.name AS customer_name,
+    c.phone AS customer_phone,
+    a.district AS neighborhood_name,
+    a.address AS customer_address,
+    a.latitude,
+    a.longitude,
+    o.delivery_fee,
+    o.extra_store_fee,
+    o.total_amount,
+    o.payment_method,
+    o.bank_id
+  FROM orders o
+  JOIN customers c ON c.id = o.customer_id
+  JOIN customer_addresses a ON a.id = o.address_id
+  WHERE o.id=?
+  `,
+  [orderId]
+);
+
 
     const [items] = await db.query(
       `
