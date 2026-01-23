@@ -327,42 +327,66 @@ router.get("/:id", async (req, res) => {
   }
 });
 
+
+
 /* =========================
    PUT /orders/:id/status
 ========================= */
 router.put("/:id/status", async (req, res) => {
+  const conn = await db.getConnection();
   try {
     const { status } = req.body;
     const orderId = req.params.id;
+    const userId = req.user.id;
+    const branchId = req.user.branch_id;
 
-    await db.query(
+    await conn.beginTransaction();
+
+    await conn.query(
       "UPDATE orders SET status=? WHERE id=?",
       [status, orderId]
     );
 
-    // 🧮 منطق القيد المحاسبي
+    // عند التحويل إلى "قيد التوصيل"
     if (status === "delivering") {
-      const [[order]] = await db.query(
+      const [[order]] = await conn.query(
         "SELECT id, total_amount, payment_method, captain_id FROM orders WHERE id=?",
         [orderId]
       );
 
       if (order && order.payment_method === "cod" && order.captain_id) {
-        await db.query(
+        const [[baseCur]] = await conn.query(
+          "SELECT id FROM currencies WHERE is_local=1 LIMIT 1"
+        );
+
+        // قيد واحد مثل بقية النظام
+        await conn.query(
           `
-          INSERT INTO accounting_entries
-            (order_id, captain_id, amount, type, created_at)
-          VALUES (?, ?, ?, ?, NOW())
+          INSERT INTO journal_entries
+            (journal_type_id, journal_date, currency_id, account_id, debit, notes, created_by, branch_id)
+          VALUES (?, NOW(), ?, ?, ?, ?, ?, ?)
           `,
-          [order.id, order.captain_id, order.total_amount, "cod_delivery"]
+          [
+            5,                       // نوع قيد عام
+            baseCur.id,              // العملة المحلية
+            order.captain_id,        // مؤقتًا نربطه بالكابتن (أو حساب وسيط لاحقًا)
+            order.total_amount,
+            `تسليم طلب نقدي #${order.id}`,
+            userId,
+            branchId,
+          ]
         );
       }
     }
 
+    await conn.commit();
     res.json({ success: true });
   } catch (err) {
+    await conn.rollback();
     console.error("UPDATE ORDER STATUS ERROR:", err);
     res.status(500).json({ success: false });
+  } finally {
+    conn.release();
   }
 });
 
