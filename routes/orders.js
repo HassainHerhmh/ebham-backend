@@ -337,8 +337,6 @@ router.put("/:id/status", async (req, res) => {
   try {
     const { status } = req.body;
     const orderId = req.params.id;
-    const userId = req.user.id;
-    const branchId = req.user.branch_id;
 
     await conn.beginTransaction();
 
@@ -347,35 +345,82 @@ router.put("/:id/status", async (req, res) => {
       [status, orderId]
     );
 
-    // عند التحويل إلى "قيد التوصيل"
     if (status === "delivering") {
-      const [[order]] = await conn.query(
-        "SELECT id, total_amount, payment_method, captain_id FROM orders WHERE id=?",
-        [orderId]
-      );
+      const [[order]] = await conn.query(`
+        SELECT 
+          o.id,
+          o.total_amount,
+          o.delivery_fee,
+          o.extra_store_fee,
+          o.payment_method,
+          o.captain_id,
+          o.restaurant_id,
+          cap.account_id AS captain_account_id,
+          r.account_id AS restaurant_account_id
+        FROM orders o
+        LEFT JOIN captains cap ON cap.id = o.captain_id
+        LEFT JOIN restaurants r ON r.id = o.restaurant_id
+        WHERE o.id=?
+      `, [orderId]);
 
-      if (order && order.payment_method === "cod" && order.captain_id) {
-        const [[baseCur]] = await conn.query(
-          "SELECT id FROM currencies WHERE is_local=1 LIMIT 1"
-        );
+      if (
+        order &&
+        order.payment_method === "cod" &&
+        order.captain_account_id &&
+        order.restaurant_account_id
+      ) {
+        // مبلغ المطعم فقط (بدون التوصيل)
+        const restaurantAmount =
+          Number(order.total_amount || 0) -
+          Number(order.delivery_fee || 0) -
+          Number(order.extra_store_fee || 0);
 
-        // قيد واحد مثل بقية النظام
-        await conn.query(
-          `
-          INSERT INTO journal_entries
-            (journal_type_id, journal_date, currency_id, account_id, debit, notes, created_by, branch_id)
-          VALUES (?, NOW(), ?, ?, ?, ?, ?, ?)
-          `,
-          [
-            5,                       // نوع قيد عام
-            baseCur.id,              // العملة المحلية
-            order.captain_id,        // مؤقتًا نربطه بالكابتن (أو حساب وسيط لاحقًا)
-            order.total_amount,
-            `تسليم طلب نقدي #${order.id}`,
-            userId,
-            branchId,
-          ]
-        );
+        if (restaurantAmount > 0) {
+          const [[baseCur]] = await conn.query(
+            "SELECT id FROM currencies WHERE is_local=1 LIMIT 1"
+          );
+
+          const journalTypeId = 5; // نوع قيد (توصيل نقدي مثلاً)
+          const notes = `تسليم طلب نقدي #${order.id}`;
+
+          // مدين: حساب الكابتن
+          await conn.query(
+            `
+            INSERT INTO journal_entries
+            (journal_type_id, reference_type, reference_id, journal_date, currency_id, account_id, debit, notes, created_by, branch_id)
+            VALUES (?, 'order', ?, CURDATE(), ?, ?, ?, ?, ?, ?)
+            `,
+            [
+              journalTypeId,
+              order.id,
+              baseCur.id,
+              order.captain_account_id,
+              restaurantAmount,
+              notes,
+              req.user.id,
+              req.user.branch_id,
+            ]
+          );
+
+          // دائن: حساب المطعم
+          await conn.query(
+            `
+            INSERT INTO journal_entries
+            (journal_type_id, reference_type, reference_id, journal_date, currency_id, account_id, credit, notes, created_by, branch_id)
+            VALUES (?, 'order', ?, CURDATE(), ?, ?, ?, ?, ?, ?)
+            `,
+            [
+              journalTypeId,
+              order.id,
+              baseCur.id,
+              order.restaurant_account_id,
+              restaurantAmount,
+              notes,
+              req.user.id,
+              req.user.branch_id,
+            ]
+          );
+        }
       }
     }
 
@@ -384,11 +429,12 @@ router.put("/:id/status", async (req, res) => {
   } catch (err) {
     await conn.rollback();
     console.error("UPDATE ORDER STATUS ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, message: err.message });
   } finally {
     conn.release();
   }
 });
+
 
 /* =========================
    POST /orders/:id/assign
