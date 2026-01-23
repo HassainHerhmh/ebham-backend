@@ -450,7 +450,24 @@ async function insertJournalEntry(conn, type, refId, cur, acc, debit, credit, no
   );
 }
 
+/* =====================================================
+   تحديث الحالة مع ميزة "تتبع الأخطاء الصامتة" في اللوج
+===================================================== */
+if (status === "delivering") {
+  const [[settings]] = await conn.query("SELECT * FROM settings LIMIT 1");
+  const [orderRows] = await conn.query(`... الاستعلام السابق ...`, [orderId]);
+  const order = orderRows[0];
 
+  if (!order) {
+    console.warn("تنبيه: لم يتم العثور على الطلب رقم", orderId);
+  } else if (!order.res_acc_id) {
+    // هذا هو السبب الأكثر احتمالاً
+    console.warn(`تنبيه: الطلب ${orderId} ليس له عقد عمولة نشط أو حساب وكيل مربوط`);
+  } else {
+    // ... هنا تبدأ عملية insertJournalEntry ...
+    console.log("نجاح: تم العثور على الحسابات وبدء تسجيل القيد المحاسبي");
+  }
+}
 /* =========================
    POST /orders/:id/assign
 ========================= */
