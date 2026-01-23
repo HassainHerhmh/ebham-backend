@@ -11,7 +11,6 @@ router.use(auth);
 router.get("/", async (req, res) => {
   try {
     const user = req.user;
-    let rows = [];
 
     const baseQuery = `
       SELECT 
@@ -21,6 +20,7 @@ router.get("/", async (req, res) => {
         o.status,
         o.total_amount,
         o.delivery_fee,
+        o.extra_store_fee,
         o.stores_count,
         o.created_at,
         cap.name AS captain_name
@@ -29,15 +29,16 @@ router.get("/", async (req, res) => {
       LEFT JOIN captains cap ON cap.id = o.captain_id
     `;
 
+    let rows;
+
     if (user.is_admin_branch) {
-      const [result] = await db.query(`
+      [rows] = await db.query(`
         ${baseQuery}
         ORDER BY o.id DESC
         LIMIT 50
       `);
-      rows = result;
     } else {
-      const [result] = await db.query(
+      [rows] = await db.query(
         `
         ${baseQuery}
         WHERE o.branch_id = ?
@@ -46,7 +47,6 @@ router.get("/", async (req, res) => {
         `,
         [user.branch_id]
       );
-      rows = result;
     }
 
     res.json({ success: true, orders: rows || [] });
@@ -56,18 +56,13 @@ router.get("/", async (req, res) => {
   }
 });
 
-
 /*============================
    POST /orders
 =============================*/
 router.post("/", async (req, res) => {
-     console.log("REQ USER =>", req.user);
   try {
     const { customer_id, address_id, gps_link, restaurants } = req.body;
     const user = req.user;
-
-    console.log("REQ BODY:", { customer_id, address_id, gps_link });
-    console.log("USER:", user);
 
     if (!restaurants || !restaurants.length) {
       return res.json({ success: false, message: "لا توجد مطاعم" });
@@ -89,7 +84,7 @@ router.post("/", async (req, res) => {
     const storesCount = storeIds.length;
     const mainRestaurantId = storeIds[0];
 
-    // تحديد الفرع الحقيقي
+    // تحديد الفرع
     const headerBranch = req.headers["x-branch-id"];
     let branchId = headerBranch ? Number(headerBranch) : user.branch_id || null;
 
@@ -103,9 +98,6 @@ router.post("/", async (req, res) => {
       }
     }
 
-    console.log("BRANCH ID:", branchId);
-
-    
     // ===============================
     // 🧭 حساب الرسوم
     // ===============================
@@ -121,7 +113,6 @@ router.post("/", async (req, res) => {
       if (settingsRows.length) {
         const settings = settingsRows[0];
 
-        // 🔹 حسب الحي
         if (settings.method === "neighborhood" && address_id) {
           const [addr] = await db.query(
             "SELECT district FROM customer_addresses WHERE id=?",
@@ -145,14 +136,12 @@ router.post("/", async (req, res) => {
           }
         }
 
-        // 🔹 حسب الكيلومتر
         if (settings.method === "distance") {
           deliveryFee = Number(settings.km_price_single) || 0;
 
           if (storesCount > 1) {
             extraStoreFee =
               (storesCount - 1) * (Number(settings.km_price_multi) || 0);
-            // إذا اسم العمود مختلف عندك عدله هنا
           }
         }
       }
@@ -283,7 +272,7 @@ router.get("/:id", async (req, res) => {
           id: it.restaurant_id,
           name: it.restaurant_name,
           phone: it.restaurant_phone,
-          map_url: it.map_url, // ⬅️ بدل latitude / longitude
+          map_url: it.map_url,
           items: [],
           total: 0,
         };
@@ -311,7 +300,6 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-
 /* =========================
    PUT /orders/:id/status
 ========================= */
@@ -324,6 +312,7 @@ router.put("/:id/status", async (req, res) => {
     ]);
     res.json({ success: true });
   } catch (err) {
+    console.error("UPDATE ORDER STATUS ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
@@ -340,103 +329,9 @@ router.post("/:id/assign", async (req, res) => {
     ]);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ success: false });
-  }
-});
-/* =========================================
-   GET /orders?status=pending
-   جلب الطلبات حسب الحالة
-========================================= */
-router.get("/", async (req, res) => {
-  try {
-    const { status } = req.query;
-
-    let where = "";
-    const params = [];
-
-    if (status) {
-      if (status === "processing") {
-        // قيد المعالجة = confirmed + preparing
-        where = `WHERE o.status IN ('confirmed', 'preparing')`;
-      } else {
-        where = `WHERE o.status = $1`;
-        params.push(status);
-      }
-    }
-
-    const result = await db.query(
-      `
-      SELECT
-        o.id,
-        o.status,
-        o.total_amount,
-        o.delivery_fee,
-        o.extra_store_fee,
-        o.created_at,
-        c.name AS customer_name,
-        c.phone AS customer_phone,
-        COUNT(DISTINCT orr.restaurant_id) AS stores_count,
-        cap.name AS captain_name
-      FROM orders o
-      JOIN customers c ON c.id = o.customer_id
-      LEFT JOIN captains cap ON cap.id = o.captain_id
-      LEFT JOIN order_restaurants orr ON orr.order_id = o.id
-      ${where}
-      GROUP BY o.id, c.name, c.phone, cap.name
-      ORDER BY o.id DESC
-      `,
-      params
-    );
-
-    res.json({
-      success: true,
-      orders: result.rows,
-    });
-  } catch (err) {
-    console.error("❌ خطأ في جلب الطلبات:", err);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-});
-
-/* =========================================
-   PUT /orders/:id/status
-   تحديث حالة الطلب
-========================================= */
-router.put("/:id/status", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
-
-    await db.query(
-      `UPDATE orders SET status = $1 WHERE id = $2`,
-      [status, id]
-    );
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error("❌ خطأ في تحديث الحالة:", err);
+    console.error("ASSIGN CAPTAIN ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
 
-/* =========================================
-   POST /orders/:id/assign-captain
-   تعيين كابتن
-========================================= */
-router.post("/:id/assign-captain", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { captain_id } = req.body;
-
-    await db.query(
-      `UPDATE orders SET captain_id = $1, status = 'delivering' WHERE id = $2`,
-      [captain_id, id]
-    );
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error("❌ خطأ في تعيين الكابتن:", err);
-    res.status(500).json({ success: false });
-  }
-});
 export default router;
