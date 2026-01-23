@@ -23,7 +23,8 @@ router.get("/", async (req, res) => {
         o.extra_store_fee,
         o.stores_count,
         o.created_at,
-        cap.name AS captain_name
+        cap.name AS captain_name,
+        o.payment_method
       FROM orders o
       JOIN customers c ON c.id = o.customer_id
       LEFT JOIN captains cap ON cap.id = o.captain_id
@@ -61,7 +62,15 @@ router.get("/", async (req, res) => {
 =============================*/
 router.post("/", async (req, res) => {
   try {
-    const { customer_id, address_id, gps_link, restaurants } = req.body;
+    const {
+      customer_id,
+      address_id,
+      gps_link,
+      restaurants,
+      payment_method,
+      bank_id,
+    } = req.body;
+
     const user = req.user;
 
     if (!restaurants || !restaurants.length) {
@@ -84,7 +93,6 @@ router.post("/", async (req, res) => {
     const storesCount = storeIds.length;
     const mainRestaurantId = storeIds[0];
 
-    // تحديد الفرع
     const headerBranch = req.headers["x-branch-id"];
     let branchId = headerBranch ? Number(headerBranch) : user.branch_id || null;
 
@@ -98,9 +106,6 @@ router.post("/", async (req, res) => {
       }
     }
 
-    // ===============================
-    // 🧭 حساب الرسوم
-    // ===============================
     let deliveryFee = 0;
     let extraStoreFee = 0;
 
@@ -150,8 +155,19 @@ router.post("/", async (req, res) => {
     const [result] = await db.query(
       `
       INSERT INTO orders 
-        (customer_id, address_id, restaurant_id, gps_link, stores_count, branch_id, delivery_fee, extra_store_fee)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (
+          customer_id,
+          address_id,
+          restaurant_id,
+          gps_link,
+          stores_count,
+          branch_id,
+          delivery_fee,
+          extra_store_fee,
+          payment_method,
+          bank_id
+        )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         customer_id,
@@ -162,6 +178,8 @@ router.post("/", async (req, res) => {
         branchId,
         deliveryFee,
         extraStoreFee,
+        payment_method || null,
+        bank_id || null,
       ]
     );
 
@@ -205,9 +223,6 @@ router.post("/", async (req, res) => {
     res.json({
       success: true,
       order_id: orderId,
-      stores_count: storesCount,
-      delivery_fee: deliveryFee,
-      extra_store_fee: extraStoreFee,
       total: grandTotal,
     });
   } catch (err) {
@@ -235,7 +250,9 @@ router.get("/:id", async (req, res) => {
         a.longitude,
         o.delivery_fee,
         o.extra_store_fee,
-        o.total_amount
+        o.total_amount,
+        o.payment_method,
+        o.bank_id
       FROM orders o
       JOIN customers c ON c.id = o.customer_id
       JOIN customer_addresses a ON a.id = o.address_id
@@ -296,40 +313,6 @@ router.get("/:id", async (req, res) => {
     res.json({ success: true, order });
   } catch (err) {
     console.error("ORDER DETAILS ERROR:", err);
-    res.status(500).json({ success: false });
-  }
-});
-
-/* =========================
-   PUT /orders/:id/status
-========================= */
-router.put("/:id/status", async (req, res) => {
-  try {
-    const { status } = req.body;
-    await db.query("UPDATE orders SET status=? WHERE id=?", [
-      status,
-      req.params.id,
-    ]);
-    res.json({ success: true });
-  } catch (err) {
-    console.error("UPDATE ORDER STATUS ERROR:", err);
-    res.status(500).json({ success: false });
-  }
-});
-
-/* =========================
-   POST /orders/:id/assign
-========================= */
-router.post("/:id/assign", async (req, res) => {
-  try {
-    const { captain_id } = req.body;
-    await db.query("UPDATE orders SET captain_id=? WHERE id=?", [
-      captain_id,
-      req.params.id,
-    ]);
-    res.json({ success: true });
-  } catch (err) {
-    console.error("ASSIGN CAPTAIN ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
