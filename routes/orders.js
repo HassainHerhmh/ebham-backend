@@ -332,6 +332,10 @@ router.get("/:id", async (req, res) => {
 /* =========================
    PUT /orders/:id/status
 ========================= */
+/* =========================
+   PUT /orders/:id/status
+   تحديث حالة الطلب وإنشاء القيود المحاسبية الآلية
+========================= */
 router.put("/:id/status", async (req, res) => {
   const conn = await db.getConnection();
   try {
@@ -340,87 +344,144 @@ router.put("/:id/status", async (req, res) => {
 
     await conn.beginTransaction();
 
+    // 1. تحديث حالة الطلب في قاعدة البيانات
     await conn.query(
       "UPDATE orders SET status=? WHERE id=?",
       [status, orderId]
     );
 
+    // الحسابات والقيود تتم فقط عند انتقال الحالة إلى "جاري التوصيل" (أو حسب منطق عملك)
     if (status === "delivering") {
-      const [[order]] = await conn.query(`
+      
+      // 2. جلب الحسابات الوسيطة من جدول الإعدادات (settings)
+      const [[settings]] = await conn.query("SELECT * FROM settings LIMIT 1");
+
+      // 3. جلب بيانات الطلب مع ربط حسابات الوكلاء والكباتن من جدول العمولات
+      const [orderRows] = await conn.query(`
         SELECT 
-          o.id,
-          o.total_amount,
-          o.delivery_fee,
-          o.extra_store_fee,
-          o.payment_method,
-          o.captain_id,
-          o.restaurant_id,
-          cap.account_id AS captain_account_id,
-          r.account_id AS restaurant_account_id
+          o.*,
+          -- بيانات حساب وعمولة الوكيل (المطعم)
+          r_comm.agent_account_id AS res_acc_id,
+          r_comm.commission_type AS res_comm_type,
+          r_comm.commission_value AS res_comm_val,
+          -- بيانات حساب وعمولة الكابتن
+          c_comm.agent_account_id AS cap_acc_id,
+          c_comm.commission_type AS cap_comm_type,
+          c_comm.commission_value AS cap_comm_val
         FROM orders o
-        LEFT JOIN captains cap ON cap.id = o.captain_id
         LEFT JOIN restaurants r ON r.id = o.restaurant_id
-        WHERE o.id=?
+        LEFT JOIN commissions r_comm ON (
+          r_comm.account_id = r.agent_id 
+          AND r_comm.account_type = 'agent' 
+          AND r_comm.is_active = 1 
+          AND CURDATE() BETWEEN r_comm.contract_start AND r_comm.contract_end
+        )
+        LEFT JOIN commissions c_comm ON (
+          c_comm.account_id = o.captain_id 
+          AND c_comm.account_type = 'captain' 
+          AND c_comm.is_active = 1
+          AND CURDATE() BETWEEN c_comm.contract_start AND c_comm.contract_end
+        )
+        WHERE o.id = ?
       `, [orderId]);
 
-      if (
-        order &&
-        order.payment_method === "cod" &&
-        order.captain_account_id &&
-        order.restaurant_account_id
-      ) {
-        // مبلغ المطعم فقط (بدون التوصيل)
+      const order = orderRows[0];
+
+      if (order) {
+        // حساب صافي مبلغ المطعم (الإجمالي - التوصيل - الرسوم الإضافية)
         const restaurantAmount =
           Number(order.total_amount || 0) -
           Number(order.delivery_fee || 0) -
           Number(order.extra_store_fee || 0);
 
-        if (restaurantAmount > 0) {
-          const [[baseCur]] = await conn.query(
-            "SELECT id FROM currencies WHERE is_local=1 LIMIT 1"
-          );
+        const [[baseCur]] = await conn.query(
+          "SELECT id FROM currencies WHERE is_local=1 LIMIT 1"
+        );
 
-          const journalTypeId = 5; // نوع قيد (توصيل نقدي مثلاً)
-          const notes = `تسليم طلب نقدي #${order.id}`;
+        const journalTypeId = 5; // نوع القيد المحاسبي
+        const notesPrefix = `طلب #${order.id}: `;
 
-          // مدين: حساب الكابتن
-          await conn.query(
-            `
-            INSERT INTO journal_entries
-            (journal_type_id, reference_type, reference_id, journal_date, currency_id, account_id, debit, notes, created_by, branch_id)
-            VALUES (?, 'order', ?, CURDATE(), ?, ?, ?, ?, ?, ?)
-            `,
-            [
-              journalTypeId,
-              order.id,
-              baseCur.id,
-              order.captain_account_id,
-              restaurantAmount,
-              notes,
-              req.user.id,
-              req.user.branch_id,
-            ]
-          );
+        // --- أ- تحديد حساب الطرف المدين بناءً على طريقة الدفع ---
+        let debitAccount = null;
+        let paymentMethodLabel = "";
 
-          // دائن: حساب المطعم
-          await conn.query(
-            `
-            INSERT INTO journal_entries
-            (journal_type_id, reference_type, reference_id, journal_date, currency_id, account_id, credit, notes, created_by, branch_id)
-            VALUES (?, 'order', ?, CURDATE(), ?, ?, ?, ?, ?, ?)
-            `,
-            [
-              journalTypeId,
-              order.id,
-              baseCur.id,
-              order.restaurant_account_id,
-              restaurantAmount,
-              notes,
-              req.user.id,
-              req.user.branch_id,
-            ]
-          );
+        if (order.payment_method === "cod") {
+          debitAccount = order.cap_acc_id; // الكاش عند الكابتن
+          paymentMethodLabel = "دفع نقدي";
+        } else if (order.payment_method === "bank" || order.payment_method === "online") {
+          debitAccount = settings.transfer_guarantee_account; // حساب وسيط التحويلات
+          paymentMethodLabel = "إيداع بنكي/إلكتروني";
+        } else if (order.payment_method === "ready") {
+          debitAccount = settings.customer_guarantee_account; // حساب وسيط التأمينات
+          paymentMethodLabel = "محفظة ريدي";
         }
+
+        // تنفيذ القيد الأساسي (من حساب الدفع إلى حساب المطعم)
+        if (debitAccount && order.res_acc_id && restaurantAmount > 0) {
+          // مدين: حساب وسيط الدفع أو الكابتن
+          await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, debitAccount, restaurantAmount, 0, `${notesPrefix} إثبات مستحق مطعم (${paymentMethodLabel})`, req);
+          // دائن: حساب المطعم (الوكيل)
+          await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.res_acc_id, 0, restaurantAmount, `${notesPrefix} صافي مبيعات المطعم`, req);
+
+          // --- ب- خصم عمولة الوكيل (المطعم) ---
+          if (settings.commission_income_account && order.res_comm_val > 0) {
+            let resComm = order.res_comm_type === 'percentage' 
+              ? (restaurantAmount * order.res_comm_val / 100) 
+              : order.res_comm_val;
+
+            // مدين: حساب المطعم (نخصم منه)
+            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.res_acc_id, resComm, 0, `${notesPrefix} خصم عمولة الشركة من الوكيل`, req);
+            // دائن: حساب إيراد عمولات الوكلاء
+            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, settings.commission_income_account, 0, resComm, `${notesPrefix} إيراد عمولة وكلاء`, req);
+          }
+
+          // --- ج- خصم عمولة الكابتن ---
+          if (settings.courier_commission_account && order.cap_comm_val > 0 && order.cap_acc_id) {
+            let capComm = order.cap_comm_type === 'percentage' 
+              ? (order.delivery_fee * order.cap_comm_val / 100) 
+              : order.cap_comm_val;
+
+            // مدين: حساب الكابتن (نخصم منه نسبة التوصيل)
+            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.cap_acc_id, capComm, 0, `${notesPrefix} خصم عمولة الشركة من الكابتن`, req);
+            // دائن: حساب إيراد عمولات الكباتن
+            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, settings.courier_commission_account, 0, capComm, `${notesPrefix} إيراد عمولة كباتن`, req);
+          }
+        }
+      }
+    }
+
+    await conn.commit();
+    res.json({ success: true });
+  } catch (err) {
+    await conn.rollback();
+    console.error("UPDATE ORDER STATUS ERROR:", err);
+    res.status(500).json({ success: false, message: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+/**
+ * دالة مساعدة لعمل إدخال في دفتر اليومية
+ */
+async function insertJournalEntry(conn, type, refId, cur, acc, debit, credit, notes, req) {
+  return conn.query(
+    `INSERT INTO journal_entries 
+    (journal_type_id, reference_type, reference_id, journal_date, currency_id, account_id, debit, credit, notes, created_by, branch_id)
+    VALUES (?, 'order', ?, CURDATE(), ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      type, 
+      refId, 
+      cur, 
+      acc, 
+      debit || 0, 
+      credit || 0, 
+      notes, 
+      req.user.id, 
+      req.user.branch_id
+    ]
+  );
+}
       }
     }
 
