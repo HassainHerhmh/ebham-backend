@@ -38,7 +38,7 @@ router.get("/", async (req, res) => {
           WHERE c.branch_id = ?
           ORDER BY c.id DESC
           `,
-          [selectedBranch]
+          [Number(selectedBranch)]
         );
       } else {
         [rows] = await db.query(`
@@ -57,7 +57,7 @@ router.get("/", async (req, res) => {
       );
     }
 
-    res.json({ success: true, captains: rows });
+    res.json({ success: true, captains: rows || [] });
   } catch (err) {
     console.error("GET CAPTAINS ERROR:", err);
     res.status(500).json({ success: false, message: "فشل في جلب الكباتن" });
@@ -93,7 +93,7 @@ router.post("/", async (req, res) => {
     let finalBranchId = branch_id;
 
     if (is_admin_branch && selectedBranch) {
-      finalBranchId = selectedBranch;
+      finalBranchId = Number(selectedBranch);
     }
 
     await db.query(
@@ -140,14 +140,14 @@ router.put("/:id", async (req, res) => {
   const fields = [];
   const values = [];
 
-  if (name) { fields.push("name=?"); values.push(name); }
-  if (email) { fields.push("email=?"); values.push(email); }
-  if (phone) { fields.push("phone=?"); values.push(phone); }
-  if (password) { fields.push("password=?"); values.push(password); }
-  if (vehicle_type) { fields.push("vehicle_type=?"); values.push(vehicle_type); }
-  if (vehicle_number) { fields.push("vehicle_number=?"); values.push(vehicle_number); }
-  if (status) { fields.push("status=?"); values.push(status); }
-  if (account_id) { fields.push("account_id=?"); values.push(account_id); }
+  if (name !== undefined) { fields.push("name=?"); values.push(name); }
+  if (email !== undefined) { fields.push("email=?"); values.push(email); }
+  if (phone !== undefined) { fields.push("phone=?"); values.push(phone); }
+  if (password !== undefined) { fields.push("password=?"); values.push(password); }
+  if (vehicle_type !== undefined) { fields.push("vehicle_type=?"); values.push(vehicle_type); }
+  if (vehicle_number !== undefined) { fields.push("vehicle_number=?"); values.push(vehicle_number); }
+  if (status !== undefined) { fields.push("status=?"); values.push(status); }
+  if (account_id !== undefined) { fields.push("account_id=?"); values.push(account_id); }
 
   if (!fields.length) {
     return res.json({
