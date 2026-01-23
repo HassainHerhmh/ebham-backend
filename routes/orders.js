@@ -412,40 +412,41 @@ router.put("/:id/status", async (req, res) => {
 
           // ب- قيد صافي المبيعات في حساب (الوكيل/المطعم)
           await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.res_acc_id, 0, restaurantAmount, `طلب #${order.id}: صافي مبيعات المطعم`, req);
+// ج- حساب وتسجيل عمولة الوكيل (المطعم)
+if (settings.commission_income_account && order.res_comm_val > 0) {
+    let resComm = 0;
+    let resNote = `طلب #${order.id}: خصم عمولة الوكيل`;
 
-          // ج- حساب وتسجيل عمولة الوكيل (المطعم)
-          if (settings.commission_income_account && order.res_comm_val > 0) {
-            let resComm = 0;
-            let resNote = `طلب #${order.id}: خصم عمولة الوكيل`;
+    // التعديل هنا: فحص القيمة 'percent' بدلاً من 'percentage'
+    if (order.res_comm_type === 'percent' || order.res_comm_type === 'percentage') {
+        resComm = (restaurantAmount * Number(order.res_comm_val)) / 100;
+        resNote += ` (${order.res_comm_val}%)`;
+    } else {
+        resComm = Number(order.res_comm_val);
+        resNote += ` (مبلغ ثابت)`;
+    }
 
-            if (order.res_comm_type === 'percentage') {
-              resComm = (restaurantAmount * Number(order.res_comm_val)) / 100;
-              resNote += ` (${order.res_comm_val}%)`;
-            } else {
-              resComm = Number(order.res_comm_val);
-              resNote += ` (مبلغ ثابت)`;
-            }
+    await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.res_acc_id, resComm, 0, resNote, req);
+    await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, settings.commission_income_account, 0, resComm, `إيراد عمولة من ${resName} - طلب #${order.id}`, req);
+}
 
-            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.res_acc_id, resComm, 0, resNote, req);
-            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, settings.commission_income_account, 0, resComm, `إيراد عمولة من ${resName} - طلب #${order.id}`, req);
-          }
+// د- حساب وتسجيل عمولة الكابتن
+if (settings.courier_commission_account && order.cap_comm_val > 0 && order.cap_acc_id) {
+    let capComm = 0;
+    let capNote = `طلب #${order.id}: خصم عمولة الشركة (توصيل طلب ${resName})`;
 
-          // د- حساب وتسجيل عمولة الكابتن
-          if (settings.courier_commission_account && order.cap_comm_val > 0 && order.cap_acc_id) {
-            let capComm = 0;
-            let capNote = `طلب #${order.id}: خصم عمولة الشركة (توصيل طلب ${resName})`;
+    // التعديل هنا أيضاً: فحص القيمة 'percent'
+    if (order.cap_comm_type === 'percent' || order.cap_comm_type === 'percentage') {
+        capComm = (Number(order.delivery_fee) * Number(order.cap_comm_val)) / 100;
+        capNote += ` (${order.cap_comm_val}%)`;
+    } else {
+        capComm = Number(order.cap_comm_val);
+        capNote += ` (مبلغ ثابت)`;
+    }
 
-            if (order.cap_comm_type === 'percentage') {
-              capComm = (Number(order.delivery_fee) * Number(order.cap_comm_val)) / 100;
-              capNote += ` (${order.cap_comm_val}%)`;
-            } else {
-              capComm = Number(order.cap_comm_val);
-              capNote += ` (مبلغ ثابت)`;
-            }
-
-            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.cap_acc_id, capComm, 0, capNote, req);
-            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, settings.courier_commission_account, 0, capComm, `إيراد عمولة كابتن ${capName} - طلب #${order.id}`, req);
-          }
+    await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.cap_acc_id, capComm, 0, capNote, req);
+    await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, settings.courier_commission_account, 0, capComm, `إيراد عمولة كابتن ${capName} - طلب #${order.id}`, req);
+}
         }
       }
     }
