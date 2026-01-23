@@ -317,4 +317,24 @@ router.get("/:id", async (req, res) => {
   }
 });
 
+
+/* =========================
+   PUT /orders/:id/status
+========================= */
+router.put("/:id/status", async (req, res) => {
+  try {
+    const { status } = req.body;
+
+    await db.query(
+      "UPDATE orders SET status=? WHERE id=?",
+      [status, req.params.id]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("UPDATE ORDER STATUS ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
 export default router;
