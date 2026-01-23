@@ -17,13 +17,6 @@ router.get("/", auth, async (req, res) => {
     let where = "WHERE 1=1";
     const params = [];
 
-    if (!is_admin_branch) {
-      where += " AND b.branch_id = ?";
-      params.push(branch_id);
-    } else if (headerBranch) {
-      where += " AND b.branch_id = ?";
-      params.push(headerBranch);
-    }
 
     if (search.trim()) {
       where += `
