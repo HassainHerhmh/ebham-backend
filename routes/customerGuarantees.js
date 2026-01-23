@@ -202,5 +202,54 @@ router.post("/", async (req, res) => {
     conn.release();
   }
 });
+/* =========================
+   GET /customer-guarantees/:customerId/balance
+========================= */
+router.get("/:customerId/balance", async (req, res) => {
+  try {
+    const { customerId } = req.params;
+
+    const [[row]] = await db.query(`
+      SELECT
+        cg.id,
+        cg.customer_id,
+        cg.type,
+        CASE 
+          WHEN cg.type = 'account' THEN
+            IFNULL((
+              SELECT IFNULL(SUM(je.debit),0) - IFNULL(SUM(je.credit),0)
+              FROM journal_entries je
+              WHERE je.account_id = cg.account_id
+            ), 0)
+          ELSE IFNULL((
+            SELECT SUM(m.amount_base)
+            FROM customer_guarantee_moves m
+            WHERE m.guarantee_id = cg.id
+          ), 0)
+        END AS balance
+      FROM customer_guarantees cg
+      WHERE cg.customer_id = ?
+      LIMIT 1
+    `, [customerId]);
+
+    if (!row) {
+      return res.json({
+        success: true,
+        balance: 0,
+        exists: false,
+      });
+    }
+
+    res.json({
+      success: true,
+      balance: Number(row.balance) || 0,
+      exists: true,
+      type: row.type,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ success: false });
+  }
+});
 
 export default router;
