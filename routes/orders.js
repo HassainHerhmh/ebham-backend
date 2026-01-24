@@ -329,7 +329,7 @@ router.get("/:id", async (req, res) => {
 
 
 /* =====================================================
-   PUT /orders/:id/status - الإصدار المتوافق مع نظام ضمانات العملاء
+   PUT /orders/:id/status - النسخة الكاملة والمصلحة
 ===================================================== */
 router.put("/:id/status", async (req, res) => {
   const conn = await db.getConnection();
@@ -341,26 +341,26 @@ router.put("/:id/status", async (req, res) => {
 
     await conn.beginTransaction();
 
-    // 1. تحديث الحالة
+    // 1. تحديث حالة الطلب في جدول orders
     await conn.query("UPDATE orders SET status=? WHERE id=?", [status, orderId]);
 
+    // 2. إنشاء القيود عند حالة "delivering" (قيد التوصيل)
     if (status === "delivering") {
       const [[settings]] = await conn.query("SELECT * FROM settings LIMIT 1");
 
-      // 2. جلب بيانات الطلب مع ربط الحساب المباشر من جدول الضمانات
+      // ربط الطلب بجدول الضمانات (cg) لجلب الحساب المباشر
       const [orderRows] = await conn.query(`
         SELECT 
           o.*,
           pm.company AS bank_name, pm.account_id AS bank_account_id,
           r.name AS restaurant_name, cap.name AS captain_name,
           c.name AS customer_name,
-          cg.type AS guarantee_type,
-          cg.account_id AS direct_acc_id, -- هذا هو الحساب المباشر المربوط
+          cg.type AS guarantee_type, cg.account_id AS direct_acc_id,
           r_comm.agent_account_id AS res_acc_id, r_comm.commission_type AS res_comm_type, r_comm.commission_value AS res_comm_val,
           c_comm.agent_account_id AS cap_acc_id, c_comm.commission_type AS cap_comm_type, c_comm.commission_value AS cap_comm_val
         FROM orders o
         LEFT JOIN customers c ON o.customer_id = c.id
-        LEFT JOIN customer_guarantees cg ON cg.customer_id = o.customer_id -- الربط مع جدول الضمانات
+        LEFT JOIN customer_guarantees cg ON cg.customer_id = o.customer_id
         LEFT JOIN payment_methods pm ON o.bank_id = pm.id
         LEFT JOIN restaurants r ON r.id = o.restaurant_id
         LEFT JOIN captains cap ON cap.id = o.captain_id
@@ -372,19 +372,17 @@ router.put("/:id/status", async (req, res) => {
       const order = orderRows[0];
 
       if (order && order.res_acc_id) {
+        // حساب المبالغ
         const restaurantAmount = Number(order.total_amount || 0) - Number(order.delivery_fee || 0) - Number(order.extra_store_fee || 0);
         const deliveryFee = Number(order.delivery_fee || 0);
         const [[baseCur]] = await conn.query("SELECT id FROM currencies WHERE is_local=1 LIMIT 1");
         const journalTypeId = 5; 
 
-        // --- تحديد الحساب المدين بناءً على الربط الذي أرسلته ---
+        // تحديد الحساب المدين (توجيه المديونية)
         let debitAccount = null;
-
         if (order.guarantee_type === 'account' && order.direct_acc_id) {
-          // إذا كان مربوطاً كـ "حساب مباشر" في صفحة الضمانات
-          debitAccount = order.direct_acc_id;
+          debitAccount = order.direct_acc_id; // الحساب المباشر
         } else {
-          // إذا كان نقدي أو بنكي (حسب طريقة الدفع)
           const pMethod = String(order.payment_method).toLowerCase();
           if (pMethod === "cod") debitAccount = order.cap_acc_id;
           else if (pMethod === "bank") debitAccount = order.bank_account_id || 10;
@@ -392,24 +390,24 @@ router.put("/:id/status", async (req, res) => {
         }
 
         if (debitAccount) {
-          // أ: مبيعات المطعم
+          // أ: قيود مبيعات المطعم
           if (restaurantAmount > 0) {
-            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, debitAccount, restaurantAmount, 0, `قيمة طلب #${order.id} - ${order.restaurant_name}`, req);
+            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, debitAccount, restaurantAmount, 0, `قيمة وجبات طلب #${order.id} - ${order.restaurant_name}`, req);
             await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.res_acc_id, 0, restaurantAmount, `صافي مبيعات طلب #${order.id}`, req);
           }
 
-          // ب: رسوم التوصيل
+          // ب: قيود رسوم التوصيل
           if (deliveryFee > 0 && order.cap_acc_id) {
-            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, debitAccount, deliveryFee, 0, `توصيل طلب #${order.id}`, req);
-            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.cap_acc_id, 0, deliveryFee, `إيراد توصيل كابتن: ${order.captain_name}`, req);
+            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, debitAccount, deliveryFee, 0, `رسوم توصيل طلب #${order.id}`, req);
+            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.cap_acc_id, 0, deliveryFee, `إيراد توصيل طلب #${order.id}`, req);
           }
 
-          // ج: العمولات (مع تصحيح 'percent')
+          // ج: عمولة المطعم (نسبة مئوية)
           if (settings.commission_income_account && order.res_comm_val > 0) {
             let resComm = (order.res_comm_type === 'percent') 
               ? (restaurantAmount * Number(order.res_comm_val)) / 100 : Number(order.res_comm_val);
-            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.res_acc_id, resComm, 0, `عمولة طلب #${order.id}`, req);
-            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, settings.commission_income_account, 0, resComm, `إيراد عمولة #${order.id}`, req);
+            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.res_acc_id, resComm, 0, `خصم عمولة طلب #${order.id}`, req);
+            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, settings.commission_income_account, 0, resComm, `إيراد عمولة مطعم #${order.id}`, req);
           }
         }
       }
@@ -419,12 +417,21 @@ router.put("/:id/status", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     if (conn) await conn.rollback();
-    console.error("خطأ:", err.message);
+    console.error("خطأ فادح:", err.message);
     res.status(500).json({ success: false, message: err.message });
   } finally {
     if (conn) conn.release();
   }
 });
+
+// دالة مساعدة لتسجيل القيود - يجب أن تكون داخل نفس الملف
+async function insertJournalEntry(conn, type, refId, cur, acc, debit, credit, notes, req) {
+  return conn.query(
+    `INSERT INTO journal_entries (journal_type_id, reference_type, reference_id, journal_date, currency_id, account_id, debit, credit, notes, created_by, branch_id)
+     VALUES (?, 'order', ?, CURDATE(), ?, ?, ?, ?, ?, ?, ?)`,
+    [type, refId, cur, acc, debit || 0, credit || 0, notes, req.user.id, req.user.branch_id]
+  );
+}
 /* =========================
    POST /orders/:id/assign
 ========================= */
