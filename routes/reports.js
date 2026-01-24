@@ -73,19 +73,17 @@ router.post("/account-statement", async (req, res) => {
       params.push(currency_id);
     }
 
-    /* =========================
-        2. الرصيد الافتتاحي (Opening Balance)
+ /* =========================
+        2. الرصيد الافتتاحي (Opening Balance) - الإصلاح هنا ✅
     ========================= */
     let opening = 0;
     if (from_date) {
-      const whereOpening = where.filter(w => !w.includes("je.journal_date >="));
-      const paramsOpening = params.filter((_, i) => !where[i]?.includes("je.journal_date >="));
-
+      // نستخدم baseParams مباشرة لأنها لا تحتوي على تواريخ بعد
       const [op] = await db.query(
         `SELECT ROUND(COALESCE(SUM(je.debit) - SUM(je.credit), 0), 2) AS bal
          FROM journal_entries je
-         WHERE ${whereOpening.join(" AND ")} AND je.journal_date < ?`,
-        [...paramsOpening, from_date]
+         WHERE ${baseWhere.join(" AND ")} AND je.journal_date < ?`,
+        [...baseParams, from_date]
       );
       opening = op[0]?.bal || 0;
     }
