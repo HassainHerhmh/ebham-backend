@@ -16,9 +16,9 @@ router.use(auth);
 router.get("/", async (req, res) => {
   try {
     const { is_admin_branch, branch_id } = req.user;
+    
+    // تأكد من جلب الهيدر وتحويله لنص للمقارنة
     let selectedBranch = req.headers["x-branch-id"];
-
-    if (selectedBranch === "all") selectedBranch = null;
 
     const baseSelect = `
       SELECT 
@@ -34,7 +34,15 @@ router.get("/", async (req, res) => {
     let rows;
 
     if (is_admin_branch) {
-      if (selectedBranch) {
+      // إذا كنت مدير نظام:
+      // إذا كان الهيدر غير موجود، أو قيمته "all" أو "null" أو فارغ، اعرض الكل
+      if (!selectedBranch || selectedBranch === "all" || selectedBranch === "null" || selectedBranch === "") {
+        [rows] = await db.query(`
+          ${baseSelect}
+          ORDER BY a.id DESC
+        `);
+      } else {
+        // إذا تم اختيار فرع محدد من قبل الإدارة
         [rows] = await db.query(
           `
           ${baseSelect}
@@ -43,13 +51,9 @@ router.get("/", async (req, res) => {
           `,
           [selectedBranch]
         );
-      } else {
-        [rows] = await db.query(`
-          ${baseSelect}
-          ORDER BY a.id DESC
-        `);
       }
     } else {
+      // إذا كان مستخدم فرع عادي، يرى فقط عناوين فرعه
       [rows] = await db.query(
         `
         ${baseSelect}
@@ -66,8 +70,6 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false, addresses: [] });
   }
 });
-
-
 
 /* =========================
    POST /customer-addresses
