@@ -170,4 +170,21 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
+/* جلب عناوين عميل محدد فقط */
+router.get("/customer/:customerId", async (req, res) => {
+  try {
+    const { customerId } = req.params;
+    const [rows] = await db.query(
+      `SELECT id, district, address, gps_link, latitude, longitude 
+       FROM customer_addresses 
+       WHERE customer_id = ?`,
+      [customerId]
+    );
+    res.json({ success: true, addresses: rows });
+  } catch (err) {
+    console.error("GET CUSTOMER ADDRESSES ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
 export default router;
