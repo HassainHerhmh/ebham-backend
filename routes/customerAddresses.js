@@ -15,62 +15,43 @@ router.use(auth);
 ========================= */
 router.get("/", async (req, res) => {
   try {
-    const { is_admin_branch, branch_id } = req.user;
-    
-    // تأكد من جلب الهيدر وتحويله لنص للمقارنة
-    let selectedBranch = req.headers["x-branch-id"];
+    const user = req.user;
 
-    const baseSelect = `
-      SELECT 
-        a.*,
-        c.name AS customer_name,
-        b.name AS branch_name,
-        a.district AS neighborhood_name
-      FROM customer_addresses a
-      LEFT JOIN customers c ON c.id = a.customer_id
-      LEFT JOIN branches b ON b.id = a.branch_id
-    `;
-
-    let rows;
-
-    if (is_admin_branch) {
-      // إذا كنت مدير نظام:
-      // إذا كان الهيدر غير موجود، أو قيمته "all" أو "null" أو فارغ، اعرض الكل
-      if (!selectedBranch || selectedBranch === "all" || selectedBranch === "null" || selectedBranch === "") {
-        [rows] = await db.query(`
-          ${baseSelect}
-          ORDER BY a.id DESC
-        `);
-      } else {
-        // إذا تم اختيار فرع محدد من قبل الإدارة
-        [rows] = await db.query(
-          `
-          ${baseSelect}
-          WHERE a.branch_id = ?
-          ORDER BY a.id DESC
-          `,
-          [selectedBranch]
-        );
-      }
-    } else {
-      // إذا كان مستخدم فرع عادي، يرى فقط عناوين فرعه
-      [rows] = await db.query(
-        `
-        ${baseSelect}
-        WHERE a.branch_id = ?
-        ORDER BY a.id DESC
-        `,
-        [branch_id]
-      );
+    // 1. إذا كان المستخدم أدمن (إدارة عامة) -> جلب كل العناوين من كل الفروع
+    if (user.is_admin_branch === 1 || user.is_admin_branch === true) {
+      const [rows] = await db.query(`
+        SELECT ca.*, c.name AS customer_name, b.name AS branch_name, n.name AS neighborhood_name
+        FROM customer_addresses ca
+        LEFT JOIN customers c ON ca.customer_id = c.id
+        LEFT JOIN branches b ON c.branch_id = b.id
+        LEFT JOIN neighborhoods n ON ca.district = n.name
+        ORDER BY ca.id DESC
+      `);
+      return res.json({ success: true, mode: "admin", addresses: rows });
     }
 
-    res.json({ success: true, addresses: rows });
+    // 2. إذا كان فرع عادي -> جلب عناوين العملاء التابعين لهذا الفرع فقط
+    if (!user.branch_id) {
+      return res.json({ success: true, addresses: [] });
+    }
+
+    const [rows] = await db.query(`
+      SELECT ca.*, c.name AS customer_name, b.name AS branch_name, n.name AS neighborhood_name
+      FROM customer_addresses ca
+      INNER JOIN customers c ON ca.customer_id = c.id
+      LEFT JOIN branches b ON c.branch_id = b.id
+      LEFT JOIN neighborhoods n ON ca.district = n.name
+      WHERE c.branch_id = ?
+      ORDER BY ca.id DESC
+    `, [user.branch_id]);
+
+    return res.json({ success: true, mode: "branch", addresses: rows });
+
   } catch (err) {
-    console.error("GET CUSTOMER ADDRESSES ERROR:", err);
-    res.status(500).json({ success: false, addresses: [] });
+    console.error("GET ADDRESSES ERROR:", err);
+    res.status(500).json({ success: false });
   }
 });
-
 /* =========================
    POST /customer-addresses
    - district يُحفظ كنص (اسم الحي)
