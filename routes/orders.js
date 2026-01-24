@@ -61,7 +61,7 @@ router.get("/", async (req, res) => {
   }
 });
 /*============================
-   POST /orders
+   POST /orders (المعدل)
 =============================*/
 router.post("/", async (req, res) => {
   try {
@@ -74,7 +74,8 @@ router.post("/", async (req, res) => {
       bank_id,
     } = req.body;
 
-    const user = req.user;
+    // إصلاح مشكلة user_id is not defined: تأكدنا من وجود كائن المستخدم
+    const user = req.user || {}; 
 
     if (!restaurants || !restaurants.length) {
       return res.json({ success: false, message: "لا توجد مطاعم" });
@@ -128,17 +129,16 @@ router.post("/", async (req, res) => {
           );
 
           if (addr.length && addr[0].district) {
+            // تصحيح: البحث بـ id الحي وليس name لأن الحقل يحتوي على ID
             const [n] = await db.query(
-              "SELECT delivery_fee, extra_store_fee FROM neighborhoods WHERE name=?",
+              "SELECT delivery_fee, extra_store_fee FROM neighborhoods WHERE id=?", 
               [addr[0].district]
             );
 
             if (n.length) {
               deliveryFee = Number(n[0].delivery_fee) || 0;
-
               if (storesCount > 1) {
-                extraStoreFee =
-                  (storesCount - 1) * (Number(n[0].extra_store_fee) || 0);
+                extraStoreFee = (storesCount - 1) * (Number(n[0].extra_store_fee) || 0);
               }
             }
           }
@@ -146,16 +146,14 @@ router.post("/", async (req, res) => {
 
         if (settings.method === "distance") {
           deliveryFee = Number(settings.km_price_single) || 0;
-
           if (storesCount > 1) {
-            extraStoreFee =
-              (storesCount - 1) * (Number(settings.km_price_multi) || 0);
+            extraStoreFee = (storesCount - 1) * (Number(settings.km_price_multi) || 0);
           }
         }
       }
     }
 
-   const [result] = await db.query(
+    const [result] = await db.query(
       `
       INSERT INTO orders 
         (
@@ -165,7 +163,7 @@ router.post("/", async (req, res) => {
           gps_link,
           stores_count,
           branch_id,
-          user_id,          -- الحقل الذي أضفناه للقاعدة
+          user_id,
           delivery_fee,
           extra_store_fee,
           payment_method,
@@ -180,7 +178,7 @@ router.post("/", async (req, res) => {
         gps_link || null,
         storesCount,
         branchId,
-        user.id,           
+        user.id || null, // استخدام الارتباط الاختياري لمنع خطأ ReferenceError
         deliveryFee,
         extraStoreFee,
         payment_method || null,
@@ -189,7 +187,6 @@ router.post("/", async (req, res) => {
     );
 
     const orderId = result.insertId;
-
     let total = 0;
 
     for (const p of products) {
@@ -232,10 +229,9 @@ router.post("/", async (req, res) => {
     });
   } catch (err) {
     console.error("ADD ORDER ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
-
 /* =========================
    GET /orders/:id
 ========================= */
