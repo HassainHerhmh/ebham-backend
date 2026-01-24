@@ -164,14 +164,21 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-/* جلب عناوين عميل محدد فقط */
+/* جلب عناوين عميل محدد فقط - النسخة المصححة */
 router.get("/customer/:customerId", async (req, res) => {
   try {
     const { customerId } = req.params;
     const [rows] = await db.query(
-      `SELECT id, district, address, gps_link, latitude, longitude 
-       FROM customer_addresses 
-       WHERE customer_id = ?`,
+      `SELECT ca.id, 
+              ca.district, 
+              ca.address, 
+              ca.gps_link, 
+              ca.latitude, 
+              ca.longitude,
+              COALESCE(n.name, ca.district) AS neighborhood_name -- يجلب الاسم من جدول الأحياء أو النص المخزن
+       FROM customer_addresses ca
+       LEFT JOIN neighborhoods n ON ca.district = n.id
+       WHERE ca.customer_id = ?`,
       [customerId]
     );
     res.json({ success: true, addresses: rows });
