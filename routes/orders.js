@@ -329,7 +329,8 @@ router.get("/:id", async (req, res) => {
 
 
 /* =====================================================
-   PUT /orders/:id/status - النسخة الكاملة والمصلحة
+   PUT /orders/:id/status
+   تحديث حالة الطلب وتوليد القيود المحاسبية المفصلة
 ===================================================== */
 router.put("/:id/status", async (req, res) => {
   const conn = await db.getConnection();
@@ -341,14 +342,14 @@ router.put("/:id/status", async (req, res) => {
 
     await conn.beginTransaction();
 
-    // 1. تحديث حالة الطلب في جدول orders
+    // 1. تحديث حالة الطلب
     await conn.query("UPDATE orders SET status=? WHERE id=?", [status, orderId]);
 
-    // 2. إنشاء القيود عند حالة "delivering" (قيد التوصيل)
+    // 2. توليد القيود عند الانتقال لحالة "قيد التوصيل"
     if (status === "delivering") {
       const [[settings]] = await conn.query("SELECT * FROM settings LIMIT 1");
 
-      // ربط الطلب بجدول الضمانات (cg) لجلب الحساب المباشر
+      // جلب بيانات الطلب والربط مع الضمانات (cg) والعمولات
       const [orderRows] = await conn.query(`
         SELECT 
           o.*,
@@ -372,7 +373,7 @@ router.put("/:id/status", async (req, res) => {
       const order = orderRows[0];
 
       if (order && order.res_acc_id) {
-        // حساب المبالغ
+        // حساب المبالغ الأساسية
         const restaurantAmount = Number(order.total_amount || 0) - Number(order.delivery_fee || 0) - Number(order.extra_store_fee || 0);
         const deliveryFee = Number(order.delivery_fee || 0);
         const [[baseCur]] = await conn.query("SELECT id FROM currencies WHERE is_local=1 LIMIT 1");
@@ -381,7 +382,7 @@ router.put("/:id/status", async (req, res) => {
         // تحديد الحساب المدين (توجيه المديونية)
         let debitAccount = null;
         if (order.guarantee_type === 'account' && order.direct_acc_id) {
-          debitAccount = order.direct_acc_id; // الحساب المباشر
+          debitAccount = order.direct_acc_id; // الحساب المباشر المربوط
         } else {
           const pMethod = String(order.payment_method).toLowerCase();
           if (pMethod === "cod") debitAccount = order.cap_acc_id;
@@ -390,24 +391,32 @@ router.put("/:id/status", async (req, res) => {
         }
 
         if (debitAccount) {
-          // أ: قيود مبيعات المطعم
+          // --- أ: قيود مبيعات المطعم وعمولته ---
           if (restaurantAmount > 0) {
+            // قيد مبيعات (من المدين إلى حساب المطعم)
             await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, debitAccount, restaurantAmount, 0, `قيمة وجبات طلب #${order.id} - ${order.restaurant_name}`, req);
             await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.res_acc_id, 0, restaurantAmount, `صافي مبيعات طلب #${order.id}`, req);
+            
+            // خصم عمولة المطعم
+            if (settings.commission_income_account && order.res_comm_val > 0) {
+              let resComm = (order.res_comm_type === 'percent') ? (restaurantAmount * Number(order.res_comm_val)) / 100 : Number(order.res_comm_val);
+              await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.res_acc_id, resComm, 0, `خصم عمولة مطعم (${order.res_comm_val}%) طلب #${order.id}`, req);
+              await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, settings.commission_income_account, 0, resComm, `إيراد عمولة مطعم #${order.id}`, req);
+            }
           }
 
-          // ب: قيود رسوم التوصيل
+          // --- ب: قيود رسوم التوصيل وعمولة الكابتن ---
           if (deliveryFee > 0 && order.cap_acc_id) {
+            // قيد توصيل (من المدين إلى حساب الكابتن)
             await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, debitAccount, deliveryFee, 0, `رسوم توصيل طلب #${order.id}`, req);
             await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.cap_acc_id, 0, deliveryFee, `إيراد توصيل طلب #${order.id}`, req);
-          }
 
-          // ج: عمولة المطعم (نسبة مئوية)
-          if (settings.commission_income_account && order.res_comm_val > 0) {
-            let resComm = (order.res_comm_type === 'percent') 
-              ? (restaurantAmount * Number(order.res_comm_val)) / 100 : Number(order.res_comm_val);
-            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.res_acc_id, resComm, 0, `خصم عمولة طلب #${order.id}`, req);
-            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, settings.commission_income_account, 0, resComm, `إيراد عمولة مطعم #${order.id}`, req);
+            // خصم عمولة الشركة من الكابتن
+            if (settings.courier_commission_account && order.cap_comm_val > 0) {
+              let capComm = (order.cap_comm_type === 'percent') ? (deliveryFee * Number(order.cap_comm_val)) / 100 : Number(order.cap_comm_val);
+              await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.cap_acc_id, capComm, 0, `خصم عمولة شركة من الكابتن (${order.cap_comm_val}%) طلب #${order.id}`, req);
+              await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, settings.courier_commission_account, 0, capComm, `إيراد عمولة كابتن #${order.id}`, req);
+            }
           }
         }
       }
@@ -417,17 +426,20 @@ router.put("/:id/status", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     if (conn) await conn.rollback();
-    console.error("خطأ فادح:", err.message);
+    console.error("Server Error:", err.message);
     res.status(500).json({ success: false, message: err.message });
   } finally {
     if (conn) conn.release();
   }
 });
 
-// دالة مساعدة لتسجيل القيود - يجب أن تكون داخل نفس الملف
+/* =====================================================
+   دالة مساعدة لإدراج القيود (insertJournalEntry)
+===================================================== */
 async function insertJournalEntry(conn, type, refId, cur, acc, debit, credit, notes, req) {
   return conn.query(
-    `INSERT INTO journal_entries (journal_type_id, reference_type, reference_id, journal_date, currency_id, account_id, debit, credit, notes, created_by, branch_id)
+    `INSERT INTO journal_entries 
+     (journal_type_id, reference_type, reference_id, journal_date, currency_id, account_id, debit, credit, notes, created_by, branch_id)
      VALUES (?, 'order', ?, CURDATE(), ?, ?, ?, ?, ?, ?, ?)`,
     [type, refId, cur, acc, debit || 0, credit || 0, notes, req.user.id, req.user.branch_id]
   );
