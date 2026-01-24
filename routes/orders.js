@@ -189,6 +189,7 @@ router.post("/", async (req, res) => {
         gps_link || null,
         storesCount,
         branchId,
+         user.id,
         deliveryFee,
         extraStoreFee,
         payment_method || null,
