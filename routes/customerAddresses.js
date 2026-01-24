@@ -15,31 +15,33 @@ router.get("/", async (req, res) => {
   try {
     const user = req.user;
 
-    // الاستعلام الموحد مع إضافة JOIN لجدول الأحياء
-    const baseQuery = `
+    // الاستعلام المحدث باستخدام جدول neighborhoods والرمز الصحيح n.name
+    const queryStr = `
         SELECT ca.*, 
                c.name AS customer_name, 
                b.name AS branch_name,
-               d.name AS district_name -- جلب الاسم الفعلي للحي
+               n.name AS district_name -- جلب اسم الحي من الجدول الصحيح
         FROM customer_addresses ca
         LEFT JOIN customers c ON ca.customer_id = c.id
         LEFT JOIN branches b ON ca.branch_id = b.id
-       LEFT JOIN neighborhoods n ON ca.district = n.id -- الربط مع الجدول الصحيح
+        LEFT JOIN neighborhoods n ON ca.district = n.id -- الربط مع الجدول الصحيح neighborhoods
     `;
 
     if (user.is_admin_branch === 1 || user.is_admin_branch === true) {
-      const [rows] = await db.query(`${baseQuery} ORDER BY ca.id DESC`);
+      const [rows] = await db.query(`${queryStr} ORDER BY ca.id DESC`);
       return res.json({ success: true, mode: "admin", addresses: rows });
     }
 
-    if (!user.branch_id) return res.json({ success: true, addresses: [] });
+    if (!user.branch_id) {
+      return res.json({ success: true, addresses: [] });
+    }
 
-    const [rows] = await db.query(`${baseQuery} WHERE ca.branch_id = ? ORDER BY ca.id DESC`, [user.branch_id]);
+    const [rows] = await db.query(`${queryStr} WHERE ca.branch_id = ? ORDER BY ca.id DESC`, [user.branch_id]);
     return res.json({ success: true, mode: "branch", addresses: rows });
 
   } catch (err) {
     console.error("GET ADDRESSES ERROR:", err);
-    res.status(500).json({ success: false, message: "حدث خطأ" });
+    res.status(500).json({ success: false, message: "حدث خطأ في جلب البيانات" });
   }
 });
 /* =========================
