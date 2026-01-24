@@ -17,6 +17,7 @@ router.get("/", async (req, res) => {
   o.id,
   c.name AS customer_name,
   c.phone AS customer_phone,
+  u.name AS user_name,      -- إضافة اسم الموظف (المستخدم)
   o.status,
   o.total_amount,
   o.delivery_fee,
@@ -37,6 +38,7 @@ router.get("/", async (req, res) => {
 FROM orders o
 JOIN customers c ON c.id = o.customer_id
 LEFT JOIN captains cap ON cap.id = o.captain_id
+LEFT JOIN users u ON o.user_id = u.id -- ربط جدول المستخدمين لجلب الاسم
 
     `;
 
@@ -172,12 +174,13 @@ router.post("/", async (req, res) => {
           gps_link,
           stores_count,
           branch_id,
+          user_id,
           delivery_fee,
           extra_store_fee,
           payment_method,
           bank_id
         )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         customer_id,
