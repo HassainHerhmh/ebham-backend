@@ -5,6 +5,7 @@ import auth from "../middlewares/auth.js";
 const router = express.Router();
 router.use(auth);
 
+
 /* =========================
    GET /orders
 ========================= */
@@ -12,52 +13,43 @@ router.get("/", async (req, res) => {
   try {
     const user = req.user;
 
+    // تحديث الاستعلام ليشمل انضمام جدول المستخدمين وجدول الأحياء
     const baseQuery = `
-     SELECT 
-  o.id,
-  c.name AS customer_name,
-  c.phone AS customer_phone,
-  u.name AS user_name,      -- إضافة اسم الموظف (المستخدم)
-  o.status,
-  o.total_amount,
-  o.delivery_fee,
-  o.extra_store_fee,
-  o.stores_count,
-  o.created_at,
-  cap.name AS captain_name,
-  o.payment_method,
-
-  CASE o.payment_method
-    WHEN 'cod' THEN 'الدفع عند الاستلام'
-    WHEN 'bank' THEN 'إيداع بنكي'
-    WHEN 'wallet' THEN 'من الرصيد'
-    WHEN 'online' THEN 'دفع إلكتروني'
-    ELSE '-'
-  END AS payment_method_label
-
-FROM orders o
-JOIN customers c ON c.id = o.customer_id
-LEFT JOIN captains cap ON cap.id = o.captain_id
-LEFT JOIN users u ON o.user_id = u.id -- ربط جدول المستخدمين لجلب الاسم
-
+      SELECT 
+        o.id,
+        c.name AS customer_name,
+        c.phone AS customer_phone,
+        u.name AS user_name,      -- جلب اسم المستخدم (الموظف) لملء العمود الفارغ
+        o.status,
+        o.total_amount,
+        o.delivery_fee,
+        o.extra_store_fee,
+        o.stores_count,
+        o.created_at,
+        cap.name AS captain_name,
+        o.payment_method,
+        n.name AS neighborhood_name, -- جلب اسم الحي
+        CASE o.payment_method
+          WHEN 'cod' THEN 'الدفع عند الاستلام'
+          WHEN 'bank' THEN 'إيداع بنكي'
+          WHEN 'wallet' THEN 'من الرصيد'
+          WHEN 'online' THEN 'دفع إلكتروني'
+          ELSE '-'
+        END AS payment_method_label
+      FROM orders o
+      JOIN customers c ON c.id = o.customer_id
+      LEFT JOIN captains cap ON cap.id = o.captain_id
+      LEFT JOIN users u ON o.user_id = u.id              -- ربط المستخدم
+      LEFT JOIN customer_addresses ca ON o.address_id = ca.id 
+      LEFT JOIN neighborhoods n ON ca.district = n.id    -- ربط الحي
     `;
 
     let rows;
-
     if (user.is_admin_branch) {
-      [rows] = await db.query(`
-        ${baseQuery}
-        ORDER BY o.id DESC
-        LIMIT 50
-      `);
+      [rows] = await db.query(`${baseQuery} ORDER BY o.id DESC LIMIT 50`);
     } else {
       [rows] = await db.query(
-        `
-        ${baseQuery}
-        WHERE o.branch_id = ?
-        ORDER BY o.id DESC
-        LIMIT 50
-        `,
+        `${baseQuery} WHERE o.branch_id = ? ORDER BY o.id DESC LIMIT 50`,
         [user.branch_id]
       );
     }
@@ -68,7 +60,6 @@ LEFT JOIN users u ON o.user_id = u.id -- ربط جدول المستخدمين ل
     res.status(500).json({ success: false, orders: [] });
   }
 });
-
 /*============================
    POST /orders
 =============================*/
@@ -164,7 +155,7 @@ router.post("/", async (req, res) => {
       }
     }
 
-    const [result] = await db.query(
+   const [result] = await db.query(
       `
       INSERT INTO orders 
         (
@@ -174,7 +165,7 @@ router.post("/", async (req, res) => {
           gps_link,
           stores_count,
           branch_id,
-          user_id,
+          user_id,          -- الحقل الذي أضفناه للقاعدة
           delivery_fee,
           extra_store_fee,
           payment_method,
@@ -189,7 +180,7 @@ router.post("/", async (req, res) => {
         gps_link || null,
         storesCount,
         branchId,
-         user_id,
+        user.id,            -- تم التعديل هنا: استخدام id من كائن user
         deliveryFee,
         extraStoreFee,
         payment_method || null,
