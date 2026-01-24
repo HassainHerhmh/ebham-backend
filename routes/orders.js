@@ -226,7 +226,15 @@ router.post("/", async (req, res) => {
       "UPDATE orders SET total_amount=? WHERE id=?",
       [grandTotal, orderId]
     );
-
+     
+// 🔔 إشعار طلب جديد
+const io = req.app.get("io");
+io.emit("notification", {
+  message: `🆕 تم إنشاء طلب جديد رقم #${orderId}`,
+  user: user?.name || "النظام",
+  order_id: orderId,
+});
+     
     res.json({
       success: true,
       order_id: orderId,
@@ -434,6 +442,17 @@ GROUP BY oi.restaurant_id
     }
 
     await conn.commit();
+
+     
+// 🔔 إشعار تغيير حالة
+const io = req.app.get("io");
+io.emit("notification", {
+  message: `🔄 تم تحديث حالة الطلب #${orderId} إلى (${status})`,
+  user: req.user?.name || "النظام",
+  order_id: orderId,
+  status,
+});
+     
     res.json({ success: true });
   } catch (err) {
     if (conn) await conn.rollback();
