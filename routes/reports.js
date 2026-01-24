@@ -61,7 +61,7 @@ router.post("/account-statement", async (req, res) => {
     }
 
     /* =========================
-        2. حساب الأرصدة الافتتاحية (لكل عملة)
+        2. حساب الأرصدة الافتتاحية بدقة
     ========================= */
     let openingBalances = {}; 
     if (from_date) {
@@ -75,6 +75,7 @@ router.post("/account-statement", async (req, res) => {
       );
       
       ops.forEach(row => {
+        // التأكد من تحويل القيمة لرقم لمنع التضخم النصي
         openingBalances[row.currency_id] = Number(row.bal || 0);
       });
     }
@@ -112,7 +113,7 @@ router.post("/account-statement", async (req, res) => {
         SELECT
           je.id, je.journal_date, je.reference_type, je.reference_id, je.currency_id,
           c.name_ar AS currency_name, a.name_ar AS account_name,
-          ROUND(je.debit, 2) AS debit, ROUND(je.credit, 2) AS credit, je.notes
+          je.debit, je.credit, je.notes
         FROM journal_entries je
         JOIN accounts a ON a.id = je.account_id
         JOIN currencies c ON c.id = je.currency_id
@@ -124,7 +125,7 @@ router.post("/account-statement", async (req, res) => {
     const [rows] = await db.query(sql, finalParams);
 
     /* =========================
-        4. المعالجة النهائية للأرصدة
+        4. المعالجة الحسابية الصارمة (لحل مشكلة الأرقام الكبيرة)
     ========================= */
     let finalRows = [];
     let runningBalances = { ...openingBalances };
@@ -133,9 +134,13 @@ router.post("/account-statement", async (req, res) => {
     rows.forEach(row => {
       const curId = row.currency_id;
 
-      // ✅ إضافة سطر "رصيد سابق" فقط إذا كان الرصيد غير صفري ولم يُضف سابقاً لهذه العملة
+      // تحويل المدين والدائن لأرقام فوراً
+      const debit = Number(row.debit || 0);
+      const credit = Number(row.credit || 0);
+
+      // إضافة سطر الرصيد السابق في بداية كل عملة
       if (!processedCurrencies.has(curId)) {
-        const startBal = openingBalances[curId] || 0;
+        const startBal = Number(openingBalances[curId] || 0);
         if (startBal !== 0) {
           finalRows.push({
             id: 'op-' + curId,
@@ -152,12 +157,16 @@ router.post("/account-statement", async (req, res) => {
         processedCurrencies.add(curId);
       }
 
-      // حساب الرصيد التراكمي للعملة الحالية
+      // الحساب التراكمي: نستخدم Number() ونحدد عدد الأرقام العشرية لتجنب أخطاء الفاصلة
       if (runningBalances[curId] === undefined) runningBalances[curId] = 0;
-      runningBalances[curId] = Number((runningBalances[curId] + row.debit - row.credit).toFixed(2));
+      
+      const currentBalance = Number(runningBalances[curId]) + debit - credit;
+      runningBalances[curId] = Number(currentBalance.toFixed(2));
       
       finalRows.push({
         ...row,
+        debit: debit,
+        credit: credit,
         balance: runningBalances[curId]
       });
     });
