@@ -7,16 +7,7 @@ router.use(auth);
 
 /*
 POST /reports/account-statement
-payload:
-{
-  account_id?: number,
-  currency_id?: number|null,
-  from_date?: string|null,
-  to_date?: string|null,
-  report_mode: "detailed" | "summary"
-}
 */
-
 router.post("/account-statement", async (req, res) => {
   try {
     const {
@@ -33,38 +24,38 @@ router.post("/account-statement", async (req, res) => {
     const params = [];
 
     /* =========================
-        1. تحديد الحسابات (نفس الكود السابق)
+        1. تحديد الحسابات
     ========================= */
     let accountIds = [];
     let summaryGroupByParent = false;
-    // ... (جزء جلب accountIds يبقى كما هو دون تغيير) ...
+
     if (account_id) {
       const [rows] = await db.query(`SELECT id FROM accounts WHERE id = ?`, [account_id]);
       accountIds = rows.map(r => r.id);
     } else {
-       // كود جلب الحسابات الفرعية للأدمن والفروع
-       let mainsSql = `SELECT id FROM accounts WHERE parent_id IS NULL`;
-       const mainsParams = [];
-       if (!is_admin_branch) {
-         mainsSql += ` OR (parent_id IS NOT NULL AND branch_id = ?)`;
-         mainsParams.push(branch_id);
-       }
-       const [mains] = await db.query(mainsSql, mainsParams);
-       const mainIds = mains.map(r => r.id);
-       if (mainIds.length) {
-         const [all] = await db.query(
-           `SELECT id FROM accounts WHERE id IN (${mainIds.map(() => "?").join(",")}) OR parent_id IN (${mainIds.map(() => "?").join(",")})`,
-           [...mainIds, ...mainIds]
-         );
-         accountIds = all.map(r => r.id);
-         summaryGroupByParent = true;
-       }
+      let mainsSql = `SELECT id FROM accounts WHERE parent_id IS NULL`;
+      const mainsParams = [];
+      if (!is_admin_branch) {
+        mainsSql += ` OR (parent_id IS NOT NULL AND branch_id = ?)`;
+        mainsParams.push(branch_id);
+      }
+      const [mains] = await db.query(mainsSql, mainsParams);
+      const mainIds = mains.map(r => r.id);
+      if (mainIds.length) {
+        const [all] = await db.query(
+          `SELECT id FROM accounts WHERE id IN (${mainIds.map(() => "?").join(",")}) OR parent_id IN (${mainIds.map(() => "?").join(",")})`,
+          [...mainIds, ...mainIds]
+        );
+        accountIds = all.map(r => r.id);
+        summaryGroupByParent = true;
+      }
     }
 
     if (!accountIds.length) {
       return res.json({ success: true, opening_balance: 0, list: [] });
     }
 
+    // إضافة شروط الحساب والعملة الأساسية
     where.push(`je.account_id IN (${accountIds.map(() => "?").join(",")})`);
     params.push(...accountIds);
 
@@ -73,12 +64,12 @@ router.post("/account-statement", async (req, res) => {
       params.push(currency_id);
     }
 
-/* =========================
-        2. الرصيد الافتتاحي (Opening Balance)
+    /* =========================
+        2. الرصيد الافتتاحي (Opening Balance) 
+        يتم حسابه هنا قبل إضافة شروط تاريخ العرض للمصفوفة ✅
     ========================= */
     let opening = 0;
     if (from_date) {
-      // ✅ نستخدم القيم الحالية في where و params قبل إضافة شروط التاريخ إليها
       const [op] = await db.query(
         `SELECT ROUND(COALESCE(SUM(je.debit) - SUM(je.credit), 0), 2) AS bal
          FROM journal_entries je
@@ -88,7 +79,9 @@ router.post("/account-statement", async (req, res) => {
       opening = op[0]?.bal || 0;
     }
 
-    // ✅ الآن فقط نضيف شروط التاريخ للجلب النهائي للقائمة
+    /* =========================
+        3. إضافة شروط التاريخ للجلب النهائي للقائمة
+    ========================= */
     if (from_date) { 
       where.push(`je.journal_date >= ?`); 
       params.push(from_date); 
@@ -101,11 +94,10 @@ router.post("/account-statement", async (req, res) => {
     const whereSql = `WHERE ${where.join(" AND ")}`;
 
     /* =========================
-        3. الجلب النهائي (إضافة المستند وإصلاح الرصيد)
+        4. الجلب النهائي (إصلاح الرصيد المتسلسل)
     ========================= */
     let sql;
     if (report_mode === "summary") {
-      // ... كود الـ summary يبقى كما هو ...
       sql = `SELECT c.name_ar AS currency_name, ${summaryGroupByParent ? 'p.name_ar' : 'a.name_ar'} AS account_name, 
              ROUND(SUM(je.debit), 2) AS debit, ROUND(SUM(je.credit), 2) AS credit, 
              ROUND(SUM(je.debit) - SUM(je.credit), 2) AS balance 
@@ -115,8 +107,7 @@ router.post("/account-statement", async (req, res) => {
              JOIN currencies c ON c.id = je.currency_id ${whereSql} 
              GROUP BY c.id, ${summaryGroupByParent ? 'p.id, p.name_ar' : 'a.id, a.name_ar'} 
              ORDER BY c.name_ar`;
-   } else {
-      // ✅ الحل: ترتيب صارم حسب العملة والتاريخ والمعرف لضمان استمرار الجمع التراكمي
+    } else {
       sql = `
         SELECT
           je.id,
@@ -140,12 +131,14 @@ router.post("/account-statement", async (req, res) => {
         JOIN accounts a ON a.id = je.account_id
         JOIN currencies c ON c.id = je.currency_id
         ${whereSql}
-        /* ⚠️ الترتيب هو سر الحل: العملة أولاً ثم التاريخ ثم الـ ID */
+        /* الترتيب حسب التاريخ ثم ID يضمن عدم لخبطة رصيد الطلبات ✅ */
         ORDER BY je.currency_id, je.journal_date ASC, je.id ASC
       `;
       
+      // نضع الرصيد الافتتاحي في بداية البارامترات لمتغير الـ SQL
       params.unshift(opening); 
     }
+
     const [rows] = await db.query(sql, params);
 
     res.json({
@@ -158,4 +151,5 @@ router.post("/account-statement", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 export default router;
