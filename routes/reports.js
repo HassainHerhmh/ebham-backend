@@ -110,14 +110,14 @@ router.post("/account-statement", async (req, res) => {
              JOIN currencies c ON c.id = je.currency_id ${whereSql} 
              GROUP BY c.id, ${summaryGroupByParent ? 'p.id, p.name_ar' : 'a.id, a.name_ar'} 
              ORDER BY c.name_ar`;
-    } else {
-      // ✅ التعديل هنا: إضافة reference_type و reference_id وتمرير الرصيد الافتتاحي للمتغير @run
+   } else {
+      // ✅ الحل: ترتيب صارم حسب العملة والتاريخ والمعرف لضمان استمرار الجمع التراكمي
       sql = `
         SELECT
           je.id,
           je.journal_date,
-          je.reference_type,   -- 🆕 نوع المستند
-          je.reference_id,     -- 🆕 رقم المستند
+          je.reference_type,
+          je.reference_id,
           c.name_ar AS currency_name,
           a.name_ar AS account_name,
           ROUND(je.debit, 2)  AS debit,
@@ -126,7 +126,7 @@ router.post("/account-statement", async (req, res) => {
           ROUND(
             @run := IF(@cur = je.currency_id, 
                        @run + je.debit - je.credit, 
-                       ? + je.debit - je.credit), -- 🆕 يبدأ من الرصيد الافتتاحي المرسل في الـ params
+                       ? + je.debit - je.credit), 
             2
           ) AS balance,
           @cur := je.currency_id AS _cur_marker
@@ -135,12 +135,12 @@ router.post("/account-statement", async (req, res) => {
         JOIN accounts a ON a.id = je.account_id
         JOIN currencies c ON c.id = je.currency_id
         ${whereSql}
+        /* ⚠️ الترتيب هو سر الحل: العملة أولاً ثم التاريخ ثم الـ ID */
         ORDER BY je.currency_id, je.journal_date ASC, je.id ASC
       `;
-      // نمرر الـ opening كأول بارامتر للمتغير @run
+      
       params.unshift(opening); 
     }
-
     const [rows] = await db.query(sql, params);
 
     res.json({
