@@ -52,7 +52,6 @@ router.post("/account-statement", async (req, res) => {
       return res.json({ success: true, opening_balance: 0, list: [] });
     }
 
-    // إضافة شروط الحساب والعملة الأساسية
     where.push(`je.account_id IN (${accountIds.map(() => "?").join(",")})`);
     params.push(...accountIds);
 
@@ -62,7 +61,7 @@ router.post("/account-statement", async (req, res) => {
     }
 
     /* =========================
-        2. الرصيد الافتتاحي (Opening Balance) لكل عملة
+        2. حساب الأرصدة الافتتاحية (لكل عملة)
     ========================= */
     let openingBalances = {}; 
     if (from_date) {
@@ -76,12 +75,12 @@ router.post("/account-statement", async (req, res) => {
       );
       
       ops.forEach(row => {
-        openingBalances[row.currency_id] = parseFloat(row.bal || 0);
+        openingBalances[row.currency_id] = Number(row.bal || 0);
       });
     }
 
     /* =========================
-        3. إضافة شروط التاريخ للجلب النهائي للقائمة
+        3. الجلب النهائي للقائمة
     ========================= */
     const finalWhere = [...where];
     const finalParams = [...params];
@@ -95,11 +94,6 @@ router.post("/account-statement", async (req, res) => {
       finalParams.push(to_date); 
     }
 
-    const whereSql = `WHERE ${finalWhere.join(" AND ")}`;
-
-    /* =========================
-        4. الجلب النهائي
-    ========================= */
     let sql;
     if (report_mode === "summary") {
       sql = `SELECT c.id AS currency_id, c.name_ar AS currency_name, 
@@ -109,7 +103,8 @@ router.post("/account-statement", async (req, res) => {
              FROM journal_entries je 
              JOIN accounts a ON a.id = je.account_id 
              JOIN accounts p ON p.id = COALESCE(a.parent_id, a.id)
-             JOIN currencies c ON c.id = je.currency_id ${whereSql} 
+             JOIN currencies c ON c.id = je.currency_id 
+             WHERE ${finalWhere.join(" AND ")}
              GROUP BY c.id, ${summaryGroupByParent ? 'p.id, p.name_ar' : 'a.id, a.name_ar'} 
              ORDER BY c.name_ar`;
     } else {
@@ -121,31 +116,56 @@ router.post("/account-statement", async (req, res) => {
         FROM journal_entries je
         JOIN accounts a ON a.id = je.account_id
         JOIN currencies c ON c.id = je.currency_id
-        ${whereSql}
+        WHERE ${finalWhere.join(" AND ")}
         ORDER BY je.currency_id, je.journal_date ASC, je.id ASC
       `;
     }
 
     const [rows] = await db.query(sql, finalParams);
 
-    // ✅ حساب الرصيد التراكمي في JavaScript لضمان دقة تعدد العملات
+    /* =========================
+        4. المعالجة النهائية للأرصدة
+    ========================= */
+    let finalRows = [];
     let runningBalances = { ...openingBalances };
-    const listWithBalance = rows.map(row => {
+    let processedCurrencies = new Set();
+
+    rows.forEach(row => {
       const curId = row.currency_id;
+
+      // ✅ إضافة سطر "رصيد سابق" فقط إذا كان الرصيد غير صفري ولم يُضف سابقاً لهذه العملة
+      if (!processedCurrencies.has(curId)) {
+        const startBal = openingBalances[curId] || 0;
+        if (startBal !== 0) {
+          finalRows.push({
+            id: 'op-' + curId,
+            journal_date: from_date,
+            notes: 'رصيد سابق',
+            account_name: 'رصيد سابق',
+            currency_name: row.currency_name,
+            debit: 0,
+            credit: 0,
+            balance: startBal,
+            is_opening: true
+          });
+        }
+        processedCurrencies.add(curId);
+      }
+
+      // حساب الرصيد التراكمي للعملة الحالية
       if (runningBalances[curId] === undefined) runningBalances[curId] = 0;
+      runningBalances[curId] = Number((runningBalances[curId] + row.debit - row.credit).toFixed(2));
       
-      runningBalances[curId] = parseFloat((runningBalances[curId] + row.debit - row.credit).toFixed(2));
-      
-      return {
+      finalRows.push({
         ...row,
         balance: runningBalances[curId]
-      };
+      });
     });
 
     res.json({
       success: true,
       opening_balance: currency_id ? (openingBalances[currency_id] || 0) : openingBalances,
-      list: listWithBalance,
+      list: finalRows,
     });
 
   } catch (err) {
