@@ -252,6 +252,7 @@ router.get("/:id", async (req, res) => {
         c.phone AS customer_phone,
         a.district AS neighborhood_name,
         a.address AS customer_address,
+        a.gps_link AS map_url, 
         a.latitude,
         a.longitude,
         o.delivery_fee,
