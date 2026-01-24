@@ -376,18 +376,22 @@ router.put("/:id/status", async (req, res) => {
 
       // --- أ: جلب جميع المطاعم المشاركة في هذا الطلب وحساب مبالغها ---
       const [restaurantItems] = await conn.query(`
-        SELECT 
-          oi.restaurant_id, 
-          r.name AS restaurant_name,
-          r_comm.agent_account_id AS res_acc_id, 
-          r_comm.commission_type AS res_comm_type, 
-          r_comm.commission_value AS res_comm_val,
-          SUM(oi.price * oi.quantity) AS net_amount
-        FROM order_items oi
-        JOIN restaurants r ON oi.restaurant_id = r.id
-        LEFT JOIN commissions r_comm ON (r_comm.account_id = r.agent_id AND r_comm.account_type = 'agent' AND r_comm.is_active = 1)
-        WHERE oi.order_id = ?
-        GROUP BY oi.restaurant_id
+SELECT 
+  oi.restaurant_id, 
+  MAX(r.name) AS restaurant_name,
+  MAX(r_comm.agent_account_id) AS res_acc_id, 
+  MAX(r_comm.commission_type) AS res_comm_type, 
+  MAX(r_comm.commission_value) AS res_comm_val,
+  SUM(oi.price * oi.quantity) AS net_amount
+FROM order_items oi
+JOIN restaurants r ON oi.restaurant_id = r.id
+LEFT JOIN commissions r_comm 
+  ON (r_comm.account_id = r.agent_id 
+      AND r_comm.account_type = 'agent' 
+      AND r_comm.is_active = 1)
+WHERE oi.order_id = ?
+GROUP BY oi.restaurant_id
+
       `, [orderId]);
 
       for (const res of restaurantItems) {
