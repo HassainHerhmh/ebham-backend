@@ -328,9 +328,8 @@ router.get("/:id", async (req, res) => {
 });
 
 
-
 /* =====================================================
-   PUT /orders/:id/status - النسخة النهائية المضمونة
+   PUT /orders/:id/status - الإصدار المتوافق مع نظام ضمانات العملاء
 ===================================================== */
 router.put("/:id/status", async (req, res) => {
   const conn = await db.getConnection();
@@ -342,25 +341,26 @@ router.put("/:id/status", async (req, res) => {
 
     await conn.beginTransaction();
 
-    // 1. تحديث حالة الطلب أولاً
+    // 1. تحديث الحالة
     await conn.query("UPDATE orders SET status=? WHERE id=?", [status, orderId]);
 
-    // 2. القيود المحاسبية عند الانتقال لـ "قيد التوصيل"
     if (status === "delivering") {
       const [[settings]] = await conn.query("SELECT * FROM settings LIMIT 1");
 
-      // ملاحظة: تأكد من مسميات الجداول (customers, payment_methods, restaurants, captains, commissions)
+      // 2. جلب بيانات الطلب مع ربط الحساب المباشر من جدول الضمانات
       const [orderRows] = await conn.query(`
         SELECT 
           o.*,
           pm.company AS bank_name, pm.account_id AS bank_account_id,
           r.name AS restaurant_name, cap.name AS captain_name,
-          c.name AS customer_name, 
-          c.account_id AS cust_personal_acc, -- حساب العميل الشخصي (للحساب المباشر)
+          c.name AS customer_name,
+          cg.type AS guarantee_type,
+          cg.account_id AS direct_acc_id, -- هذا هو الحساب المباشر المربوط
           r_comm.agent_account_id AS res_acc_id, r_comm.commission_type AS res_comm_type, r_comm.commission_value AS res_comm_val,
           c_comm.agent_account_id AS cap_acc_id, c_comm.commission_type AS cap_comm_type, c_comm.commission_value AS cap_comm_val
         FROM orders o
         LEFT JOIN customers c ON o.customer_id = c.id
+        LEFT JOIN customer_guarantees cg ON cg.customer_id = o.customer_id -- الربط مع جدول الضمانات
         LEFT JOIN payment_methods pm ON o.bank_id = pm.id
         LEFT JOIN restaurants r ON r.id = o.restaurant_id
         LEFT JOIN captains cap ON cap.id = o.captain_id
@@ -377,49 +377,39 @@ router.put("/:id/status", async (req, res) => {
         const [[baseCur]] = await conn.query("SELECT id FROM currencies WHERE is_local=1 LIMIT 1");
         const journalTypeId = 5; 
 
-        // --- تحديد الحساب المدين (توجيه القيد) ---
+        // --- تحديد الحساب المدين بناءً على الربط الذي أرسلته ---
         let debitAccount = null;
-        const pMethod = String(order.payment_method).toLowerCase();
 
-        // فحص "الحساب المباشر": إذا كان العميل يملك حساباً شخصياً مربوطاً
-        if (order.cust_personal_acc) {
-          debitAccount = order.cust_personal_acc;
+        if (order.guarantee_type === 'account' && order.direct_acc_id) {
+          // إذا كان مربوطاً كـ "حساب مباشر" في صفحة الضمانات
+          debitAccount = order.direct_acc_id;
         } else {
-          // الحسابات الوسيطة حسب طريقة الدفع
-          if (pMethod === "cod") debitAccount = order.cap_acc_id; 
+          // إذا كان نقدي أو بنكي (حسب طريقة الدفع)
+          const pMethod = String(order.payment_method).toLowerCase();
+          if (pMethod === "cod") debitAccount = order.cap_acc_id;
           else if (pMethod === "bank") debitAccount = order.bank_account_id || 10;
           else debitAccount = settings.customer_guarantee_account || 51;
         }
 
         if (debitAccount) {
-          // أ: مبيعات المطعم (قيد منفصل)
+          // أ: مبيعات المطعم
           if (restaurantAmount > 0) {
             await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, debitAccount, restaurantAmount, 0, `قيمة طلب #${order.id} - ${order.restaurant_name}`, req);
             await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.res_acc_id, 0, restaurantAmount, `صافي مبيعات طلب #${order.id}`, req);
           }
 
-          // ب: رسوم التوصيل (قيد منفصل)
+          // ب: رسوم التوصيل
           if (deliveryFee > 0 && order.cap_acc_id) {
             await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, debitAccount, deliveryFee, 0, `توصيل طلب #${order.id}`, req);
             await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.cap_acc_id, 0, deliveryFee, `إيراد توصيل كابتن: ${order.captain_name}`, req);
           }
 
-          // ج: عمولة الوكيل (المطعم) - تعتمد "percent"
+          // ج: العمولات (مع تصحيح 'percent')
           if (settings.commission_income_account && order.res_comm_val > 0) {
-            let resComm = (order.res_comm_type === 'percent' || order.res_comm_type === 'percentage') 
+            let resComm = (order.res_comm_type === 'percent') 
               ? (restaurantAmount * Number(order.res_comm_val)) / 100 : Number(order.res_comm_val);
-            
-            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.res_acc_id, resComm, 0, `عمولة وكيل طلب #${order.id}`, req);
+            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.res_acc_id, resComm, 0, `عمولة طلب #${order.id}`, req);
             await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, settings.commission_income_account, 0, resComm, `إيراد عمولة #${order.id}`, req);
-          }
-
-          // د: عمولة الكابتن
-          if (settings.courier_commission_account && order.cap_comm_val > 0 && order.cap_acc_id) {
-            let capComm = (order.cap_comm_type === 'percent' || order.cap_comm_type === 'percentage') 
-              ? (deliveryFee * Number(order.cap_comm_val)) / 100 : Number(order.cap_comm_val);
-
-            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.cap_acc_id, capComm, 0, `عمولة شركة طلب #${order.id}`, req);
-            await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, settings.courier_commission_account, 0, capComm, `إيراد عمولة كابتن #${order.id}`, req);
           }
         }
       }
@@ -429,7 +419,7 @@ router.put("/:id/status", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     if (conn) await conn.rollback();
-    console.error("Server Error:", err.message); // سيظهر لك الخطأ بالضبط في Console السيرفر
+    console.error("خطأ:", err.message);
     res.status(500).json({ success: false, message: err.message });
   } finally {
     if (conn) conn.release();
