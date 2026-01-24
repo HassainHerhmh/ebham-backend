@@ -9,45 +9,37 @@ const router = express.Router();
 ========================= */
 router.use(auth);
 /* =========================
-   GET /customer-addresses
-   - الإدارة: كل العناوين أو حسب الفرع المختار
-   - الفرع العادي: عناوين فرعه فقط
+   تعديل مسار GET /
 ========================= */
 router.get("/", async (req, res) => {
   try {
     const user = req.user;
 
-    // 1. الإدارة العامة (is_admin_branch): تجلب كل شيء من جدول العناوين
-    if (user.is_admin_branch === 1 || user.is_admin_branch === true) {
-      const [rows] = await db.query(`
-        SELECT ca.*, c.name AS customer_name, b.name AS branch_name
+    // الاستعلام الموحد مع إضافة JOIN لجدول الأحياء
+    const baseQuery = `
+        SELECT ca.*, 
+               c.name AS customer_name, 
+               b.name AS branch_name,
+               d.name AS district_name -- جلب الاسم الفعلي للحي
         FROM customer_addresses ca
         LEFT JOIN customers c ON ca.customer_id = c.id
         LEFT JOIN branches b ON ca.branch_id = b.id
-        ORDER BY ca.id DESC
-      `);
+        LEFT JOIN districts d ON ca.district = d.id -- الربط مع جدول الأحياء
+    `;
+
+    if (user.is_admin_branch === 1 || user.is_admin_branch === true) {
+      const [rows] = await db.query(`${baseQuery} ORDER BY ca.id DESC`);
       return res.json({ success: true, mode: "admin", addresses: rows });
     }
 
-    // 2. الفروع العادية: تصفية بناءً على branch_id الموجود في جدول العناوين
-    if (!user.branch_id) {
-      return res.json({ success: true, addresses: [] });
-    }
+    if (!user.branch_id) return res.json({ success: true, addresses: [] });
 
-    const [rows] = await db.query(`
-      SELECT ca.*, c.name AS customer_name, b.name AS branch_name
-      FROM customer_addresses ca
-      LEFT JOIN customers c ON ca.customer_id = c.id
-      LEFT JOIN branches b ON ca.branch_id = b.id
-      WHERE ca.branch_id = ?
-      ORDER BY ca.id DESC
-    `, [user.branch_id]);
-
+    const [rows] = await db.query(`${baseQuery} WHERE ca.branch_id = ? ORDER BY ca.id DESC`, [user.branch_id]);
     return res.json({ success: true, mode: "branch", addresses: rows });
 
   } catch (err) {
     console.error("GET ADDRESSES ERROR:", err);
-    res.status(500).json({ success: false, message: "حدث خطأ في جلب البيانات" });
+    res.status(500).json({ success: false, message: "حدث خطأ" });
   }
 });
 /* =========================
