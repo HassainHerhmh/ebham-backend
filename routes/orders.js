@@ -329,8 +329,8 @@ router.get("/:id", async (req, res) => {
 
 
 
- /* =====================================================
-   PUT /orders/:id/status - النسخة الاحترافية (تصحيح حساب العمولات)
+/* =====================================================
+   PUT /orders/:id/status - النسخة الاحترافية (فصل مبيعات المطعم عن التوصيل)
 ===================================================== */
 router.put("/:id/status", async (req, res) => {
   const conn = await db.getConnection();
@@ -349,25 +349,19 @@ router.put("/:id/status", async (req, res) => {
 
     // 2. إنشاء القيود عند الانتقال لحالة "قيد التوصيل"
     if (status === "delivering") {
-      console.log(`بدء إنشاء القيود التفصيلية للطلب رقم: ${orderId}`);
-
       const [[settings]] = await conn.query("SELECT * FROM settings LIMIT 1");
 
-      // جلب بيانات الطلب والعمولات والربط مع البنوك
+      // جلب بيانات الطلب + بيانات العميل + العمولات
       const [orderRows] = await conn.query(`
         SELECT 
           o.*,
-          pm.company AS bank_name,
-          pm.account_id AS bank_account_id,
-          r.name AS restaurant_name,
-          cap.name AS captain_name,
-          r_comm.agent_account_id AS res_acc_id,
-          r_comm.commission_type AS res_comm_type,
-          r_comm.commission_value AS res_comm_val,
-          c_comm.agent_account_id AS cap_acc_id,
-          c_comm.commission_type AS cap_comm_type,
-          c_comm.commission_value AS cap_comm_val
+          pm.company AS bank_name, pm.account_id AS bank_account_id,
+          r.name AS restaurant_name, cap.name AS captain_name,
+          c.name AS customer_name, c.wallet_type, c.account_id AS customer_acc_id,
+          r_comm.agent_account_id AS res_acc_id, r_comm.commission_type AS res_comm_type, r_comm.commission_value AS res_comm_val,
+          c_comm.agent_account_id AS cap_acc_id, c_comm.commission_type AS cap_comm_type, c_comm.commission_value AS cap_comm_val
         FROM orders o
+        LEFT JOIN customers c ON o.customer_id = c.id
         LEFT JOIN payment_methods pm ON o.bank_id = pm.id
         LEFT JOIN restaurants r ON r.id = o.restaurant_id
         LEFT JOIN captains cap ON cap.id = o.captain_id
@@ -379,74 +373,53 @@ router.put("/:id/status", async (req, res) => {
       const order = orderRows[0];
 
       if (order && order.res_acc_id) {
-        // حساب صافي مبلغ المطعم (الإجمالي - رسوم التوصيل - أي رسوم إضافية)
         const restaurantAmount = Number(order.total_amount || 0) - Number(order.delivery_fee || 0) - Number(order.extra_store_fee || 0);
+        const deliveryFee = Number(order.delivery_fee || 0);
         const [[baseCur]] = await conn.query("SELECT id FROM currencies WHERE is_local=1 LIMIT 1");
         const journalTypeId = 5; 
-        
-        const resName = order.restaurant_name || "المطعم";
-        const capName = order.captain_name || "الكابتن";
 
         let debitAccount = null;
-        let paymentMethodLabel = "";
+        let paymentLabel = "";
 
-        // فحص طريقة الدفع لتوجيه القيد
-        const pMethod = String(order.payment_method).toLowerCase();
-
-        if (pMethod === "cod") {
-          debitAccount = order.cap_acc_id; 
-          paymentMethodLabel = `نقداً مع الكابتن (${capName})`;
-        } 
-        else if (pMethod === "bank" || pMethod === "electronic") {
-          debitAccount = order.bank_account_id || settings.transfer_guarantee_account || 10; 
-          paymentMethodLabel = `إيداع بنكي (${order.bank_name || "حساب البنك"})`;
-        } 
-        else if (pMethod === "wallet") {
-          debitAccount = settings.customer_guarantee_account || 51;
-          paymentMethodLabel = "محفظة ريدي";
+        // تحديد الحساب المدين (مباشر أو وسيط)
+        if (order.wallet_type === 'direct' && order.customer_acc_id) {
+          debitAccount = order.customer_acc_id;
+          paymentLabel = `حساب مباشر (العميل: ${order.customer_name})`;
+        } else {
+          const pMethod = String(order.payment_method).toLowerCase();
+          if (pMethod === "cod") { debitAccount = order.cap_acc_id; paymentLabel = "نقداً"; }
+          else if (pMethod === "bank") { debitAccount = order.bank_account_id || 10; paymentLabel = "بنكي"; }
+          else { debitAccount = settings.customer_guarantee_account || 51; paymentLabel = "محفظة"; }
         }
 
-        if (debitAccount && restaurantAmount > 0) {
-          // أ- قيد عوائد المبيعات في حساب (البنك/الكابتن/الوسيط)
-          await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, debitAccount, restaurantAmount, 0, `طلب #${order.id}: عوائد مبيعات (${resName}) - ${paymentMethodLabel}`, req);
-
-          // ب- قيد صافي المبيعات في حساب (الوكيل/المطعم)
+        // --- أ: قيود مبيعات المطعم ---
+        if (restaurantAmount > 0) {
+          await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, debitAccount, restaurantAmount, 0, `طلب #${order.id}: قيمة وجبات (${order.restaurant_name}) - ${paymentLabel}`, req);
           await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.res_acc_id, 0, restaurantAmount, `طلب #${order.id}: صافي مبيعات المطعم`, req);
-// ج- حساب وتسجيل عمولة الوكيل (المطعم)
-if (settings.commission_income_account && order.res_comm_val > 0) {
-    let resComm = 0;
-    let resNote = `طلب #${order.id}: خصم عمولة الوكيل`;
+        }
 
-    // التعديل هنا: فحص القيمة 'percent' بدلاً من 'percentage'
-    if (order.res_comm_type === 'percent' || order.res_comm_type === 'percentage') {
-        resComm = (restaurantAmount * Number(order.res_comm_val)) / 100;
-        resNote += ` (${order.res_comm_val}%)`;
-    } else {
-        resComm = Number(order.res_comm_val);
-        resNote += ` (مبلغ ثابت)`;
-    }
+        // --- ب: قيود رسوم التوصيل ---
+        if (deliveryFee > 0 && order.cap_acc_id) {
+          await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, debitAccount, deliveryFee, 0, `طلب #${order.id}: رسوم توصيل - ${paymentLabel}`, req);
+          await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.cap_acc_id, 0, deliveryFee, `طلب #${order.id}: إيراد توصيل للكابتن (${order.captain_name})`, req);
+        }
 
-    await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.res_acc_id, resComm, 0, resNote, req);
-    await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, settings.commission_income_account, 0, resComm, `إيراد عمولة من ${resName} - طلب #${order.id}`, req);
-}
+        // --- ج: عمولة المطعم ---
+        if (settings.commission_income_account && order.res_comm_val > 0) {
+          let resComm = (order.res_comm_type === 'percent' || order.res_comm_type === 'percentage') 
+            ? (restaurantAmount * Number(order.res_comm_val)) / 100 : Number(order.res_comm_val);
+          
+          await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.res_acc_id, resComm, 0, `طلب #${order.id}: خصم عمولة الوكيل`, req);
+          await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, settings.commission_income_account, 0, resComm, `إيراد عمولة مطعم ${order.restaurant_name}`, req);
+        }
 
-// د- حساب وتسجيل عمولة الكابتن
-if (settings.courier_commission_account && order.cap_comm_val > 0 && order.cap_acc_id) {
-    let capComm = 0;
-    let capNote = `طلب #${order.id}: خصم عمولة الشركة (توصيل طلب ${resName})`;
+        // --- د: عمولة الكابتن ---
+        if (settings.courier_commission_account && order.cap_comm_val > 0 && order.cap_acc_id) {
+          let capComm = (order.cap_comm_type === 'percent' || order.cap_comm_type === 'percentage') 
+            ? (deliveryFee * Number(order.cap_comm_val)) / 100 : Number(order.cap_comm_val);
 
-    // التعديل هنا أيضاً: فحص القيمة 'percent'
-    if (order.cap_comm_type === 'percent' || order.cap_comm_type === 'percentage') {
-        capComm = (Number(order.delivery_fee) * Number(order.cap_comm_val)) / 100;
-        capNote += ` (${order.cap_comm_val}%)`;
-    } else {
-        capComm = Number(order.cap_comm_val);
-        capNote += ` (مبلغ ثابت)`;
-    }
-
-    await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.cap_acc_id, capComm, 0, capNote, req);
-    await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, settings.courier_commission_account, 0, capComm, `إيراد عمولة كابتن ${capName} - طلب #${order.id}`, req);
-}
+          await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, order.cap_acc_id, capComm, 0, `طلب #${order.id}: خصم عمولة شركة`, req);
+          await insertJournalEntry(conn, journalTypeId, order.id, baseCur.id, settings.courier_commission_account, 0, capComm, `إيراد عمولة كابتن ${order.captain_name}`, req);
         }
       }
     }
@@ -455,7 +428,6 @@ if (settings.courier_commission_account && order.cap_comm_val > 0 && order.cap_a
     res.json({ success: true });
   } catch (err) {
     if (conn) await conn.rollback();
-    console.error("خطأ فادح في تحديث الحالة:", err.message);
     res.status(500).json({ success: false, message: err.message });
   } finally {
     if (conn) conn.release();
