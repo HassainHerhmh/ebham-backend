@@ -324,11 +324,38 @@ import customerGuarantees from "./routes/customerGuarantees.js";
 app.use("/api/customer-guarantees", customerGuarantees);
 
 
+import { createServer } from "http";
+import { Server } from "socket.io";
+
 /* =========================
-   Start Server
+   Start Server + Socket.IO
 ========================= */
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () =>
-  console.log(`🚀 Server running on ${PORT}`)
-           
-);
+
+const httpServer = createServer(app);
+
+const io = new Server(httpServer, {
+  cors: {
+    origin: [
+      "https://ebham-dashboard2.vercel.app",
+      "http://localhost:5173",
+    ],
+    credentials: true,
+  },
+});
+
+// نخزن io داخل app عشان نستخدمه في الراوترات
+app.set("io", io);
+
+io.on("connection", (socket) => {
+  console.log("🔌 Client connected:", socket.id);
+
+  socket.on("disconnect", () => {
+    console.log("❌ Client disconnected:", socket.id);
+  });
+});
+
+httpServer.listen(PORT, () => {
+  console.log(`🚀 Server running with Socket.IO on ${PORT}`);
+});
+
