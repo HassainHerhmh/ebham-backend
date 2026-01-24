@@ -33,47 +33,32 @@ router.post("/account-statement", async (req, res) => {
     const params = [];
 
     /* =========================
-       تحديد الحسابات
+        1. تحديد الحسابات (نفس الكود السابق)
     ========================= */
     let accountIds = [];
     let summaryGroupByParent = false;
-
+    // ... (جزء جلب accountIds يبقى كما هو دون تغيير) ...
     if (account_id) {
-      const [rows] = await db.query(
-        `SELECT id FROM accounts WHERE id = ?`,
-        [account_id]
-      );
+      const [rows] = await db.query(`SELECT id FROM accounts WHERE id = ?`, [account_id]);
       accountIds = rows.map(r => r.id);
     } else {
-      let mainsSql = `SELECT id FROM accounts WHERE parent_id IS NULL`;
-      const mainsParams = [];
-
-      if (!is_admin_branch) {
-        mainsSql = `
-          SELECT id FROM accounts
-          WHERE parent_id IS NULL
-             OR (parent_id IS NOT NULL AND branch_id = ?)
-        `;
-        mainsParams.push(branch_id);
-      }
-
-      const [mains] = await db.query(mainsSql, mainsParams);
-      const mainIds = mains.map(r => r.id);
-
-      if (mainIds.length) {
-        const [all] = await db.query(
-          `
-          SELECT id
-          FROM accounts
-          WHERE id IN (${mainIds.map(() => "?").join(",")})
-             OR parent_id IN (${mainIds.map(() => "?").join(",")})
-          `,
-          [...mainIds, ...mainIds]
-        );
-
-        accountIds = all.map(r => r.id);
-        summaryGroupByParent = true;
-      }
+       // كود جلب الحسابات الفرعية للأدمن والفروع
+       let mainsSql = `SELECT id FROM accounts WHERE parent_id IS NULL`;
+       const mainsParams = [];
+       if (!is_admin_branch) {
+         mainsSql += ` OR (parent_id IS NOT NULL AND branch_id = ?)`;
+         mainsParams.push(branch_id);
+       }
+       const [mains] = await db.query(mainsSql, mainsParams);
+       const mainIds = mains.map(r => r.id);
+       if (mainIds.length) {
+         const [all] = await db.query(
+           `SELECT id FROM accounts WHERE id IN (${mainIds.map(() => "?").join(",")}) OR parent_id IN (${mainIds.map(() => "?").join(",")})`,
+           [...mainIds, ...mainIds]
+         );
+         accountIds = all.map(r => r.id);
+         summaryGroupByParent = true;
+       }
     }
 
     if (!accountIds.length) {
@@ -87,110 +72,76 @@ router.post("/account-statement", async (req, res) => {
       where.push(`je.currency_id = ?`);
       params.push(currency_id);
     }
-    if (from_date) {
-      where.push(`je.journal_date >= ?`);
-      params.push(from_date);
-    }
-    if (to_date) {
-      where.push(`je.journal_date <= ?`);
-      params.push(to_date);
-    }
-
-    const whereSql = `WHERE ${where.join(" AND ")}`;
 
     /* =========================
-       الرصيد الافتتاحي
+        2. الرصيد الافتتاحي (Opening Balance)
     ========================= */
     let opening = 0;
     if (from_date) {
       const whereOpening = where.filter(w => !w.includes("je.journal_date >="));
-      const paramsOpening = params.filter(
-        (_, i) => !where[i]?.includes("je.journal_date >=")
-      );
+      const paramsOpening = params.filter((_, i) => !where[i]?.includes("je.journal_date >="));
 
       const [op] = await db.query(
-        `
-        SELECT ROUND(COALESCE(SUM(je.debit) - SUM(je.credit), 0), 2) AS bal
-        FROM journal_entries je
-        WHERE ${whereOpening.join(" AND ")}
-          AND je.journal_date < ?
-        `,
+        `SELECT ROUND(COALESCE(SUM(je.debit) - SUM(je.credit), 0), 2) AS bal
+         FROM journal_entries je
+         WHERE ${whereOpening.join(" AND ")} AND je.journal_date < ?`,
         [...paramsOpening, from_date]
       );
-
       opening = op[0]?.bal || 0;
     }
 
+    // إضافة شرط التاريخ للجلب النهائي
+    if (from_date) { where.push(`je.journal_date >= ?`); params.push(from_date); }
+    if (to_date) { where.push(`je.journal_date <= ?`); params.push(to_date); }
+    const whereSql = `WHERE ${where.join(" AND ")}`;
+
     /* =========================
-       الجلب
+        3. الجلب النهائي (إضافة المستند وإصلاح الرصيد)
     ========================= */
     let sql;
-    let runParams = [...params];
-
     if (report_mode === "summary") {
-      if (summaryGroupByParent) {
-        sql = `
-          SELECT
-            c.name_ar AS currency_name,
-            p.name_ar AS account_name,
-            ROUND(SUM(je.debit), 2)  AS debit,
-            ROUND(SUM(je.credit), 2) AS credit,
-            ROUND(SUM(je.debit) - SUM(je.credit), 2) AS balance
-          FROM journal_entries je
-          JOIN accounts a ON a.id = je.account_id
-          JOIN accounts p ON p.id = COALESCE(a.parent_id, a.id)
-          JOIN currencies c ON c.id = je.currency_id
-          ${whereSql}
-          GROUP BY c.id, p.id, p.name_ar
-          ORDER BY c.name_ar, p.name_ar
-        `;
-      } else {
-        sql = `
-          SELECT
-            c.name_ar AS currency_name,
-            a.name_ar AS account_name,
-            ROUND(SUM(je.debit), 2)  AS debit,
-            ROUND(SUM(je.credit), 2) AS credit,
-            ROUND(SUM(je.debit) - SUM(je.credit), 2) AS balance
-          FROM journal_entries je
-          JOIN accounts a ON a.id = je.account_id
-          JOIN currencies c ON c.id = je.currency_id
-          ${whereSql}
-          GROUP BY c.id, a.id, a.name_ar
-          ORDER BY c.name_ar, a.name_ar
-        `;
-      }
-   } else {
-  sql = `
-    SELECT
-      je.id,
-      je.journal_date,
-      c.name_ar AS currency_name,
-      p.name_ar AS parent_account,
-      a.name_ar AS account_name,
-      ROUND(je.debit, 2)  AS debit,
-      ROUND(je.credit, 2) AS credit,
-      je.notes,
-      ROUND(
-        @run := IF(@cur = je.currency_id,
-                   @run + je.debit - je.credit,
-                   je.debit - je.credit),
-        2
-      ) AS balance,
-      @cur := je.currency_id AS _cur_marker
-    FROM (SELECT @run := 0, @cur := NULL) r,
-         journal_entries je
-    JOIN accounts a ON a.id = je.account_id
-    JOIN accounts p ON p.id = COALESCE(a.parent_id, a.id)
-    JOIN currencies c ON c.id = je.currency_id
-    ${whereSql}
-    ORDER BY c.id, p.name_ar, a.name_ar, je.journal_date, je.id
-  `;
-  runParams = [...params];
-}
+      // ... كود الـ summary يبقى كما هو ...
+      sql = `SELECT c.name_ar AS currency_name, ${summaryGroupByParent ? 'p.name_ar' : 'a.name_ar'} AS account_name, 
+             ROUND(SUM(je.debit), 2) AS debit, ROUND(SUM(je.credit), 2) AS credit, 
+             ROUND(SUM(je.debit) - SUM(je.credit), 2) AS balance 
+             FROM journal_entries je 
+             JOIN accounts a ON a.id = je.account_id 
+             JOIN accounts p ON p.id = COALESCE(a.parent_id, a.id)
+             JOIN currencies c ON c.id = je.currency_id ${whereSql} 
+             GROUP BY c.id, ${summaryGroupByParent ? 'p.id, p.name_ar' : 'a.id, a.name_ar'} 
+             ORDER BY c.name_ar`;
+    } else {
+      // ✅ التعديل هنا: إضافة reference_type و reference_id وتمرير الرصيد الافتتاحي للمتغير @run
+      sql = `
+        SELECT
+          je.id,
+          je.journal_date,
+          je.reference_type,   -- 🆕 نوع المستند
+          je.reference_id,     -- 🆕 رقم المستند
+          c.name_ar AS currency_name,
+          a.name_ar AS account_name,
+          ROUND(je.debit, 2)  AS debit,
+          ROUND(je.credit, 2) AS credit,
+          je.notes,
+          ROUND(
+            @run := IF(@cur = je.currency_id, 
+                       @run + je.debit - je.credit, 
+                       ? + je.debit - je.credit), -- 🆕 يبدأ من الرصيد الافتتاحي المرسل في الـ params
+            2
+          ) AS balance,
+          @cur := je.currency_id AS _cur_marker
+        FROM (SELECT @run := 0, @cur := NULL) r,
+             journal_entries je
+        JOIN accounts a ON a.id = je.account_id
+        JOIN currencies c ON c.id = je.currency_id
+        ${whereSql}
+        ORDER BY je.currency_id, je.journal_date ASC, je.id ASC
+      `;
+      // نمرر الـ opening كأول بارامتر للمتغير @run
+      params.unshift(opening); 
+    }
 
-
-    const [rows] = await db.query(sql, runParams);
+    const [rows] = await db.query(sql, params);
 
     res.json({
       success: true,
@@ -202,5 +153,4 @@ router.post("/account-statement", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-
 export default router;
