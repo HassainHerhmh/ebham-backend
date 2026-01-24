@@ -24,7 +24,7 @@ router.get("/", async (req, res) => {
         FROM customer_addresses ca
         LEFT JOIN customers c ON ca.customer_id = c.id
         LEFT JOIN branches b ON ca.branch_id = b.id
-        LEFT JOIN districts d ON ca.district = d.id -- الربط مع جدول الأحياء
+       LEFT JOIN neighborhoods n ON ca.district = n.id -- الربط مع الجدول الصحيح
     `;
 
     if (user.is_admin_branch === 1 || user.is_admin_branch === true) {
