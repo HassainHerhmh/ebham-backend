@@ -20,7 +20,7 @@ router.get("/", async (req, res) => {
         SELECT ca.*, 
                c.name AS customer_name, 
                b.name AS branch_name,
-              n.name AS neighborhood_name -- جلب اسم الحي من الجدول الصحيح
+                n.name AS district_name -- جلب اسم الحي من الجدول الصحيح
         FROM customer_addresses ca
         LEFT JOIN customers c ON ca.customer_id = c.id
         LEFT JOIN branches b ON ca.branch_id = b.id
