@@ -237,14 +237,11 @@ router.post("/", async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
-/* =========================
-   GET /orders/:id
-========================= */
 router.get("/:id", async (req, res) => {
   try {
     const orderId = req.params.id;
 
-    const [[order]] = await db.query(
+    const [rows] = await db.query(
       `
       SELECT 
         o.id,
@@ -262,11 +259,17 @@ router.get("/:id", async (req, res) => {
         o.bank_id
       FROM orders o
       JOIN customers c ON c.id = o.customer_id
-      JOIN customer_addresses a ON a.id = o.address_id
+      LEFT JOIN customer_addresses a ON a.id = o.address_id
       WHERE o.id=?
       `,
       [orderId]
     );
+
+    if (!rows.length) {
+      return res.status(404).json({ success: false, message: "الطلب غير موجود" });
+    }
+
+    const order = rows[0];
 
     const [items] = await db.query(
       `
