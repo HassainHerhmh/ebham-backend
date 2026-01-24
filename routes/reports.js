@@ -5,9 +5,6 @@ import auth from "../middlewares/auth.js";
 const router = express.Router();
 router.use(auth);
 
-/*
-POST /reports/account-statement
-*/
 router.post("/account-statement", async (req, res) => {
   try {
     const {
@@ -65,40 +62,48 @@ router.post("/account-statement", async (req, res) => {
     }
 
     /* =========================
-        2. الرصيد الافتتاحي (Opening Balance) 
-        يتم حسابه هنا قبل إضافة شروط تاريخ العرض للمصفوفة ✅
+        2. الرصيد الافتتاحي (Opening Balance) لكل عملة
     ========================= */
-    let opening = 0;
+    let openingBalances = {}; 
     if (from_date) {
-      const [op] = await db.query(
-        `SELECT ROUND(COALESCE(SUM(je.debit) - SUM(je.credit), 0), 2) AS bal
+      const [ops] = await db.query(
+        `SELECT currency_id, ROUND(SUM(debit - credit), 2) AS bal
          FROM journal_entries je
-         WHERE ${where.join(" AND ")} AND je.journal_date < ?`,
-        [...params, from_date]
+         WHERE je.account_id IN (${accountIds.map(() => "?").join(",")})
+         AND je.journal_date < ?
+         GROUP BY currency_id`,
+        [...accountIds, from_date]
       );
-      opening = op[0]?.bal || 0;
+      
+      ops.forEach(row => {
+        openingBalances[row.currency_id] = parseFloat(row.bal || 0);
+      });
     }
 
     /* =========================
         3. إضافة شروط التاريخ للجلب النهائي للقائمة
     ========================= */
+    const finalWhere = [...where];
+    const finalParams = [...params];
+
     if (from_date) { 
-      where.push(`je.journal_date >= ?`); 
-      params.push(from_date); 
+      finalWhere.push(`je.journal_date >= ?`); 
+      finalParams.push(from_date); 
     }
     if (to_date) { 
-      where.push(`je.journal_date <= ?`); 
-      params.push(to_date); 
+      finalWhere.push(`je.journal_date <= ?`); 
+      finalParams.push(to_date); 
     }
 
-    const whereSql = `WHERE ${where.join(" AND ")}`;
+    const whereSql = `WHERE ${finalWhere.join(" AND ")}`;
 
     /* =========================
-        4. الجلب النهائي (إصلاح الرصيد المتسلسل)
+        4. الجلب النهائي
     ========================= */
     let sql;
     if (report_mode === "summary") {
-      sql = `SELECT c.name_ar AS currency_name, ${summaryGroupByParent ? 'p.name_ar' : 'a.name_ar'} AS account_name, 
+      sql = `SELECT c.id AS currency_id, c.name_ar AS currency_name, 
+             ${summaryGroupByParent ? 'p.name_ar' : 'a.name_ar'} AS account_name, 
              ROUND(SUM(je.debit), 2) AS debit, ROUND(SUM(je.credit), 2) AS credit, 
              ROUND(SUM(je.debit) - SUM(je.credit), 2) AS balance 
              FROM journal_entries je 
@@ -110,42 +115,39 @@ router.post("/account-statement", async (req, res) => {
     } else {
       sql = `
         SELECT
-          je.id,
-          je.journal_date,
-          je.reference_type,
-          je.reference_id,
-          c.name_ar AS currency_name,
-          a.name_ar AS account_name,
-          ROUND(je.debit, 2)  AS debit,
-          ROUND(je.credit, 2) AS credit,
-          je.notes,
-          ROUND(
-            @run := IF(@cur = je.currency_id, 
-                       @run + je.debit - je.credit, 
-                       ? + je.debit - je.credit), 
-            2
-          ) AS balance,
-          @cur := je.currency_id AS _cur_marker
-        FROM (SELECT @run := 0, @cur := NULL) r,
-             journal_entries je
+          je.id, je.journal_date, je.reference_type, je.reference_id, je.currency_id,
+          c.name_ar AS currency_name, a.name_ar AS account_name,
+          ROUND(je.debit, 2) AS debit, ROUND(je.credit, 2) AS credit, je.notes
+        FROM journal_entries je
         JOIN accounts a ON a.id = je.account_id
         JOIN currencies c ON c.id = je.currency_id
         ${whereSql}
-        /* الترتيب حسب التاريخ ثم ID يضمن عدم لخبطة رصيد الطلبات ✅ */
         ORDER BY je.currency_id, je.journal_date ASC, je.id ASC
       `;
-      
-      // نضع الرصيد الافتتاحي في بداية البارامترات لمتغير الـ SQL
-      params.unshift(opening); 
     }
 
-    const [rows] = await db.query(sql, params);
+    const [rows] = await db.query(sql, finalParams);
+
+    // ✅ حساب الرصيد التراكمي في JavaScript لضمان دقة تعدد العملات
+    let runningBalances = { ...openingBalances };
+    const listWithBalance = rows.map(row => {
+      const curId = row.currency_id;
+      if (runningBalances[curId] === undefined) runningBalances[curId] = 0;
+      
+      runningBalances[curId] = parseFloat((runningBalances[curId] + row.debit - row.credit).toFixed(2));
+      
+      return {
+        ...row,
+        balance: runningBalances[curId]
+      };
+    });
 
     res.json({
       success: true,
-      opening_balance: opening,
-      list: rows,
+      opening_balance: currency_id ? (openingBalances[currency_id] || 0) : openingBalances,
+      list: listWithBalance,
     });
+
   } catch (err) {
     console.error("ACCOUNT STATEMENT ERROR:", err);
     res.status(500).json({ success: false });
