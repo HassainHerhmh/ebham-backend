@@ -124,8 +124,8 @@ router.post("/account-statement", async (req, res) => {
 
     const [rows] = await db.query(sql, finalParams);
 
-    /* =========================
-        4. المعالجة الحسابية الصارمة (لحل مشكلة الأرقام الكبيرة)
+  /* =========================
+        4. المعالجة الحسابية ومنع التكرار
     ========================= */
     let finalRows = [];
     let runningBalances = { ...openingBalances };
@@ -133,18 +133,16 @@ router.post("/account-statement", async (req, res) => {
 
     rows.forEach(row => {
       const curId = row.currency_id;
-
-      // تحويل المدين والدائن لأرقام فوراً
       const debit = Number(row.debit || 0);
       const credit = Number(row.credit || 0);
 
-      // إضافة سطر الرصيد السابق في بداية كل عملة
+      // إضافة سطر الرصيد السابق لمرة واحدة فقط لكل عملة وبشرط ألا يكون صفراً
       if (!processedCurrencies.has(curId)) {
         const startBal = Number(openingBalances[curId] || 0);
         if (startBal !== 0) {
           finalRows.push({
             id: 'op-' + curId,
-            journal_date: from_date,
+            journal_date: from_date || row.journal_date,
             notes: 'رصيد سابق',
             account_name: 'رصيد سابق',
             currency_name: row.currency_name,
@@ -157,7 +155,7 @@ router.post("/account-statement", async (req, res) => {
         processedCurrencies.add(curId);
       }
 
-      // الحساب التراكمي: نستخدم Number() ونحدد عدد الأرقام العشرية لتجنب أخطاء الفاصلة
+      // الحساب التراكمي الدقيق (منع تضخم الأرقام)
       if (runningBalances[curId] === undefined) runningBalances[curId] = 0;
       
       const currentBalance = Number(runningBalances[curId]) + debit - credit;
