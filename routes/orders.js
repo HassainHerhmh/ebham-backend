@@ -180,7 +180,7 @@ router.post("/", async (req, res) => {
         gps_link || null,
         storesCount,
         branchId,
-        user.id,            -- تم التعديل هنا: استخدام id من كائن user
+        user.id,           
         deliveryFee,
         extraStoreFee,
         payment_method || null,
