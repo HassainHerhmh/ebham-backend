@@ -208,29 +208,44 @@ router.delete("/:id", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-
-/* جلب عناوين عميل محدد فقط - النسخة المصححة */
 router.get("/customer/:customerId", async (req, res) => {
   try {
     const { customerId } = req.params;
+    const branch = req.headers["x-branch-id"];
+
+    const where = (branch && branch !== "null")
+      ? "AND ca.branch_id = ?"
+      : "";
+
+    const params = (branch && branch !== "null")
+      ? [customerId, branch]
+      : [customerId];
+
     const [rows] = await db.query(
-      `SELECT ca.id, 
-              ca.district, 
-              ca.address, 
-              ca.gps_link, 
-              ca.latitude, 
-              ca.longitude,
-              COALESCE(n.name, ca.district) AS neighborhood_name -- يجلب الاسم من جدول الأحياء أو النص المخزن
-       FROM customer_addresses ca
-       LEFT JOIN neighborhoods n ON ca.district = n.id
-       WHERE ca.customer_id = ?`,
-      [customerId]
+      `
+      SELECT ca.id, 
+             ca.district, 
+             ca.address, 
+             ca.gps_link, 
+             ca.latitude, 
+             ca.longitude,
+             ca.branch_id,
+             COALESCE(n.name, ca.district) AS neighborhood_name
+      FROM customer_addresses ca
+      LEFT JOIN neighborhoods n ON ca.district = n.id
+      WHERE ca.customer_id = ?
+      ${where}
+      ORDER BY ca.id DESC
+      `,
+      params
     );
+
     res.json({ success: true, addresses: rows });
   } catch (err) {
     console.error("GET CUSTOMER ADDRESSES ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
+
 
 export default router;
