@@ -10,18 +10,15 @@ const router = express.Router();
 ========================= */
 router.get("/public", async (req, res) => {
   try {
-    const jsDay = new Date().getDay();
-    const today = (jsDay + 6) % 7;
-
-   const [rows] = await pool.query(
-  `
-  SELECT b.id, b.name
-  FROM branches b
-  WHERE b.is_admin = 0
-  ORDER BY b.id ASC
-  `
-);
-
+    const [rows] = await pool.query(`
+      SELECT 
+        b.id,
+        b.name,
+        b.name AS branch_name
+      FROM branches b
+      WHERE b.is_admin = 0
+      ORDER BY b.id ASC
+    `);
 
     res.json({ success: true, branches: rows });
   } catch (err) {
@@ -29,6 +26,7 @@ router.get("/public", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 /*
   نفترض أن auth يضيف:
   req.user = { id, role, branch_id, is_admin_branch }
