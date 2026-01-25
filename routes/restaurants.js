@@ -275,11 +275,12 @@ router.post("/reorder", async (req, res) => {
 ====================================================== */
 router.get("/app", async (req, res) => {
   try {
-    // جلب رقم الفرع من الـ Headers
+    // 1. جلب رقم الفرع من الـ Headers المرسل من التطبيق
     const branch = req.headers["x-branch-id"] || null;
 
-    const where = branch ? "WHERE r.branch_id=?" : "";
-    const params = branch ? [branch] : [];
+    // 2. بناء جملة الشرط
+    const where = (branch && branch !== "null") ? "WHERE r.branch_id = ?" : "";
+    const params = (branch && branch !== "null") ? [branch] : [];
 
     const [rows] = await db.query(
       `
@@ -289,8 +290,8 @@ router.get("/app", async (req, res) => {
         r.address,
         r.image_url,
         r.sort_order,
-        r.branch_id,   -- 👈 ضروري للفلترة في التطبيق
-        r.type_id,     -- 👈 ضروري لفلترة التصنيفات (بيتزا، شاورما..)
+        r.branch_id,   -- 👈 ضروري جداً لكي تنجح الفلترة في الـ Frontend
+        r.type_id,     -- 👈 ضروري لفلترة التصنيفات
 
         GROUP_CONCAT(c.id)   AS category_ids,
         GROUP_CONCAT(c.name) AS categories,
