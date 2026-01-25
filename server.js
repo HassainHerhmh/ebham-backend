@@ -27,7 +27,7 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    // بعض البيئات (Capacitor / Mobile App) ترسل Origin = undefined
+    // بعض بيئات الموبايل ترسل origin = undefined
     if (!origin) {
       return callback(null, true);
     }
@@ -36,8 +36,13 @@ app.use(cors({
       return callback(null, true);
     }
 
-    // السماح لـ capacitor:// و ionic://
-    if (origin.startsWith("capacitor://") || origin.startsWith("ionic://")) {
+    // دعم Capacitor / Ionic
+    if (
+      origin.startsWith("capacitor://") ||
+      origin.startsWith("ionic://") ||
+      origin.startsWith("http://localhost") ||
+      origin.startsWith("https://localhost")
+    ) {
       return callback(null, true);
     }
 
@@ -46,6 +51,7 @@ app.use(cors({
   },
   credentials: true,
 }));
+
 
 
 
