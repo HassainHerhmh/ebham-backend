@@ -271,10 +271,11 @@ router.post("/reorder", async (req, res) => {
 });
 
 /* ======================================================
-   🟢 جلب المطاعم للتطبيق (حسب الفرع)
+    🟢 جلب المطاعم للتطبيق (حسب الفرع)
 ====================================================== */
 router.get("/app", async (req, res) => {
   try {
+    // جلب رقم الفرع من الـ Headers
     const branch = req.headers["x-branch-id"] || null;
 
     const where = branch ? "WHERE r.branch_id=?" : "";
@@ -288,10 +289,13 @@ router.get("/app", async (req, res) => {
         r.address,
         r.image_url,
         r.sort_order,
+        r.branch_id,   -- 👈 ضروري للفلترة في التطبيق
+        r.type_id,     -- 👈 ضروري لفلترة التصنيفات (بيتزا، شاورما..)
 
         GROUP_CONCAT(c.id)   AS category_ids,
         GROUP_CONCAT(c.name) AS categories,
 
+        -- منطق التحقق من حالة الفتح (مفتوح/مغلق)
         CASE 
           WHEN EXISTS (
             SELECT 1
@@ -302,16 +306,11 @@ router.get("/app", async (req, res) => {
               AND CURTIME() BETWEEN s.start_time AND s.end_time
           )
           THEN 1 ELSE 0
-        END AS is_open,
-
-        0 AS rating,
-        0 AS reviews_count
+        END AS is_open
 
       FROM restaurants r
-      LEFT JOIN restaurant_categories rc 
-        ON rc.restaurant_id = r.id
-      LEFT JOIN categories c 
-        ON c.id = rc.category_id
+      LEFT JOIN restaurant_categories rc ON rc.restaurant_id = r.id
+      LEFT JOIN categories c ON c.id = rc.category_id
 
       ${where}
       GROUP BY r.id
@@ -326,7 +325,6 @@ router.get("/app", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-
 /* ======================================================
    🗑️ حذف مطعم
 ====================================================== */
