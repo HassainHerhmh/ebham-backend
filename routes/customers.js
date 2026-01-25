@@ -58,6 +58,7 @@ if (user.is_admin_branch === 1 || user.is_admin_branch === true) {
    POST /customers
 ========================= */
 router.post("/", async (req, res) => {
+    console.log("📥 ADD ADDRESS BODY:", req.body);
   try {
     const { name, phone, phone_alt, email, password } = req.body;
     if (!name || !phone) {
