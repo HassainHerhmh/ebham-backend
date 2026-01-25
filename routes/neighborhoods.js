@@ -4,6 +4,11 @@ import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 
+
+/* =========================
+   GET /neighborhoods/by-branch/:branchId  (عام للتطبيق)
+========================= */
+
 router.get("/by-branch/:branchId", async (req, res) => {
   try {
     const { branchId } = req.params;
