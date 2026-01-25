@@ -275,6 +275,10 @@ router.post("/reorder", async (req, res) => {
 ====================================================== */
 router.get("/app", async (req, res) => {
   try {
+     const branchHeader = req.headers["x-branch-id"];
+    console.log("🚀 طلب جديد وصل للـ /app");
+    console.log("📥 الهيدر الواصل (x-branch-id):", branchHeader);
+    console.log("🔢 نوع البيانات:", typeof branchHeader);
     // 1. جلب رقم الفرع من الـ Headers المرسل من التطبيق
     const branch = req.headers["x-branch-id"] || null;
 
