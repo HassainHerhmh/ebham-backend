@@ -4,6 +4,27 @@ import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 
+router.get("/by-branch/:branchId", async (req, res) => {
+  try {
+    const { branchId } = req.params;
+
+    const [rows] = await db.query(
+      `
+      SELECT id, name
+      FROM neighborhoods
+      WHERE branch_id = ?
+      ORDER BY name ASC
+      `,
+      [branchId]
+    );
+
+    res.json({ success: true, neighborhoods: rows });
+  } catch (err) {
+    console.error("GET NEIGHBORHOODS BY BRANCH ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
 /* =========================
    حماية كل المسارات
 ========================= */
