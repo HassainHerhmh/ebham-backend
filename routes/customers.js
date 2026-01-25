@@ -4,6 +4,33 @@ import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 
+
+/* =========================
+   POST /customers/public  (للتطبيق)
+========================= */
+router.post("/public", async (req, res) => {
+  try {
+    const { name, phone, email, password, branch_id } = req.body;
+
+    if (!name || !phone || !branch_id) {
+      return res.json({ success: false, message: "بيانات ناقصة" });
+    }
+
+    await db.query(
+      `
+      INSERT INTO customers (name, phone, email, password, branch_id, created_at)
+      VALUES (?, ?, ?, ?, ?, NOW())
+      `,
+      [name, phone, email || null, password || null, branch_id]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("ADD CUSTOMER PUBLIC ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
 /* =========================
    حماية كل المسارات
 ========================= */
