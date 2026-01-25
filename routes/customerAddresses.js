@@ -5,7 +5,7 @@ import auth from "../middlewares/auth.js";
 const router = express.Router();
 
 
-outer.get("/customer/:customerId", async (req, res) => {
+router.get("/customer/:customerId", async (req, res) => {
   try {
     const { customerId } = req.params;
       const branch = req.headers["x-branch-id"];
