@@ -4,6 +4,29 @@ import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 
+
+/* =========================
+   GET /branches/public  (بدون حماية للتطبيق)
+========================= */
+router.get("/public", async (req, res) => {
+  try {
+    const jsDay = new Date().getDay();
+    const today = (jsDay + 6) % 7;
+
+    const [rows] = await pool.query(
+      `
+      SELECT b.id, b.name
+      FROM branches b
+      ORDER BY b.id ASC
+      `
+    );
+
+    res.json({ success: true, branches: rows });
+  } catch (err) {
+    console.error("GET BRANCHES PUBLIC ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
 /*
   نفترض أن auth يضيف:
   req.user = { id, role, branch_id, is_admin_branch }
