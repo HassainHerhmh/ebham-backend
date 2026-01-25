@@ -208,10 +208,15 @@ router.delete("/:id", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
+
 router.get("/customer/:customerId", async (req, res) => {
   try {
     const { customerId } = req.params;
-    const branch = req.headers["x-branch-id"];
+      const branch = req.headers["x-branch-id"];
+
+    console.log("🔎 CUSTOMER ADDRESSES HEADERS:", req.headers);
+    console.log("🏷️ x-branch-id =", branch);
 
     const where = (branch && branch !== "null")
       ? "AND ca.branch_id = ?"
