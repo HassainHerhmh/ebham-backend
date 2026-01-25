@@ -18,13 +18,33 @@ app.use((req, res, next) => {
 /* =========================
    Middlewares
 ========================= */
+const allowedOrigins = [
+  "https://ebham-dashboard2.vercel.app",
+  "http://localhost:5173",
+];
+
 app.use(cors({
-  origin: [
-    "https://ebham-dashboard2.vercel.app",
-    "http://localhost:5173"
-  ],
+  origin: (origin, callback) => {
+    // بعض البيئات (Capacitor / Mobile App) ترسل Origin = undefined
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    // السماح لـ capacitor:// و ionic://
+    if (origin.startsWith("capacitor://") || origin.startsWith("ionic://")) {
+      return callback(null, true);
+    }
+
+    console.log("❌ Blocked by CORS:", origin);
+    callback(new Error("Not allowed by CORS"));
+  },
   credentials: true,
 }));
+
 
 
 app.use(express.json());
