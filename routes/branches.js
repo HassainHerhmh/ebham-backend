@@ -13,13 +13,15 @@ router.get("/public", async (req, res) => {
     const jsDay = new Date().getDay();
     const today = (jsDay + 6) % 7;
 
-    const [rows] = await pool.query(
-      `
-      SELECT b.id, b.name
-      FROM branches b
-      ORDER BY b.id ASC
-      `
-    );
+   const [rows] = await pool.query(
+  `
+  SELECT b.id, b.name
+  FROM branches b
+  WHERE b.is_admin = 0
+  ORDER BY b.id ASC
+  `
+);
+
 
     res.json({ success: true, branches: rows });
   } catch (err) {
