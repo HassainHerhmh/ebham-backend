@@ -178,7 +178,7 @@ app.use("/api/payments/banks", paymentMethodsRoutes);
 
 import branchesRouter from "./routes/branches.js";
 
-app.use("/api/branches", auth, branchesRouter);
+app.use("/api/branches",branchesRouter);
 
 /* =========================
 شجرة الحسابات
