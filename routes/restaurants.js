@@ -7,20 +7,15 @@ const router = express.Router();
 
 
 /* ======================================================
-    🟢 جلب المطاعم للتطبيق (حسب الفرع)
+   🟢 جلب كل المحلات للتطبيق (حسب الفرع)
 ====================================================== */
 router.get("/app", async (req, res) => {
   try {
-     
-      const branch = req.headers["x-branch-id"] || null;
+    const branch = req.headers["x-branch-id"] || null;
 
-    console.log("🔎 CUSTOMER ADDRESSES HEADERS:", req.headers);
-    console.log("🏷️ x-branch-id =", branch);
-    // 1. جلب رقم الفرع من الـ Headers المرسل من التطبيق
- 
-
-    // 2. بناء جملة الشرط
-    const where = (branch && branch !== "null") ? "WHERE r.branch_id = ?" : "";
+    const where = (branch && branch !== "null")
+      ? "WHERE r.branch_id = ?"
+      : "";
     const params = (branch && branch !== "null") ? [branch] : [];
 
     const [rows] = await db.query(
@@ -31,13 +26,9 @@ router.get("/app", async (req, res) => {
         r.address,
         r.image_url,
         r.sort_order,
-        r.branch_id,   -- 👈 ضروري جداً لكي تنجح الفلترة في الـ Frontend
-        r.type_id,     -- 👈 ضروري لفلترة التصنيفات
+        r.branch_id,
+        r.type_id,
 
-        GROUP_CONCAT(c.id)   AS category_ids,
-        GROUP_CONCAT(c.name) AS categories,
-
-        -- منطق التحقق من حالة الفتح (مفتوح/مغلق)
         CASE 
           WHEN EXISTS (
             SELECT 1
@@ -51,11 +42,7 @@ router.get("/app", async (req, res) => {
         END AS is_open
 
       FROM restaurants r
-      LEFT JOIN restaurant_categories rc ON rc.restaurant_id = r.id
-      LEFT JOIN categories c ON c.id = rc.category_id
-
       ${where}
-      GROUP BY r.id
       ORDER BY r.sort_order ASC
       `,
       params
@@ -63,10 +50,11 @@ router.get("/app", async (req, res) => {
 
     res.json({ success: true, restaurants: rows });
   } catch (err) {
-    console.error("❌ خطأ في جلب المطاعم للتطبيق:", err);
+    console.error("❌ خطأ في جلب المحلات للتطبيق:", err);
     res.status(500).json({ success: false });
   }
 });
+;
 /* =========================
    حماية كل المسارات
 ========================= */
