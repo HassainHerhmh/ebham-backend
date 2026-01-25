@@ -3,6 +3,50 @@ import db from "../db.js";
 import auth from "../middlewares/auth.js";
 
 const router = express.Router();
+/* =========================
+   POST /customer-addresses/public  (للتطبيق بدون auth)
+========================= */
+router.post("/public", async (req, res) => {
+  try {
+    const {
+      customer_id,
+      district,
+      location_type,
+      address,
+      gps_link,
+      latitude,
+      longitude,
+      branch_id,
+    } = req.body;
+
+    if (!customer_id || !district || !branch_id) {
+      return res.json({ success: false, message: "بيانات ناقصة" });
+    }
+
+    await db.query(
+      `
+      INSERT INTO customer_addresses
+      (customer_id, district, location_type, address, gps_link, latitude, longitude, branch_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        customer_id,
+        district,
+        location_type || null,
+        address || null,
+        gps_link || null,
+        latitude || null,
+        longitude || null,
+        branch_id,
+      ]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("ADD CUSTOMER ADDRESS PUBLIC ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
 
 /* =========================
    حماية كل المسارات
