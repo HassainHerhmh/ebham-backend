@@ -27,16 +27,12 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    // بعض بيئات الموبايل ترسل origin = undefined
-    if (!origin) {
-      return callback(null, true);
-    }
+    if (!origin) return callback(null, true);
 
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
 
-    // دعم Capacitor / Ionic
     if (
       origin.startsWith("capacitor://") ||
       origin.startsWith("ionic://") ||
@@ -50,6 +46,8 @@ app.use(cors({
     callback(new Error("Not allowed by CORS"));
   },
   credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-branch-id"],
 }));
 
 
