@@ -5,6 +5,68 @@ import upload, { uploadToCloudinary } from "../middlewares/upload.js";
 
 const router = express.Router();
 
+
+/* ======================================================
+    🟢 جلب المطاعم للتطبيق (حسب الفرع)
+====================================================== */
+router.get("/app", async (req, res) => {
+  try {
+     
+      const branch = req.headers["x-branch-id"] || null;
+
+    console.log("🔎 CUSTOMER ADDRESSES HEADERS:", req.headers);
+    console.log("🏷️ x-branch-id =", branch);
+    // 1. جلب رقم الفرع من الـ Headers المرسل من التطبيق
+ 
+
+    // 2. بناء جملة الشرط
+    const where = (branch && branch !== "null") ? "WHERE r.branch_id = ?" : "";
+    const params = (branch && branch !== "null") ? [branch] : [];
+
+    const [rows] = await db.query(
+      `
+      SELECT 
+        r.id,
+        r.name,
+        r.address,
+        r.image_url,
+        r.sort_order,
+        r.branch_id,   -- 👈 ضروري جداً لكي تنجح الفلترة في الـ Frontend
+        r.type_id,     -- 👈 ضروري لفلترة التصنيفات
+
+        GROUP_CONCAT(c.id)   AS category_ids,
+        GROUP_CONCAT(c.name) AS categories,
+
+        -- منطق التحقق من حالة الفتح (مفتوح/مغلق)
+        CASE 
+          WHEN EXISTS (
+            SELECT 1
+            FROM restaurant_schedule s
+            WHERE s.restaurant_id = r.id
+              AND s.day = DAYOFWEEK(NOW())
+              AND s.closed = 0
+              AND CURTIME() BETWEEN s.start_time AND s.end_time
+          )
+          THEN 1 ELSE 0
+        END AS is_open
+
+      FROM restaurants r
+      LEFT JOIN restaurant_categories rc ON rc.restaurant_id = r.id
+      LEFT JOIN categories c ON c.id = rc.category_id
+
+      ${where}
+      GROUP BY r.id
+      ORDER BY r.sort_order ASC
+      `,
+      params
+    );
+
+    res.json({ success: true, restaurants: rows });
+  } catch (err) {
+    console.error("❌ خطأ في جلب المطاعم للتطبيق:", err);
+    res.status(500).json({ success: false });
+  }
+});
 /* =========================
    حماية كل المسارات
 ========================= */
@@ -270,67 +332,7 @@ router.post("/reorder", async (req, res) => {
   }
 });
 
-/* ======================================================
-    🟢 جلب المطاعم للتطبيق (حسب الفرع)
-====================================================== */
-router.get("/app", async (req, res) => {
-  try {
-     
-      const branch = req.headers["x-branch-id"] || null;
 
-    console.log("🔎 CUSTOMER ADDRESSES HEADERS:", req.headers);
-    console.log("🏷️ x-branch-id =", branch);
-    // 1. جلب رقم الفرع من الـ Headers المرسل من التطبيق
- 
-
-    // 2. بناء جملة الشرط
-    const where = (branch && branch !== "null") ? "WHERE r.branch_id = ?" : "";
-    const params = (branch && branch !== "null") ? [branch] : [];
-
-    const [rows] = await db.query(
-      `
-      SELECT 
-        r.id,
-        r.name,
-        r.address,
-        r.image_url,
-        r.sort_order,
-        r.branch_id,   -- 👈 ضروري جداً لكي تنجح الفلترة في الـ Frontend
-        r.type_id,     -- 👈 ضروري لفلترة التصنيفات
-
-        GROUP_CONCAT(c.id)   AS category_ids,
-        GROUP_CONCAT(c.name) AS categories,
-
-        -- منطق التحقق من حالة الفتح (مفتوح/مغلق)
-        CASE 
-          WHEN EXISTS (
-            SELECT 1
-            FROM restaurant_schedule s
-            WHERE s.restaurant_id = r.id
-              AND s.day = DAYOFWEEK(NOW())
-              AND s.closed = 0
-              AND CURTIME() BETWEEN s.start_time AND s.end_time
-          )
-          THEN 1 ELSE 0
-        END AS is_open
-
-      FROM restaurants r
-      LEFT JOIN restaurant_categories rc ON rc.restaurant_id = r.id
-      LEFT JOIN categories c ON c.id = rc.category_id
-
-      ${where}
-      GROUP BY r.id
-      ORDER BY r.sort_order ASC
-      `,
-      params
-    );
-
-    res.json({ success: true, restaurants: rows });
-  } catch (err) {
-    console.error("❌ خطأ في جلب المطاعم للتطبيق:", err);
-    res.status(500).json({ success: false });
-  }
-});
 /* ======================================================
    🗑️ حذف مطعم
 ====================================================== */
