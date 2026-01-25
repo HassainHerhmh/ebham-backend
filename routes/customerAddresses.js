@@ -3,6 +3,50 @@ import db from "../db.js";
 import auth from "../middlewares/auth.js";
 
 const router = express.Router();
+
+
+outer.get("/customer/:customerId", async (req, res) => {
+  try {
+    const { customerId } = req.params;
+      const branch = req.headers["x-branch-id"];
+
+    console.log("🔎 CUSTOMER ADDRESSES HEADERS:", req.headers);
+    console.log("🏷️ x-branch-id =", branch);
+
+    const where = (branch && branch !== "null")
+      ? "AND ca.branch_id = ?"
+      : "";
+
+    const params = (branch && branch !== "null")
+      ? [customerId, branch]
+      : [customerId];
+
+    const [rows] = await db.query(
+      `
+      SELECT ca.id, 
+             ca.district, 
+             ca.address, 
+             ca.gps_link, 
+             ca.latitude, 
+             ca.longitude,
+             ca.branch_id,
+             COALESCE(n.name, ca.district) AS neighborhood_name
+      FROM customer_addresses ca
+      LEFT JOIN neighborhoods n ON ca.district = n.id
+      WHERE ca.customer_id = ?
+      ${where}
+      ORDER BY ca.id DESC
+      `,
+      params
+    );
+
+    res.json({ success: true, addresses: rows });
+  } catch (err) {
+    console.error("GET CUSTOMER ADDRESSES ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
 /* =========================
    POST /customer-addresses/public  (للتطبيق بدون auth)
 ========================= */
