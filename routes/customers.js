@@ -16,7 +16,7 @@ router.post("/public", async (req, res) => {
       return res.json({ success: false, message: "بيانات ناقصة" });
     }
 
-    await db.query(
+    const [result] = await db.query(
       `
       INSERT INTO customers (name, phone, email, password, branch_id, created_at)
       VALUES (?, ?, ?, ?, ?, NOW())
@@ -24,10 +24,17 @@ router.post("/public", async (req, res) => {
       [name, phone, email || null, password || null, branch_id]
     );
 
-    res.json({ success: true });
+    res.json({ success: true, id: result.insertId });
   } catch (err) {
+    if (err.code === "ER_DUP_ENTRY") {
+      return res.json({
+        success: false,
+        message: "رقم الجوال مستخدم مسبقًا، الرجاء إدخال رقم آخر",
+      });
+    }
+
     console.error("ADD CUSTOMER PUBLIC ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, message: "خطأ في السيرفر" });
   }
 });
 
