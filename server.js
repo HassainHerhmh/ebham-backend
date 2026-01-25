@@ -21,6 +21,8 @@ app.use((req, res, next) => {
 const allowedOrigins = [
   "https://ebham-dashboard2.vercel.app",
   "http://localhost:5173",
+  "http://localhost",
+  "https://localhost",
 ];
 
 app.use(cors({
