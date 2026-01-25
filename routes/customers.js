@@ -32,6 +32,51 @@ router.post("/public", async (req, res) => {
 });
 
 /* =========================
+   PUT /customers/public/:id  (للتطبيق - بدون auth)
+========================= */
+router.put("/public/:id", async (req, res) => {
+  try {
+    const {
+      name,
+      phone,
+      branch_id,
+      neighborhood_id,
+      is_profile_complete,
+    } = req.body;
+
+    if (!name || !phone || !branch_id || !neighborhood_id) {
+      return res.json({ success: false, message: "بيانات ناقصة" });
+    }
+
+    await db.query(
+      `
+      UPDATE customers
+      SET
+        name = ?,
+        phone = ?,
+        branch_id = ?,
+        neighborhood_id = ?,
+        is_profile_complete = ?
+      WHERE id = ?
+      `,
+      [
+        name,
+        phone,
+        branch_id,
+        neighborhood_id,
+        is_profile_complete ? 1 : 0,
+        req.params.id,
+      ]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("UPDATE CUSTOMER PUBLIC ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
+/* =========================
    حماية كل المسارات
 ========================= */
 router.use(auth);
@@ -241,49 +286,5 @@ router.post("/:id/reset-password", async (req, res) => {
 });
 
 
-/* =========================
-   PUT /customers/public/:id  (للتطبيق - إكمال الملف)
-========================= */
-router.put("/public/:id", async (req, res) => {
-  try {
-    const {
-      name,
-      phone,
-      branch_id,
-      neighborhood_id,
-      is_profile_complete,
-    } = req.body;
-
-    if (!name || !phone || !branch_id || !neighborhood_id) {
-      return res.json({ success: false, message: "بيانات ناقصة" });
-    }
-
-    await db.query(
-      `
-      UPDATE customers
-      SET
-        name = ?,
-        phone = ?,
-        branch_id = ?,
-        neighborhood_id = ?,
-        is_profile_complete = ?
-      WHERE id = ?
-      `,
-      [
-        name,
-        phone,
-        branch_id,
-        neighborhood_id,
-        is_profile_complete ? 1 : 0,
-        req.params.id,
-      ]
-    );
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error("UPDATE CUSTOMER PUBLIC ERROR:", err);
-    res.status(500).json({ success: false });
-  }
-});
 
 export default router;
