@@ -276,12 +276,12 @@ router.post("/reorder", async (req, res) => {
 router.get("/app", async (req, res) => {
   try {
      
-      const branch = req.headers["x-branch-id"];
+      const branch = req.headers["x-branch-id"] || null;
 
     console.log("🔎 CUSTOMER ADDRESSES HEADERS:", req.headers);
     console.log("🏷️ x-branch-id =", branch);
     // 1. جلب رقم الفرع من الـ Headers المرسل من التطبيق
-    const branch = req.headers["x-branch-id"] || null;
+ 
 
     // 2. بناء جملة الشرط
     const where = (branch && branch !== "null") ? "WHERE r.branch_id = ?" : "";
