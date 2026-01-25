@@ -7,6 +7,7 @@ const router = express.Router();
    POST /customer-addresses/public  (للتطبيق بدون auth)
 ========================= */
 router.post("/public", async (req, res) => {
+    console.log("📥 ADD ADDRESS BODY:", req.body);
   try {
     const {
       customer_id,
