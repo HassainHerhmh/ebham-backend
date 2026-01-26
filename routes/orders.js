@@ -49,15 +49,7 @@ router.get("/", async (req, res) => {
 `;
 
 
-    let rows;
-    if (user.is_admin_branch) {
-      [rows] = await db.query(`${baseQuery} ORDER BY o.id DESC LIMIT 50`);
-    } else {
-      [rows] = await db.query(
-        `${baseQuery} WHERE o.branch_id = ? ORDER BY o.id DESC LIMIT 50`,
-        [user.branch_id]
-      );
-    }
+
 
     res.json({ success: true, orders: rows || [] });
   } catch (err) {
