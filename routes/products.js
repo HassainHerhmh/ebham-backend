@@ -216,7 +216,7 @@ if (updates.length) {
   );
 }
 
-    }
+ 
 
     res.json({ success: true, message: "✅ تم تعديل المنتج" });
   } catch (err) {
