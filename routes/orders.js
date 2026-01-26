@@ -12,62 +12,62 @@ router.use(auth);
 router.get("/", async (req, res) => {
   try {
     const user = req.user;
+    const limit = Number(req.query.limit) || 100;
 
-    // تحديث الاستعلام ليشمل انضمام جدول المستخدمين وجدول الأحياء
-  const baseQuery = `
-  SELECT 
-    o.id,
-    c.name AS customer_name,
-    c.phone AS customer_phone,
-    u.name AS user_name,
-    o.status,
-    o.total_amount,
-    o.delivery_fee,
-    o.extra_store_fee,
-    o.stores_count,
-    o.created_at,
-    cap.name AS captain_name,
-    o.payment_method,
-    n.name AS neighborhood_name,
-    b.name AS branch_name,         -- اسم الفرع
+    const baseQuery = `
+      SELECT 
+        o.id,
+        c.name AS customer_name,
+        c.phone AS customer_phone,
+        u.name AS user_name,
+        o.status,
+        o.total_amount,
+        o.delivery_fee,
+        o.extra_store_fee,
+        o.stores_count,
+        o.created_at,
+        cap.name AS captain_name,
+        o.payment_method,
+        n.name AS neighborhood_name,
+        b.name AS branch_name,
 
-    CASE o.payment_method
-      WHEN 'cod' THEN 'الدفع عند الاستلام'
-      WHEN 'bank' THEN 'إيداع بنكي'
-      WHEN 'wallet' THEN 'من الرصيد'
-      WHEN 'online' THEN 'دفع إلكتروني'
-      ELSE '-'
-    END AS payment_method_label
+        CASE o.payment_method
+          WHEN 'cod' THEN 'الدفع عند الاستلام'
+          WHEN 'bank' THEN 'إيداع بنكي'
+          WHEN 'wallet' THEN 'من الرصيد'
+          WHEN 'online' THEN 'دفع إلكتروني'
+          ELSE '-'
+        END AS payment_method_label
+      FROM orders o
+      JOIN customers c ON c.id = o.customer_id
+      LEFT JOIN captains cap ON cap.id = o.captain_id
+      LEFT JOIN users u ON o.user_id = u.id
+      LEFT JOIN customer_addresses ca ON o.address_id = ca.id 
+      LEFT JOIN neighborhoods n ON ca.district = n.id
+      LEFT JOIN branches b ON b.id = o.branch_id
+    `;
 
-  FROM orders o
-  JOIN customers c ON c.id = o.customer_id
-  LEFT JOIN captains cap ON cap.id = o.captain_id
-  LEFT JOIN users u ON o.user_id = u.id
-  LEFT JOIN customer_addresses ca ON o.address_id = ca.id 
-  LEFT JOIN neighborhoods n ON ca.district = n.id
-  LEFT JOIN branches b ON b.id = o.branch_id   -- ربط الفرع
-`;
+    let rows = [];
 
+    if (user.is_admin_branch) {
+      [rows] = await db.query(
+        `${baseQuery} ORDER BY o.id DESC LIMIT ?`,
+        [limit]
+      );
+    } else {
+      [rows] = await db.query(
+        `${baseQuery} WHERE o.branch_id = ? ORDER BY o.id DESC LIMIT ?`,
+        [user.branch_id, limit]
+      );
+    }
 
-let rows;
-
-if (user.is_admin_branch) {
-  [rows] = await db.query(`${baseQuery} ORDER BY o.id DESC`);
-} else {
-  [rows] = await db.query(
-    `${baseQuery} WHERE o.branch_id = ? ORDER BY o.id DESC`,
-    [user.branch_id]
-  );
-}
-
-
-
-    res.json({ success: true, orders: rows || [] });
+    res.json({ success: true, orders: rows });
   } catch (err) {
     console.error("GET ORDERS ERROR:", err);
     res.status(500).json({ success: false, orders: [] });
   }
 });
+
 /*============================
    POST /orders (المعدل)
 =============================*/
