@@ -5,9 +5,8 @@ import upload, { uploadToCloudinary } from "../middlewares/upload.js";
 
 const router = express.Router();
 
-
 /* ======================================================
-   🟢 جلب فئات مطعم للتطبيق (بدون auth)
+   🟢 (APP) جلب فئات مطعم معيّن للتطبيق
 ====================================================== */
 router.get("/app/:id/categories", async (req, res) => {
   try {
@@ -15,7 +14,7 @@ router.get("/app/:id/categories", async (req, res) => {
 
     const [rows] = await db.query(
       `
-      SELECT c.id, c.name, c.icon_url, c.image_url
+      SELECT c.id, c.name
       FROM categories c
       INNER JOIN restaurant_categories rc
         ON rc.category_id = c.id
@@ -33,7 +32,7 @@ router.get("/app/:id/categories", async (req, res) => {
 });
 
 /* ======================================================
-   🟢 جلب منتجات مطعم للتطبيق (بدون auth)
+   🟢 (APP) جلب منتجات مطعم معيّن للتطبيق
 ====================================================== */
 router.get("/app/:id/products", async (req, res) => {
   try {
@@ -45,8 +44,8 @@ router.get("/app/:id/products", async (req, res) => {
         p.id,
         p.name,
         p.price,
-        p.image_url,
         p.notes,
+        p.image_url,
         GROUP_CONCAT(pc.category_id) AS category_ids
       FROM products p
       LEFT JOIN product_categories pc
@@ -58,12 +57,16 @@ router.get("/app/:id/products", async (req, res) => {
       [restaurantId]
     );
 
-    res.json({ success: true, products: rows });
+    res.json({
+      success: true,
+      products: rows,
+    });
   } catch (err) {
     console.error("APP GET RESTAURANT PRODUCTS ERROR:", err);
     res.status(500).json({ success: false, products: [] });
   }
 });
+
 
 
 /* ======================================================
