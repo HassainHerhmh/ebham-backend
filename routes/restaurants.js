@@ -392,22 +392,40 @@ router.put("/:id", upload.single("image"), async (req, res) => {
    🔀 تحديث ترتيب المطاعم (حسب الفرع)
 ====================================================== */
 router.post("/reorder", async (req, res) => {
+  const conn = await db.getConnection();
   try {
     const { order } = req.body;
+    const { branch_id, is_admin_branch } = req.user;
+
+    await conn.beginTransaction();
 
     for (const item of order) {
-      await db.query(
-        "UPDATE restaurants SET sort_order=? WHERE id=?",
-        [item.sort_order, item.id]
-      );
+      if (is_admin_branch) {
+        // الأدمن العام يستطيع تعديل أي فرع
+        await conn.query(
+          "UPDATE restaurants SET sort_order=? WHERE id=?",
+          [item.sort_order, item.id]
+        );
+      } else {
+        // مستخدم الفرع يعدّل فقط مطاعمه
+        await conn.query(
+          "UPDATE restaurants SET sort_order=? WHERE id=? AND branch_id=?",
+          [item.sort_order, item.id, branch_id]
+        );
+      }
     }
 
+    await conn.commit();
     res.json({ success: true });
   } catch (err) {
+    await conn.rollback();
     console.error("❌ خطأ في إعادة الترتيب:", err);
     res.status(500).json({ success: false });
+  } finally {
+    conn.release();
   }
 });
+
 
 
 /* ======================================================
