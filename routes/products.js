@@ -95,66 +95,66 @@ router.get("/", async (req, res) => {
    ✅ إضافة منتج جديد
 ====================================================== */
 router.post("/", upload.single("image"), async (req, res) => {
-const {
-  name,
-  price,
-  notes,
-  unit_id,
-  restaurant_id,
-  category_ids = [],
-  is_available = 1,
-  is_parent = 0,
-  children = [],
-} = req.body;
+  try {
+    const {
+      name,
+      price,
+      notes,
+      unit_id,
+      restaurant_id,
+      category_ids = [],
+      is_available = 1,
+      is_parent = 0,
+      children = [],
+    } = req.body;
 
-const image_url = req.file ? `/uploads/${req.file.filename}` : null;
+    const image_url = req.file ? `/uploads/${req.file.filename}` : null;
 
-const [result] = await db.query(
-  `INSERT INTO products
-   (name, price, image_url, notes, unit_id, restaurant_id, is_available, is_parent, created_at)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-  [
-    name,
-    price || null,
-    image_url,
-    notes || "",
-    unit_id || null,
-    restaurant_id,
-    is_available ? 1 : 0,
-    is_parent ? 1 : 0,
-  ]
-);
+    const [result] = await db.query(
+      `INSERT INTO products
+       (name, price, image_url, notes, unit_id, restaurant_id, is_available, is_parent, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        name,
+        price || null,
+        image_url,
+        notes || "",
+        unit_id || null,
+        restaurant_id,
+        is_available ? 1 : 0,
+        is_parent ? 1 : 0,
+      ]
+    );
 
-const productId = result.insertId;
+    const productId = result.insertId;
 
-// الفئات
-let cats = [];
-try {
-  cats = typeof category_ids === "string"
-    ? JSON.parse(category_ids)
-    : category_ids;
-} catch {}
+    // الفئات
+    let cats = [];
+    try {
+      cats = typeof category_ids === "string"
+        ? JSON.parse(category_ids)
+        : category_ids;
+    } catch {}
 
-for (const cid of cats) {
-  await db.query(
-    "INSERT INTO product_categories (product_id, category_id) VALUES (?, ?)",
-    [productId, cid]
-  );
-}
+    for (const cid of cats) {
+      await db.query(
+        "INSERT INTO product_categories (product_id, category_id) VALUES (?, ?)",
+        [productId, cid]
+      );
+    }
 
-// الأبناء
-let kids = [];
-try {
-  kids = typeof children === "string" ? JSON.parse(children) : children;
-} catch {}
+    // الأبناء
+    let kids = [];
+    try {
+      kids = typeof children === "string" ? JSON.parse(children) : children;
+    } catch {}
 
-for (const childId of kids) {
-  await db.query(
-    "INSERT INTO product_children (parent_id, child_id) VALUES (?, ?)",
-    [productId, childId]
-  );
-}
-
+    for (const childId of kids) {
+      await db.query(
+        "INSERT INTO product_children (parent_id, child_id) VALUES (?, ?)",
+        [productId, childId]
+      );
+    }
 
     res.json({ success: true, message: "✅ تم إضافة المنتج" });
   } catch (err) {
