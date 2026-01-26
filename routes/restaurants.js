@@ -95,7 +95,16 @@ router.get("/app", async (req, res) => {
             SELECT 1
             FROM restaurant_schedule s
             WHERE s.restaurant_id = r.id
-              AND s.day = DAYOFWEEK(NOW())
+      AND s.day = 
+        CASE DAYOFWEEK(NOW())
+          WHEN 1 THEN 'الأحد'
+          WHEN 2 THEN 'الإثنين'
+          WHEN 3 THEN 'الثلاثاء'
+          WHEN 4 THEN 'الأربعاء'
+          WHEN 5 THEN 'الخميس'
+          WHEN 6 THEN 'الجمعة'
+          WHEN 7 THEN 'السبت'
+        END
               AND s.closed = 0
               AND CURTIME() BETWEEN s.start_time AND s.end_time
           )
