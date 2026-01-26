@@ -7,6 +7,66 @@ const router = express.Router();
 
 
 /* ======================================================
+   🟢 جلب فئات مطعم للتطبيق (بدون auth)
+====================================================== */
+router.get("/app/:id/categories", async (req, res) => {
+  try {
+    const restaurantId = req.params.id;
+
+    const [rows] = await db.query(
+      `
+      SELECT c.id, c.name, c.icon_url, c.image_url
+      FROM categories c
+      INNER JOIN restaurant_categories rc
+        ON rc.category_id = c.id
+      WHERE rc.restaurant_id = ?
+      ORDER BY c.id ASC
+      `,
+      [restaurantId]
+    );
+
+    res.json({ success: true, categories: rows });
+  } catch (err) {
+    console.error("APP GET RESTAURANT CATEGORIES ERROR:", err);
+    res.status(500).json({ success: false, categories: [] });
+  }
+});
+
+/* ======================================================
+   🟢 جلب منتجات مطعم للتطبيق (بدون auth)
+====================================================== */
+router.get("/app/:id/products", async (req, res) => {
+  try {
+    const restaurantId = req.params.id;
+
+    const [rows] = await db.query(
+      `
+      SELECT 
+        p.id,
+        p.name,
+        p.price,
+        p.image_url,
+        p.notes,
+        GROUP_CONCAT(pc.category_id) AS category_ids
+      FROM products p
+      LEFT JOIN product_categories pc
+        ON pc.product_id = p.id
+      WHERE p.restaurant_id = ?
+      GROUP BY p.id
+      ORDER BY p.id DESC
+      `,
+      [restaurantId]
+    );
+
+    res.json({ success: true, products: rows });
+  } catch (err) {
+    console.error("APP GET RESTAURANT PRODUCTS ERROR:", err);
+    res.status(500).json({ success: false, products: [] });
+  }
+});
+
+
+/* ======================================================
    🟢 جلب كل المحلات للتطبيق (حسب الفرع)
 ====================================================== */
 router.get("/app", async (req, res) => {
