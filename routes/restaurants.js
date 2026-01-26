@@ -91,10 +91,12 @@ router.get("/app", async (req, res) => {
         r.type_id,
         r.delivery_time,
         CASE 
-          WHEN EXISTS (
-            SELECT 1
-            FROM restaurant_schedule s
-            WHERE s.restaurant_id = r.id
+          CASE 
+  WHEN EXISTS (
+    SELECT 1
+    FROM restaurant_schedule s
+    WHERE s.restaurant_id = r.id
+      AND s.closed = 0
       AND s.day = 
         CASE DAYOFWEEK(NOW())
           WHEN 1 THEN 'الأحد'
@@ -105,11 +107,14 @@ router.get("/app", async (req, res) => {
           WHEN 6 THEN 'الجمعة'
           WHEN 7 THEN 'السبت'
         END
-              AND s.closed = 0
-              AND CURTIME() BETWEEN s.start_time AND s.end_time
-          )
-          THEN 1 ELSE 0
-        END AS is_open
+      AND (
+        (s.start_time IS NULL AND s.end_time IS NULL)
+        OR (CURTIME() BETWEEN s.start_time AND s.end_time)
+      )
+  )
+  THEN 1 ELSE 0
+END AS is_open
+
       FROM restaurants r
       ${where}
       ORDER BY r.sort_order ASC
