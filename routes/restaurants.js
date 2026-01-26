@@ -101,7 +101,6 @@ router.get("/app", async (req, res) => {
           )
           THEN 1 ELSE 0
         END AS is_open
-
       FROM restaurants r
       ${where}
       ORDER BY r.sort_order ASC
@@ -109,13 +108,15 @@ router.get("/app", async (req, res) => {
       params
     );
 
+    console.log("APP RESTAURANTS:", rows); // 👈 أضف هذا السطر
+
     res.json({ success: true, restaurants: rows });
   } catch (err) {
     console.error("❌ خطأ في جلب المحلات للتطبيق:", err);
     res.status(500).json({ success: false });
   }
 });
-;
+
 /* =========================
    حماية كل المسارات
 ========================= */
