@@ -31,9 +31,6 @@ router.get("/app/:id/categories", async (req, res) => {
   }
 });
 
-/* ======================================================
-   🟢 (APP) جلب منتجات مطعم معيّن للتطبيق
-====================================================== */
 router.get("/app/:id/products", async (req, res) => {
   try {
     const restaurantId = req.params.id;
@@ -46,6 +43,7 @@ router.get("/app/:id/products", async (req, res) => {
         p.price,
         p.notes,
         p.image_url,
+        p.restaurant_id,
         GROUP_CONCAT(pc.category_id) AS category_ids
       FROM products p
       LEFT JOIN product_categories pc
