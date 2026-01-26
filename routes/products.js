@@ -168,56 +168,54 @@ router.post("/", upload.single("image"), async (req, res) => {
 ====================================================== */
 router.put("/:id", upload.single("image"), async (req, res) => {
   try {
-    const {
-      name,
-      price,
-      notes,
-      unit_id,
-      restaurant_id,
-      status,
-      category_ids,
-    } = req.body;
+const {
+  name,
+  price,
+  notes,
+  unit_id,
+  restaurant_id,
+  category_ids,
+  is_available,
+  is_parent,
+  children,
+} = req.body;
 
-    const updates = [];
-    const params = [];
+const updates = [];
+const params = [];
 
-    if (name !== undefined) { updates.push("name=?"); params.push(name); }
-    if (price !== undefined) { updates.push("price=?"); params.push(price); }
-    if (notes !== undefined) { updates.push("notes=?"); params.push(notes); }
-    if (unit_id !== undefined) { updates.push("unit_id=?"); params.push(unit_id || null); }
-    if (restaurant_id !== undefined) { updates.push("restaurant_id=?"); params.push(restaurant_id); }
-    if (status !== undefined) { updates.push("status=?"); params.push(status); }
+if (name !== undefined) { updates.push("name=?"); params.push(name); }
 
-    if (req.file) {
-      const image_url = `/uploads/${req.file.filename}`;
-      updates.push("image_url=?");
-      params.push(image_url);
-    }
+// السعر:
+// إذا وصل فارغ "" نخليه NULL
+if (price !== undefined) {
+  if (price === "") {
+    updates.push("price=NULL");
+  } else {
+    updates.push("price=?");
+    params.push(price);
+  }
+}
 
-    if (updates.length) {
-      params.push(req.params.id);
-      await db.query(
-        `UPDATE products SET ${updates.join(", ")} WHERE id=?`,
-        params
-      );
-    }
+if (notes !== undefined) { updates.push("notes=?"); params.push(notes); }
+if (unit_id !== undefined) { updates.push("unit_id=?"); params.push(unit_id || null); }
+if (restaurant_id !== undefined) { updates.push("restaurant_id=?"); params.push(restaurant_id); }
+if (is_available !== undefined) { updates.push("is_available=?"); params.push(is_available ? 1 : 0); }
+if (is_parent !== undefined) { updates.push("is_parent=?"); params.push(is_parent ? 1 : 0); }
 
-    if (category_ids !== undefined) {
-      await db.query("DELETE FROM product_categories WHERE product_id=?", [req.params.id]);
+if (req.file) {
+  const image_url = `/uploads/${req.file.filename}`;
+  updates.push("image_url=?");
+  params.push(image_url);
+}
 
-      let cats = [];
-      try {
-        cats = typeof category_ids === "string"
-          ? JSON.parse(category_ids)
-          : category_ids;
-      } catch {}
+if (updates.length) {
+  params.push(req.params.id);
+  await db.query(
+    `UPDATE products SET ${updates.join(", ")} WHERE id=?`,
+    params
+  );
+}
 
-      for (const cid of cats) {
-        await db.query(
-          "INSERT INTO product_categories (product_id, category_id) VALUES (?, ?)",
-          [req.params.id, cid]
-        );
-      }
     }
 
     res.json({ success: true, message: "✅ تم تعديل المنتج" });
