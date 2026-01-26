@@ -48,7 +48,7 @@ router.get("/", async (req, res) => {
       params.push(branch_id);
     }
 
-   [rows] = await db.query(
+  [rows] = await db.query(
   `
   SELECT 
     p.id,
@@ -56,6 +56,8 @@ router.get("/", async (req, res) => {
     p.price,
     p.image_url,
     p.notes,
+    p.is_available,
+    p.is_parent,
     GROUP_CONCAT(c.id) AS category_ids,
     GROUP_CONCAT(c.name SEPARATOR ', ') AS categories,
     u.id AS unit_id,
@@ -63,19 +65,22 @@ router.get("/", async (req, res) => {
     r.id AS restaurant_id,
     r.name AS restaurant_name,
     r.branch_id,
-    b.name AS branch_name
+    b.name AS branch_name,
+    COUNT(pc2.child_id) AS children_count
   FROM products p
   LEFT JOIN product_categories pc ON p.id = pc.product_id
   LEFT JOIN categories c ON pc.category_id = c.id
   LEFT JOIN units u ON p.unit_id = u.id
   LEFT JOIN restaurants r ON p.restaurant_id = r.id
   LEFT JOIN branches b ON b.id = r.branch_id
+  LEFT JOIN product_children pc2 ON pc2.parent_id = p.id
   ${where}
   GROUP BY p.id
   ORDER BY p.id DESC
   `,
   params
 );
+
 
 
     res.json({ success: true, products: rows });
@@ -90,56 +95,66 @@ router.get("/", async (req, res) => {
    ✅ إضافة منتج جديد
 ====================================================== */
 router.post("/", upload.single("image"), async (req, res) => {
-  try {
-    const {
-      name,
-      price,
-      notes,
-      unit_id,
-      restaurant_id,
-      status,
-      category_ids = [],
-    } = req.body;
+const {
+  name,
+  price,
+  notes,
+  unit_id,
+  restaurant_id,
+  category_ids = [],
+  is_available = 1,
+  is_parent = 0,
+  children = [],
+} = req.body;
 
-    if (!name || !price || !restaurant_id) {
-      return res.status(400).json({
-        success: false,
-        message: "❌ الاسم والسعر والمطعم مطلوبة",
-      });
-    }
+const image_url = req.file ? `/uploads/${req.file.filename}` : null;
 
-    const image_url = req.file ? `/uploads/${req.file.filename}` : null;
+const [result] = await db.query(
+  `INSERT INTO products
+   (name, price, image_url, notes, unit_id, restaurant_id, is_available, is_parent, created_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+  [
+    name,
+    price || null,
+    image_url,
+    notes || "",
+    unit_id || null,
+    restaurant_id,
+    is_available ? 1 : 0,
+    is_parent ? 1 : 0,
+  ]
+);
 
-    const [result] = await db.query(
-      `INSERT INTO products
-       (name, price, image_url, notes, unit_id, restaurant_id, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [
-        name,
-        price,
-        image_url,
-        notes || "",
-        unit_id || null,
-        restaurant_id,
-        status || "active",
-      ]
-    );
+const productId = result.insertId;
 
-    const productId = result.insertId;
+// الفئات
+let cats = [];
+try {
+  cats = typeof category_ids === "string"
+    ? JSON.parse(category_ids)
+    : category_ids;
+} catch {}
 
-    let cats = [];
-    try {
-      cats = typeof category_ids === "string"
-        ? JSON.parse(category_ids)
-        : category_ids;
-    } catch {}
+for (const cid of cats) {
+  await db.query(
+    "INSERT INTO product_categories (product_id, category_id) VALUES (?, ?)",
+    [productId, cid]
+  );
+}
 
-    for (const cid of cats) {
-      await db.query(
-        "INSERT INTO product_categories (product_id, category_id) VALUES (?, ?)",
-        [productId, cid]
-      );
-    }
+// الأبناء
+let kids = [];
+try {
+  kids = typeof children === "string" ? JSON.parse(children) : children;
+} catch {}
+
+for (const childId of kids) {
+  await db.query(
+    "INSERT INTO product_children (parent_id, child_id) VALUES (?, ?)",
+    [productId, childId]
+  );
+}
+
 
     res.json({ success: true, message: "✅ تم إضافة المنتج" });
   } catch (err) {
@@ -225,5 +240,36 @@ router.delete("/:id", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
+
+router.get("/:id/children", async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT 
+        p.id,
+        p.name,
+        p.price,
+        p.is_available,
+        r.name AS restaurant_name,
+        GROUP_CONCAT(c.name SEPARATOR ', ') AS categories
+      FROM product_children pc
+      JOIN products p ON p.id = pc.child_id
+      LEFT JOIN product_categories pc2 ON p.id = pc2.product_id
+      LEFT JOIN categories c ON pc2.category_id = c.id
+      LEFT JOIN restaurants r ON p.restaurant_id = r.id
+      WHERE pc.parent_id = ?
+      GROUP BY p.id
+      `,
+      [req.params.id]
+    );
+
+    res.json({ success: true, children: rows });
+  } catch (err) {
+    console.error("GET CHILDREN ERROR:", err);
+    res.status(500).json({ success: false, children: [] });
+  }
+});
+
 
 export default router;
