@@ -151,6 +151,8 @@ router.get("/", async (req, res) => {
         r.phone,
         r.image_url,
         r.map_url,
+        r.delivery_time,
+        r.is_active,
         r.created_at,
         r.sort_order,
         r.type_id,
@@ -205,7 +207,9 @@ router.post("/", upload.single("image"), async (req, res) => {
       category_ids = [],
       schedule = "[]",
       type_id = null,
-       agent_id = null, 
+      agent_id = null,
+      delivery_time = null,
+      is_active = 1,
     } = req.body;
 
     if (!name) {
@@ -233,9 +237,21 @@ router.post("/", upload.single("image"), async (req, res) => {
 
     const [result] = await db.query(
       `INSERT INTO restaurants
-       (name, type_id, address, phone, image_url, map_url, sort_order, branch_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [name, type_id || null, address, phone, image_url, map_url, maxOrder + 1, finalBranchId, agent_id || null,]
+       (name, type_id, address, phone, image_url, map_url, delivery_time, is_active, sort_order, branch_id, agent_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        name,
+        type_id || null,
+        address,
+        phone,
+        image_url,
+        map_url,
+        delivery_time || null,
+        is_active ? 1 : 0,
+        maxOrder + 1,
+        finalBranchId,
+        agent_id || null,
+      ]
     );
 
     const restaurantId = result.insertId;
@@ -288,7 +304,9 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       category_ids,
       schedule,
       type_id = null,
-         agent_id = null, // 👈 جديد
+      agent_id = null,
+      delivery_time,
+      is_active,
     } = req.body;
 
     const updates = [];
@@ -300,10 +318,20 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     if (map_url !== undefined) { updates.push("map_url=?"); params.push(map_url || null); }
     if (type_id !== undefined) { updates.push("type_id=?"); params.push(type_id || null); }
 
-     if (agent_id !== undefined) {
-  updates.push("agent_id=?");
-  params.push(agent_id || null);
-}
+    if (agent_id !== undefined) {
+      updates.push("agent_id=?");
+      params.push(agent_id || null);
+    }
+
+    if (delivery_time !== undefined) {
+      updates.push("delivery_time=?");
+      params.push(delivery_time || null);
+    }
+
+    if (is_active !== undefined) {
+      updates.push("is_active=?");
+      params.push(is_active ? 1 : 0);
+    }
 
     if (req.file) {
       const result = await uploadToCloudinary(req.file.path, "restaurants");
