@@ -89,7 +89,7 @@ router.get("/app", async (req, res) => {
         r.sort_order,
         r.branch_id,
         r.type_id,
-
+        r.delivery_time,
         CASE 
           WHEN EXISTS (
             SELECT 1
