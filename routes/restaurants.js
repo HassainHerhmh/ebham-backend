@@ -328,10 +328,10 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       params.push(delivery_time || null);
     }
 
-    if (is_active !== undefined) {
-      updates.push("is_active=?");
-      params.push(is_active ? 1 : 0);
-    }
+ if (is_active !== undefined) {
+  updates.push("is_active=?");
+  params.push(Number(is_active));
+}
 
     if (req.file) {
       const result = await uploadToCloudinary(req.file.path, "restaurants");
