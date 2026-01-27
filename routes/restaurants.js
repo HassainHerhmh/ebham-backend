@@ -225,6 +225,7 @@ router.post("/", upload.single("image"), async (req, res) => {
       agent_id = null,
       delivery_time = null,
       is_active = 1,
+            image_url: bodyImageUrl,
     } = req.body;
 
     if (!name) {
@@ -238,6 +239,8 @@ router.post("/", upload.single("image"), async (req, res) => {
     if (is_admin_branch && selectedBranch) {
       finalBranchId = selectedBranch;
     }
+
+         let image_url = bodyImageUrl || null; // 
 
     let image_url = null;
     if (req.file) {
@@ -322,6 +325,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       agent_id = null,
       delivery_time,
       is_active,
+          image_url: bodyImageUrl,
     } = req.body;
 
     const updates = [];
@@ -348,6 +352,12 @@ router.put("/:id", upload.single("image"), async (req, res) => {
   params.push(Number(is_active));
 }
 
+  if (bodyImageUrl !== undefined) {
+      updates.push("image_url=?");
+      params.push(bodyImageUrl || null);
+    }
+
+     
     if (req.file) {
       const result = await uploadToCloudinary(req.file.path, "restaurants");
       updates.push("image_url=?");
