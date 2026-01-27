@@ -27,7 +27,7 @@ router.get("/", async (_, res) => {
 ====================================================== */
 router.post("/", upload.single("image"), async (req, res) => {
   try {
-    const { name, description, icon_url } = req.body;
+    const { name, description, icon_url, image_url: bodyImageUrl } = req.body;
 
     if (!name) {
       return res.status(400).json({
@@ -36,7 +36,11 @@ router.post("/", upload.single("image"), async (req, res) => {
       });
     }
 
-    const image_url = req.file ? `/uploads/${req.file.filename}` : null;
+    let image_url = bodyImageUrl || null;
+
+    if (req.file) {
+      image_url = `/uploads/${req.file.filename}`;
+    }
 
     await db.query(
       `INSERT INTO categories
@@ -52,12 +56,13 @@ router.post("/", upload.single("image"), async (req, res) => {
   }
 });
 
+
 /* ======================================================
    ✏️ تعديل فئة
 ====================================================== */
 router.put("/:id", upload.single("image"), async (req, res) => {
   try {
-    const { name, description, icon_url } = req.body;
+    const { name, description, icon_url, image_url: bodyImageUrl } = req.body;
     const updates = [];
     const params = [];
 
@@ -76,6 +81,13 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       params.push(icon_url);
     }
 
+    // رابط صورة من الفورم
+    if (bodyImageUrl !== undefined && bodyImageUrl !== "") {
+      updates.push("image_url=?");
+      params.push(bodyImageUrl);
+    }
+
+    // ملف مرفوع (يغلب على الرابط)
     if (req.file) {
       updates.push("image_url=?");
       params.push(`/uploads/${req.file.filename}`);
@@ -101,6 +113,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
 });
+
 
 /* ======================================================
    🗑️ حذف فئة
