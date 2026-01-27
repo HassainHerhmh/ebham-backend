@@ -27,7 +27,7 @@ router.get("/", async (_, res) => {
 ====================================================== */
 router.post("/", upload.single("image"), async (req, res) => {
   try {
-    const { name, sort_order } = req.body;
+    const { name, sort_order, image_url: bodyImageUrl } = req.body;
 
     if (!name) {
       return res.status(400).json({
@@ -36,7 +36,9 @@ router.post("/", upload.single("image"), async (req, res) => {
       });
     }
 
-    const image_url = req.file ? `/uploads/${req.file.filename}` : null;
+    const image_url = req.file
+      ? `/uploads/${req.file.filename}`
+      : bodyImageUrl || null;
 
     await db.query(
       "INSERT INTO types (name, image_url, sort_order, created_at) VALUES (?, ?, ?, NOW())",
@@ -55,11 +57,11 @@ router.post("/", upload.single("image"), async (req, res) => {
 ====================================================== */
 router.put("/:id", upload.single("image"), async (req, res) => {
   try {
-    const { name, sort_order } = req.body;
+    const { name, sort_order, image_url: bodyImageUrl } = req.body;
     const updates = [];
     const params = [];
 
-    if (name) {
+    if (name !== undefined) {
       updates.push("name=?");
       params.push(name);
     }
@@ -69,9 +71,13 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       params.push(sort_order);
     }
 
-    if (req.file) {
+    if (req.file || bodyImageUrl) {
+      const image_url = req.file
+        ? `/uploads/${req.file.filename}`
+        : bodyImageUrl;
+
       updates.push("image_url=?");
-      params.push(`/uploads/${req.file.filename}`);
+      params.push(image_url);
     }
 
     if (!updates.length) {
@@ -94,6 +100,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
 });
+
 
 /* ======================================================
    🗑️ حذف نوع
