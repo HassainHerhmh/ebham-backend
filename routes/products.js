@@ -106,9 +106,10 @@ router.post("/", upload.single("image"), async (req, res) => {
       is_available = 1,
       is_parent = 0,
       children = [],
+     image_url: bodyImageUrl, 
     } = req.body;
 
-    const image_url = req.file ? `/uploads/${req.file.filename}` : null;
+    const image_url = bodyImageUrl || null; 
 
     const [result] = await db.query(
       `INSERT INTO products
@@ -178,6 +179,7 @@ const {
   is_available,
   is_parent,
   children,
+     image_url: bodyImageUrl, 
 } = req.body;
 
 const updates = [];
@@ -202,6 +204,13 @@ if (restaurant_id !== undefined) { updates.push("restaurant_id=?"); params.push(
 if (is_available !== undefined) { updates.push("is_available=?"); params.push(is_available ? 1 : 0); }
 if (is_parent !== undefined) { updates.push("is_parent=?"); params.push(is_parent ? 1 : 0); }
 
+   // 👈 لو أُرسل رابط صورة من الفورم حدّثه
+    if (bodyImageUrl !== undefined) {
+      updates.push("image_url=?");
+      params.push(bodyImageUrl || null);
+    }
+
+     
 if (req.file) {
   const image_url = `/uploads/${req.file.filename}`;
   updates.push("image_url=?");
