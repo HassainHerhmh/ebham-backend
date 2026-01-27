@@ -240,13 +240,13 @@ router.post("/", upload.single("image"), async (req, res) => {
       finalBranchId = selectedBranch;
     }
 
-         let image_url = bodyImageUrl || null; // 
+         let image_url = bodyImageUrl || null; // خذ الرابط من الفورم إن وجد
 
-    let image_url = null;
-    if (req.file) {
-      const result = await uploadToCloudinary(req.file.path, "restaurants");
-      image_url = result.secure_url;
-    }
+if (req.file) {
+  const result = await uploadToCloudinary(req.file.path, "restaurants");
+  image_url = result.secure_url; // الملف يغلب على الرابط
+}
+
 
     const [[{ maxOrder }]] = await db.query(
       "SELECT COALESCE(MAX(sort_order), 0) AS maxOrder FROM restaurants WHERE branch_id=?",
