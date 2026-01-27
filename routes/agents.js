@@ -263,16 +263,18 @@ router.post("/login", async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    res.json({
-      success: true,
-      token,
-      agent: {
-        id: agent.id,
-        name: agent.name,
-        phone: agent.phone,
-        branch_id: agent.branch_id,
-      },
-    });
+res.json({
+  success: true,
+  token,
+  agent: {
+    id: agent.id,
+    name: agent.name,
+    phone: agent.phone,
+    branch_id: agent.branch_id,
+    image_url: agent.image_url, // 🆕 شعار الوكيل
+  },
+});
+
   } catch (err) {
     console.error("AGENT LOGIN ERROR:", err);
     res.status(500).json({ success: false });
