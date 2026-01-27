@@ -81,7 +81,8 @@ router.get("/", auth, async (req, res) => {
 router.post("/", auth, async (req, res) => {
   try {
     const user = req.user;
-    const { name, email, phone, address, branch_id } = req.body;
+const { name, email, phone, address, branch_id, image_url } = req.body;
+
 
     if (!name) {
       return res
@@ -101,14 +102,22 @@ router.post("/", auth, async (req, res) => {
     const plainPassword = generatePassword(8);
     const hash = await bcrypt.hash(plainPassword, 10);
 
-    await db.query(
-      `
-      INSERT INTO agents
-        (name, email, phone, address, password, branch_id, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, 1)
-      `,
-      [name, email || null, phone || null, address || null, hash, finalBranch]
-    );
+await db.query(
+  `
+  INSERT INTO agents
+    (name, email, phone, address, password, branch_id, is_active, image_url)
+  VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+  `,
+  [
+    name,
+    email || null,
+    phone || null,
+    address || null,
+    hash,
+    finalBranch,
+    image_url || null,
+  ]
+);
 
     res.json({
       success: true,
@@ -126,7 +135,8 @@ router.post("/", auth, async (req, res) => {
 ========================= */
 router.put("/:id", auth, async (req, res) => {
   try {
-    const { name, email, phone, address, branch_id } = req.body;
+const { name, email, phone, address, branch_id, image_url } = req.body;
+
     const user = req.user;
 
     const fields = [];
@@ -149,6 +159,12 @@ router.put("/:id", auth, async (req, res) => {
       values.push(address || null);
     }
 
+     if (image_url !== undefined) {
+  fields.push("image_url = ?");
+  values.push(image_url || null);
+}
+
+    
     if (user.is_admin === 1 && branch_id) {
       fields.push("branch_id = ?");
       values.push(branch_id);
