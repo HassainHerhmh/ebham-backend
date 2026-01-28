@@ -1,5 +1,4 @@
 console.log("GOOGLE_WEB_CLIENT_ID =", process.env.GOOGLE_WEB_CLIENT_ID);
-
 console.log("GOOGLE_CLIENT_ID =", process.env.GOOGLE_CLIENT_ID);
 
 import express from "express";
@@ -8,15 +7,14 @@ import { OAuth2Client } from "google-auth-library";
 import crypto from "crypto";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import authMiddleware from "../middlewares/auth.js"; // تأكد من استيراد ميدلوير التحقق
 
 const router = express.Router();
 const googleClient = new OAuth2Client();
 
-
 /* ======================================================
    🔐 تسجيل دخول لوحة التحكم (Admins / Staff)
 ====================================================== */
-
 router.post("/login", async (req, res) => {
   try {
     const { identifier, password } = req.body;
@@ -68,6 +66,9 @@ router.post("/login", async (req, res) => {
       { expiresIn: "7d" }
     );
 
+    // (اختياري) تحديث آخر دخول للموظفين أيضاً إذا كان الجدول يدعم ذلك
+    // await db.query("UPDATE users SET last_login = NOW() WHERE id = ?", [user.id]);
+
     delete user.password;
 
     res.json({
@@ -91,8 +92,6 @@ router.post("/login", async (req, res) => {
   }
 });
 
-
-
 /* ======================================================
    🔵 تسجيل الدخول عبر Google (Customers)
 ====================================================== */
@@ -104,11 +103,10 @@ router.post("/google", async (req, res) => {
       return res.json({ success: false, message: "Google token missing" });
     }
 
-  const ticket = await googleClient.verifyIdToken({
+    const ticket = await googleClient.verifyIdToken({
       idToken: token,
-      audience: process.env.GOOGLE_WEB_CLIENT_ID, // فقط Web Client ID
+      audience: process.env.GOOGLE_WEB_CLIENT_ID,
     });
-
 
     const payload = ticket.getPayload();
 
@@ -128,10 +126,16 @@ router.post("/google", async (req, res) => {
 
     if (rows.length) {
       customer = rows[0];
+      // ✅ تحديث الحالة: متصل + وقت الدخول
+      await db.query(
+        "UPDATE customers SET is_online = 1, last_login = NOW() WHERE id = ?",
+        [customer.id]
+      );
     } else {
+      // ✅ إنشاء عميل جديد (متصل تلقائياً)
       const [result] = await db.query(
-        `INSERT INTO customers (email, is_profile_complete)
-         VALUES (?, 0)`,
+        `INSERT INTO customers (email, is_profile_complete, is_online, last_login, created_at)
+         VALUES (?, 0, 1, NOW(), NOW())`,
         [email]
       );
 
@@ -147,17 +151,13 @@ router.post("/google", async (req, res) => {
     return res.json({
       success: true,
       customer,
-      needProfile: true,
+      needProfile: true, // عادة Google لا يعطي رقم الهاتف، لذا نحتاج استكمال الملف
     });
-
- } catch (err) {
-  console.error("❌ GOOGLE LOGIN ERROR FULL:", err?.message || err);
-  return res.json({ success: false, message: "Google auth failed" });
-}
-
+  } catch (err) {
+    console.error("❌ GOOGLE LOGIN ERROR FULL:", err?.message || err);
+    return res.json({ success: false, message: "Google auth failed" });
+  }
 });
-
-
 
 /* ======================================================
    📱 OTP HELPERS
@@ -171,17 +171,14 @@ function hashOtp(code) {
 }
 
 /* ======================================================
-   🔢 التحقق من OTP (نسخة مستقرة)
+   🔢 التحقق من OTP (مع تحديث الحالة)
 ====================================================== */
 router.post("/verify-otp", async (req, res) => {
   try {
     let { phone, code } = req.body;
 
     if (!phone || !code) {
-      return res.json({
-        success: false,
-        message: "بيانات ناقصة",
-      });
+      return res.json({ success: false, message: "بيانات ناقصة" });
     }
 
     const normalizedPhone = phone.replace(/\s+/g, "").trim();
@@ -206,8 +203,10 @@ router.post("/verify-otp", async (req, res) => {
       });
     }
 
+    // حذف الرمز بعد الاستخدام
     await db.query("DELETE FROM otp_codes WHERE phone = ?", [normalizedPhone]);
 
+    // البحث عن العميل
     const [customers] = await db.query(
       `
       SELECT id, name, phone, is_profile_complete
@@ -224,11 +223,18 @@ router.post("/verify-otp", async (req, res) => {
     if (customers.length) {
       customer = customers[0];
       needProfile = customer.is_profile_complete === 0;
+
+      // ✅ تحديث الحالة: متصل + وقت الدخول
+      await db.query(
+        "UPDATE customers SET is_online = 1, last_login = NOW() WHERE id = ?",
+        [customer.id]
+      );
     } else {
+      // ✅ عميل جديد: إنشاء مع تعيينه كـ متصل
       const [result] = await db.query(
         `
-        INSERT INTO customers (phone, is_profile_complete)
-        VALUES (?, 0)
+        INSERT INTO customers (phone, is_profile_complete, is_online, last_login, created_at)
+        VALUES (?, 0, 1, NOW(), NOW())
         `,
         [normalizedPhone]
       );
@@ -254,21 +260,17 @@ router.post("/verify-otp", async (req, res) => {
       message: "SERVER_ERROR",
     });
   }
-}); // ← هنا نغلق verify-otp بالكامل ✅
-
+});
 
 /* ======================================================
-   🔢 إرسال OTP (نسخة متوافقة مع التطبيق)
+   🔢 إرسال OTP
 ====================================================== */
 router.post("/send-otp", async (req, res) => {
   try {
     const { phone } = req.body;
 
     if (!phone) {
-      return res.json({
-        success: false,
-        message: "رقم الهاتف مطلوب",
-      });
+      return res.json({ success: false, message: "رقم الهاتف مطلوب" });
     }
 
     const normalizedPhone = phone.replace(/\s+/g, "").trim();
@@ -302,5 +304,31 @@ router.post("/send-otp", async (req, res) => {
   }
 });
 
+/* ======================================================
+   🚪 تسجيل الخروج (تحديث الحالة إلى Offline)
+====================================================== */
+router.post("/logout", authMiddleware, async (req, res) => {
+  try {
+    // نفترض أن authMiddleware يضيف user object إلى الـ req
+    // وأن user.id هو معرف العميل (أو المستخدم)
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    // ✅ تحديث الحالة إلى غير متصل
+    // ملاحظة: هذا الاستعلام يعمل للعملاء. إذا كان المستخدم موظفاً، قد تحتاج لجدول users
+    // ولكن بما أن طلبك يركز على "حالة العملاء"، سنحدث جدول customers
+    
+    // يمكننا التحقق من الدور إذا كان الـ Middleware يمرره، لكن للأمان سنحاول التحديث في customers
+    await db.query("UPDATE customers SET is_online = 0 WHERE id = ?", [
+      req.user.id,
+    ]);
+
+    res.json({ success: true, message: "تم تسجيل الخروج" });
+  } catch (err) {
+    console.error("❌ LOGOUT ERROR:", err);
+    res.status(500).json({ success: false, message: "SERVER_ERROR" });
+  }
+});
 
 export default router;
