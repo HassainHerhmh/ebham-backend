@@ -25,16 +25,31 @@ router.get("/:branchId", async (req, res) => {
       [branchId]
     );
 
+    // توليد 7 أيام افتراضية
+    const fullDays = Array.from({ length: 7 }, (_, i) => {
+      const existing = rows.find(r => r.day === i);
+      return (
+        existing || {
+          day: i,
+          from: null,
+          to: null,
+          closed: 1,
+          notes: null,
+        }
+      );
+    });
+
     res.json({
       success: true,
-      days: rows,
-      notes: rows.find(r => r.notes)?.notes || ""
+      days: fullDays,
+      notes: rows.find(r => r.notes)?.notes || "",
     });
   } catch (err) {
     console.error("GET WORK TIMES ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
+
 
 /* =========================
    POST /api/branch-work-times/:branchId
