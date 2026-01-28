@@ -50,33 +50,34 @@ router.get("/", async (req, res) => {
 
   [rows] = await db.query(
   `
-  SELECT 
-    p.id,
-    p.name,
-    p.price,
-    p.image_url,
-    p.notes,
-    p.is_available,
-    p.is_parent,
-    GROUP_CONCAT(c.id) AS category_ids,
-    GROUP_CONCAT(c.name SEPARATOR ', ') AS categories,
-    u.id AS unit_id,
-    u.name AS unit_name,
-    r.id AS restaurant_id,
-    r.name AS restaurant_name,
-    r.branch_id,
-    b.name AS branch_name,
-    COUNT(pc2.child_id) AS children_count
-  FROM products p
-  LEFT JOIN product_categories pc ON p.id = pc.product_id
-  LEFT JOIN categories c ON pc.category_id = c.id
-  LEFT JOIN units u ON p.unit_id = u.id
-  LEFT JOIN restaurants r ON p.restaurant_id = r.id
-  LEFT JOIN branches b ON b.id = r.branch_id
-  LEFT JOIN product_children pc2 ON pc2.parent_id = p.id
-  ${where}
-  GROUP BY p.id
-  ORDER BY p.id DESC
+ SELECT 
+  p.id,
+  p.name,
+  p.price,
+  p.image_url,
+  p.notes,
+  p.is_available,
+  p.is_parent,
+  GROUP_CONCAT(DISTINCT c.id) AS category_ids,
+  GROUP_CONCAT(DISTINCT c.name SEPARATOR ', ') AS categories,
+  u.id AS unit_id,
+  u.name AS unit_name,
+  r.id AS restaurant_id,
+  r.name AS restaurant_name,
+  r.branch_id,
+  b.name AS branch_name,
+  COUNT(DISTINCT pc2.child_id) AS children_count
+FROM products p
+LEFT JOIN product_categories pc ON p.id = pc.product_id
+LEFT JOIN categories c ON pc.category_id = c.id
+LEFT JOIN units u ON p.unit_id = u.id
+LEFT JOIN restaurants r ON p.restaurant_id = r.id
+LEFT JOIN branches b ON b.id = r.branch_id
+LEFT JOIN product_children pc2 ON pc2.parent_id = p.id
+${where}
+GROUP BY p.id
+ORDER BY p.id DESC
+
   `,
   params
 );
