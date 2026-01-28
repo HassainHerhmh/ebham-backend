@@ -90,7 +90,6 @@ router.get("/", async (req, res) => {
   }
 });
 
-
 /* ======================================================
    ✅ إضافة منتج جديد
 ====================================================== */
@@ -103,13 +102,16 @@ router.post("/", upload.single("image"), async (req, res) => {
       unit_id,
       restaurant_id,
       category_ids = [],
-      is_available = 1,
-      is_parent = 0,
+      is_available = "1",
+      is_parent = "0",
       children = [],
-     image_url: bodyImageUrl, 
+      image_url: bodyImageUrl,
     } = req.body;
 
-    const image_url = bodyImageUrl || null; 
+    const isAvailableVal = Number(is_available) === 1 ? 1 : 0;
+    const isParentVal = Number(is_parent) === 1 ? 1 : 0;
+
+    const image_url = bodyImageUrl || null;
 
     const [result] = await db.query(
       `INSERT INTO products
@@ -117,13 +119,13 @@ router.post("/", upload.single("image"), async (req, res) => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [
         name,
-        price || null,
+        isParentVal ? null : (price || null),
         image_url,
         notes || "",
         unit_id || null,
         restaurant_id,
-        is_available ? 1 : 0,
-        is_parent ? 1 : 0,
+        isAvailableVal,
+        isParentVal,
       ]
     );
 
@@ -164,68 +166,89 @@ router.post("/", upload.single("image"), async (req, res) => {
   }
 });
 
+
 /* ======================================================
    ✏️ تعديل منتج
 ====================================================== */
 router.put("/:id", upload.single("image"), async (req, res) => {
   try {
-const {
-  name,
-  price,
-  notes,
-  unit_id,
-  restaurant_id,
-  category_ids,
-  is_available,
-  is_parent,
-  children,
-     image_url: bodyImageUrl, 
-} = req.body;
+    const {
+      name,
+      price,
+      notes,
+      unit_id,
+      restaurant_id,
+      category_ids,
+      is_available,
+      is_parent,
+      children,
+      image_url: bodyImageUrl,
+    } = req.body;
 
-const updates = [];
-const params = [];
+    const updates = [];
+    const params = [];
 
-if (name !== undefined) { updates.push("name=?"); params.push(name); }
+    if (name !== undefined) { updates.push("name=?"); params.push(name); }
 
-// السعر:
-// إذا وصل فارغ "" نخليه NULL
-if (price !== undefined) {
-  if (price === "") {
-    updates.push("price=NULL");
-  } else {
-    updates.push("price=?");
-    params.push(price);
-  }
-}
+    // السعر
+    if (price !== undefined) {
+      if (price === "") {
+        updates.push("price=NULL");
+      } else {
+        updates.push("price=?");
+        params.push(price);
+      }
+    }
 
-if (notes !== undefined) { updates.push("notes=?"); params.push(notes); }
-if (unit_id !== undefined) { updates.push("unit_id=?"); params.push(unit_id || null); }
-if (restaurant_id !== undefined) { updates.push("restaurant_id=?"); params.push(restaurant_id); }
-if (is_available !== undefined) { updates.push("is_available=?"); params.push(is_available ? 1 : 0); }
-if (is_parent !== undefined) { updates.push("is_parent=?"); params.push(is_parent ? 1 : 0); }
+    if (notes !== undefined) { updates.push("notes=?"); params.push(notes); }
+    if (unit_id !== undefined) { updates.push("unit_id=?"); params.push(unit_id || null); }
+    if (restaurant_id !== undefined) { updates.push("restaurant_id=?"); params.push(restaurant_id); }
 
-   // 👈 لو أُرسل رابط صورة من الفورم حدّثه
+    if (is_available !== undefined) {
+      updates.push("is_available=?");
+      params.push(Number(is_available) === 1 ? 1 : 0);
+    }
+
+    if (is_parent !== undefined) {
+      updates.push("is_parent=?");
+      params.push(Number(is_parent) === 1 ? 1 : 0);
+    }
+
     if (bodyImageUrl !== undefined) {
       updates.push("image_url=?");
       params.push(bodyImageUrl || null);
     }
 
-     
-if (req.file) {
-  const image_url = `/uploads/${req.file.filename}`;
-  updates.push("image_url=?");
-  params.push(image_url);
-}
+    if (req.file) {
+      const image_url = `/uploads/${req.file.filename}`;
+      updates.push("image_url=?");
+      params.push(image_url);
+    }
 
-if (updates.length) {
-  params.push(req.params.id);
-  await db.query(
-    `UPDATE products SET ${updates.join(", ")} WHERE id=?`,
-    params
-  );
-}
+    if (updates.length) {
+      params.push(req.params.id);
+      await db.query(
+        `UPDATE products SET ${updates.join(", ")} WHERE id=?`,
+        params
+      );
+    }
 
- 
+    // تحديث الأبناء (نمسح القديم ونعيد الإدخال)
+    if (children !== undefined) {
+      await db.query("DELETE FROM product_children WHERE parent_id=?", [req.params.id]);
+
+      let kids = [];
+      try {
+        kids = typeof children === "string" ? JSON.parse(children) : children;
+      } catch {}
+
+      for (const childId of kids) {
+        await db.query(
+          "INSERT INTO product_children (parent_id, child_id) VALUES (?, ?)",
+          [req.params.id, childId]
+        );
+      }
+    }
 
     res.json({ success: true, message: "✅ تم تعديل المنتج" });
   } catch (err) {
@@ -233,6 +256,7 @@ if (updates.length) {
     res.status(500).json({ success: false });
   }
 });
+
 
 /* ======================================================
    🗑️ حذف منتج
