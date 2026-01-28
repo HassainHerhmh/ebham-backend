@@ -234,6 +234,28 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       );
     }
 
+     // تحديث الفئات
+if (category_ids !== undefined) {
+  await db.query(
+    "DELETE FROM product_categories WHERE product_id=?",
+    [req.params.id]
+  );
+
+  let cats = [];
+  try {
+    cats = typeof category_ids === "string"
+      ? JSON.parse(category_ids)
+      : category_ids;
+  } catch {}
+
+  for (const cid of cats) {
+    await db.query(
+      "INSERT INTO product_categories (product_id, category_id) VALUES (?, ?)",
+      [req.params.id, cid]
+    );
+  }
+}
+
     // تحديث الأبناء (نمسح القديم ونعيد الإدخال)
     if (children !== undefined) {
       await db.query("DELETE FROM product_children WHERE parent_id=?", [req.params.id]);
@@ -303,27 +325,7 @@ router.get("/:id/children", async (req, res) => {
   }
 });
 
-// تحديث الفئات
-if (category_ids !== undefined) {
-  await db.query(
-    "DELETE FROM product_categories WHERE product_id=?",
-    [req.params.id]
-  );
 
-  let cats = [];
-  try {
-    cats = typeof category_ids === "string"
-      ? JSON.parse(category_ids)
-      : category_ids;
-  } catch {}
-
-  for (const cid of cats) {
-    await db.query(
-      "INSERT INTO product_categories (product_id, category_id) VALUES (?, ?)",
-      [req.params.id, cid]
-    );
-  }
-}
 
 
 export default router;
