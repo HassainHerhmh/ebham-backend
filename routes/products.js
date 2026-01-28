@@ -5,14 +5,49 @@ import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 
+/* ======================================================
+   🟢 (APP/Public) جلب أبناء منتج معين (للخيارات)
+   ⚠️ تم نقله هنا ليكون متاحاً للتطبيق دون الحاجة لتوكن أدمن
+====================================================== */
+router.get("/:id/children", async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT 
+        p.id,
+        p.name,
+        p.price,
+        p.image_url,  -- ✅ تمت إضافة الصورة
+        p.notes,
+        p.is_available,
+        r.name AS restaurant_name,
+        GROUP_CONCAT(c.name SEPARATOR ', ') AS categories
+      FROM product_children pc
+      JOIN products p ON p.id = pc.child_id
+      LEFT JOIN product_categories pc2 ON p.id = pc2.product_id
+      LEFT JOIN categories c ON pc2.category_id = c.id
+      LEFT JOIN restaurants r ON p.restaurant_id = r.id
+      WHERE pc.parent_id = ?
+      GROUP BY p.id
+      `,
+      [req.params.id]
+    );
+
+    res.json({ success: true, children: rows });
+  } catch (err) {
+    console.error("GET CHILDREN ERROR:", err);
+    res.status(500).json({ success: false, children: [] });
+  }
+});
+
 /* =========================
-   حماية كل المسارات
+   🔐 حماية المسارات التالية (لوحة التحكم)
 ========================= */
 router.use(auth);
 
 
 /* ======================================================
-   🟢 جلب جميع المنتجات (مع دعم الإدارة العامة والفروع)
+   🟢 جلب جميع المنتجات (لوحة التحكم)
 ====================================================== */
 router.get("/", async (req, res) => {
   const search = req.query.search || "";
@@ -21,13 +56,10 @@ router.get("/", async (req, res) => {
 
   let selectedBranch = req.headers["x-branch-id"];
 
-  // لو القيمة "all" نعتبره غير موجود
   if (selectedBranch === "all") {
     selectedBranch = null;
   }
 
-  // 👇 لو إدارة عامة والفرع المختار هو نفس فرع الحساب
-  // نعتبره غير محدد (عرض الكل)
   if (is_admin_branch && selectedBranch && Number(selectedBranch) === Number(branch_id)) {
     selectedBranch = null;
   }
@@ -42,47 +74,43 @@ router.get("/", async (req, res) => {
         where += ` AND r.branch_id = ?`;
         params.push(selectedBranch);
       }
-      // غير ذلك: الإدارة العامة ترى كل المنتجات
     } else {
       where += ` AND r.branch_id = ?`;
       params.push(branch_id);
     }
 
-  [rows] = await db.query(
-  `
- SELECT 
-  p.id,
-  p.name,
-  p.price,
-  p.image_url,
-  p.notes,
-  p.is_available,
-  p.is_parent,
-  GROUP_CONCAT(DISTINCT c.id) AS category_ids,
-  GROUP_CONCAT(DISTINCT c.name SEPARATOR ', ') AS categories,
-  u.id AS unit_id,
-  u.name AS unit_name,
-  r.id AS restaurant_id,
-  r.name AS restaurant_name,
-  r.branch_id,
-  b.name AS branch_name,
-  COUNT(DISTINCT pc2.child_id) AS children_count
-FROM products p
-LEFT JOIN product_categories pc ON p.id = pc.product_id
-LEFT JOIN categories c ON pc.category_id = c.id
-LEFT JOIN units u ON p.unit_id = u.id
-LEFT JOIN restaurants r ON p.restaurant_id = r.id
-LEFT JOIN branches b ON b.id = r.branch_id
-LEFT JOIN product_children pc2 ON pc2.parent_id = p.id
-${where}
-GROUP BY p.id
-ORDER BY p.id DESC
-
-  `,
-  params
-);
-
-
+    [rows] = await db.query(
+      `
+      SELECT 
+        p.id,
+        p.name,
+        p.price,
+        p.image_url,
+        p.notes,
+        p.is_available,
+        p.is_parent,
+        GROUP_CONCAT(DISTINCT c.id) AS category_ids,
+        GROUP_CONCAT(DISTINCT c.name SEPARATOR ', ') AS categories,
+        u.id AS unit_id,
+        u.name AS unit_name,
+        r.id AS restaurant_id,
+        r.name AS restaurant_name,
+        r.branch_id,
+        b.name AS branch_name,
+        COUNT(DISTINCT pc2.child_id) AS children_count
+      FROM products p
+      LEFT JOIN product_categories pc ON p.id = pc.product_id
+      LEFT JOIN categories c ON pc.category_id = c.id
+      LEFT JOIN units u ON p.unit_id = u.id
+      LEFT JOIN restaurants r ON p.restaurant_id = r.id
+      LEFT JOIN branches b ON b.id = r.branch_id
+      LEFT JOIN product_children pc2 ON pc2.parent_id = p.id
+      ${where}
+      GROUP BY p.id
+      ORDER BY p.id DESC
+      `,
+      params
+    );
 
     res.json({ success: true, products: rows });
   } catch (err) {
@@ -135,9 +163,7 @@ router.post("/", upload.single("image"), async (req, res) => {
     // الفئات
     let cats = [];
     try {
-      cats = typeof category_ids === "string"
-        ? JSON.parse(category_ids)
-        : category_ids;
+      cats = typeof category_ids === "string" ? JSON.parse(category_ids) : category_ids;
     } catch {}
 
     for (const cid of cats) {
@@ -167,7 +193,6 @@ router.post("/", upload.single("image"), async (req, res) => {
   }
 });
 
-
 /* ======================================================
    ✏️ تعديل منتج
 ====================================================== */
@@ -191,7 +216,6 @@ router.put("/:id", upload.single("image"), async (req, res) => {
 
     if (name !== undefined) { updates.push("name=?"); params.push(name); }
 
-    // السعر
     if (price !== undefined) {
       if (price === "") {
         updates.push("price=NULL");
@@ -234,29 +258,24 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       );
     }
 
-     // تحديث الفئات
-if (category_ids !== undefined) {
-  await db.query(
-    "DELETE FROM product_categories WHERE product_id=?",
-    [req.params.id]
-  );
+    // تحديث الفئات
+    if (category_ids !== undefined) {
+      await db.query("DELETE FROM product_categories WHERE product_id=?", [req.params.id]);
 
-  let cats = [];
-  try {
-    cats = typeof category_ids === "string"
-      ? JSON.parse(category_ids)
-      : category_ids;
-  } catch {}
+      let cats = [];
+      try {
+        cats = typeof category_ids === "string" ? JSON.parse(category_ids) : category_ids;
+      } catch {}
 
-  for (const cid of cats) {
-    await db.query(
-      "INSERT INTO product_categories (product_id, category_id) VALUES (?, ?)",
-      [req.params.id, cid]
-    );
-  }
-}
+      for (const cid of cats) {
+        await db.query(
+          "INSERT INTO product_categories (product_id, category_id) VALUES (?, ?)",
+          [req.params.id, cid]
+        );
+      }
+    }
 
-    // تحديث الأبناء (نمسح القديم ونعيد الإدخال)
+    // تحديث الأبناء
     if (children !== undefined) {
       await db.query("DELETE FROM product_children WHERE parent_id=?", [req.params.id]);
 
@@ -280,7 +299,6 @@ if (category_ids !== undefined) {
   }
 });
 
-
 /* ======================================================
    🗑️ حذف منتج
 ====================================================== */
@@ -294,38 +312,5 @@ router.delete("/:id", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-
-
-router.get("/:id/children", async (req, res) => {
-  try {
-    const [rows] = await db.query(
-      `
-      SELECT 
-        p.id,
-        p.name,
-        p.price,
-        p.is_available,
-        r.name AS restaurant_name,
-        GROUP_CONCAT(c.name SEPARATOR ', ') AS categories
-      FROM product_children pc
-      JOIN products p ON p.id = pc.child_id
-      LEFT JOIN product_categories pc2 ON p.id = pc2.product_id
-      LEFT JOIN categories c ON pc2.category_id = c.id
-      LEFT JOIN restaurants r ON p.restaurant_id = r.id
-      WHERE pc.parent_id = ?
-      GROUP BY p.id
-      `,
-      [req.params.id]
-    );
-
-    res.json({ success: true, children: rows });
-  } catch (err) {
-    console.error("GET CHILDREN ERROR:", err);
-    res.status(500).json({ success: false, children: [] });
-  }
-});
-
-
-
 
 export default router;
