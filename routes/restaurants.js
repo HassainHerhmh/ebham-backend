@@ -48,6 +48,7 @@ router.get("/app/:id/products", async (req, res) => {
         p.notes,
         p.image_url,
         p.restaurant_id,
+         (p.is_parent + 0) AS is_parent, 
         GROUP_CONCAT(pc.category_id) AS category_ids
       FROM products p
       LEFT JOIN product_categories pc
