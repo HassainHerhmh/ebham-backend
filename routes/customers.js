@@ -4,7 +4,6 @@ import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 
-
 /* =========================
    POST /customers/public  (للتطبيق)
 ========================= */
@@ -18,8 +17,8 @@ router.post("/public", async (req, res) => {
 
     const [result] = await db.query(
       `
-      INSERT INTO customers (name, phone, email, password, branch_id, created_at)
-      VALUES (?, ?, ?, ?, ?, NOW())
+      INSERT INTO customers (name, phone, email, password, branch_id, created_at, is_active)
+      VALUES (?, ?, ?, ?, ?, NOW(), 1)
       `,
       [name, phone, email || null, password || null, branch_id]
     );
@@ -84,40 +83,47 @@ router.put("/public/:id", async (req, res) => {
 });
 
 /* =========================
-   حماية كل المسارات
+   حماية كل المسارات التالية
 ========================= */
 router.use(auth);
 
 /* =========================
    GET /customers
+   (تم التحديث: جلب وتنسيق last_login)
 ========================= */
 router.get("/", async (req, res) => {
   try {
     const user = req.user;
 
-  // الإدارة العامة: كل العملاء من كل الفروع (بما فيها فرع الإدارة)
-if (user.is_admin_branch === 1 || user.is_admin_branch === true) {
-  const [rows] = await db.query(`
-    SELECT c.*, b.name AS branch_name
-    FROM customers c
-    LEFT JOIN branches b ON b.id = c.branch_id
-    ORDER BY c.id DESC
-  `);
+    // جملة الاستعلام الأساسية مع تنسيق التاريخ
+    // DATE_FORMAT يحول التاريخ إلى نص: "2024-01-28 14:30:00"
+    const selectQuery = `
+      SELECT 
+        c.*, 
+        b.name AS branch_name,
+        DATE_FORMAT(c.last_login, '%Y-%m-%d %H:%i:%s') as last_login
+        c.is_online
+      FROM customers c
+      LEFT JOIN branches b ON b.id = c.branch_id
+    `;
 
-  return res.json({ success: true, mode: "admin", customers: rows });
-}
+    // 1. الإدارة العامة: كل العملاء
+    if (user.is_admin_branch === 1 || user.is_admin_branch === true) {
+      const [rows] = await db.query(`
+        ${selectQuery}
+        ORDER BY c.id DESC
+      `);
+      return res.json({ success: true, mode: "admin", customers: rows });
+    }
 
-
-    // فرع عادي: عملاء الفرع فقط
+    // 2. فرع عادي: عملاء الفرع فقط
     if (!user.branch_id) {
       return res.json({ success: true, customers: [] });
     }
 
     const [rows] = await db.query(
       `
-      SELECT c.*, b.name AS branch_name
-      FROM customers c
-      LEFT JOIN branches b ON b.id = c.branch_id
+      ${selectQuery}
       WHERE c.branch_id = ?
       ORDER BY c.id DESC
       `,
@@ -131,13 +137,10 @@ if (user.is_admin_branch === 1 || user.is_admin_branch === true) {
   }
 });
 
-
-
 /* =========================
-   POST /customers
+   POST /customers (لوحة التحكم)
 ========================= */
 router.post("/", async (req, res) => {
-    console.log("📥 ADD ADDRESS BODY:", req.body);
   try {
     const { name, phone, phone_alt, email, password } = req.body;
     if (!name || !phone) {
@@ -146,19 +149,26 @@ router.post("/", async (req, res) => {
 
     const { is_admin_branch, branch_id } = req.user;
     let selectedBranch = req.headers["x-branch-id"];
-
     let finalBranchId = branch_id;
 
     if (is_admin_branch && selectedBranch && selectedBranch !== "all") {
       finalBranchId = Number(selectedBranch);
     }
 
+    // تم إضافة is_active = 1 افتراضياً
     await db.query(
       `
-      INSERT INTO customers (name, phone, phone_alt, email, password, branch_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, NOW())
+      INSERT INTO customers (name, phone, phone_alt, email, password, branch_id, created_at, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, NOW(), 1)
       `,
-      [name, phone, phone_alt || null, email || null, password || null, finalBranchId]
+      [
+        name,
+        phone,
+        phone_alt || null,
+        email || null,
+        password || null,
+        finalBranchId,
+      ]
     );
 
     res.json({ success: true });
@@ -292,6 +302,24 @@ router.post("/:id/reset-password", async (req, res) => {
   }
 });
 
+/* =========================
+   POST /customers/logout
+   (تغيير الحالة إلى غير متصل)
+========================= */
+router.post("/logout", auth, async (req, res) => {
+  try {
+    // auth middleware يضع بيانات العميل في req.user
+    const customerId = req.user.id; 
 
+    await db.query(
+      "UPDATE customers SET is_online = 0 WHERE id = ?",
+      [customerId]
+    );
 
+    res.json({ success: true, message: "تم تسجيل الخروج وتحديث الحالة" });
+  } catch (err) {
+    console.error("LOGOUT ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
 export default router;
