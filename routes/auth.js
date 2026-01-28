@@ -1,4 +1,5 @@
 console.log("GOOGLE_WEB_CLIENT_ID =", process.env.GOOGLE_WEB_CLIENT_ID);
+
 console.log("GOOGLE_CLIENT_ID =", process.env.GOOGLE_CLIENT_ID);
 
 import express from "express";
@@ -7,329 +8,299 @@ import { OAuth2Client } from "google-auth-library";
 import crypto from "crypto";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import authMiddleware from "../middlewares/auth.js"; // تأكد من استيراد ميدلوير التحقق
 
 const router = express.Router();
 const googleClient = new OAuth2Client();
 
+
 /* ======================================================
-   🔐 تسجيل دخول لوحة التحكم (Admins / Staff)
+   🔐 تسجيل دخول لوحة التحكم (Admins / Staff)
 ====================================================== */
+
 router.post("/login", async (req, res) => {
-  try {
-    const { identifier, password } = req.body;
+  try {
+    const { identifier, password } = req.body;
 
-    const [rows] = await db.query(
-      `
-      SELECT 
-        u.id,
-        u.name,
-        u.email,
-        u.phone,
-        u.password,
-        u.role,
-        u.status,
-        u.branch_id,
-        b.name AS branch_name,
-        b.is_admin AS is_admin_branch
-      FROM users u
-      LEFT JOIN branches b ON b.id = u.branch_id
-      WHERE u.email = ? OR u.phone = ?
-      LIMIT 1
-      `,
-      [identifier, identifier]
-    );
+    const [rows] = await db.query(
+      `
+      SELECT 
+        u.id,
+        u.name,
+        u.email,
+        u.phone,
+        u.password,
+        u.role,
+        u.status,
+        u.branch_id,
+        b.name AS branch_name,
+        b.is_admin AS is_admin_branch
+      FROM users u
+      LEFT JOIN branches b ON b.id = u.branch_id
+      WHERE u.email = ? OR u.phone = ?
+      LIMIT 1
+      `,
+      [identifier, identifier]
+    );
 
-    if (!rows.length) {
-      return res.json({ success: false, message: "المستخدم غير موجود" });
-    }
+    if (!rows.length) {
+      return res.json({ success: false, message: "المستخدم غير موجود" });
+    }
 
-    const user = rows[0];
+    const user = rows[0];
 
-    if (user.status !== "active") {
-      return res.json({ success: false, message: "الحساب معطل" });
-    }
+    if (user.status !== "active") {
+      return res.json({ success: false, message: "الحساب معطل" });
+    }
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.json({ success: false, message: "كلمة المرور غير صحيحة" });
-    }
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.json({ success: false, message: "كلمة المرور غير صحيحة" });
+    }
 
-    const token = jwt.sign(
-      {
-        id: user.id,
-        role: user.role,
-        branch_id: user.branch_id,
-        is_admin_branch: user.is_admin_branch === 1,
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
+    const token = jwt.sign(
+      {
+        id: user.id,
+        role: user.role,
+        branch_id: user.branch_id,
+        is_admin_branch: user.is_admin_branch === 1,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
 
-    // (اختياري) تحديث آخر دخول للموظفين أيضاً إذا كان الجدول يدعم ذلك
-    // await db.query("UPDATE users SET last_login = NOW() WHERE id = ?", [user.id]);
+    delete user.password;
 
-    delete user.password;
-
-    res.json({
-      success: true,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        status: user.status,
-        branch_id: user.branch_id,
-        branch_name: user.branch_name,
-        is_admin_branch: user.is_admin_branch === 1,
-        token,
-      },
-    });
-  } catch (err) {
-    console.error("LOGIN ERROR:", err);
-    res.status(500).json({ success: false, message: "SERVER_ERROR" });
-  }
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        status: user.status,
+        branch_id: user.branch_id,
+        branch_name: user.branch_name,
+        is_admin_branch: user.is_admin_branch === 1,
+        token,
+      },
+    });
+  } catch (err) {
+    console.error("LOGIN ERROR:", err);
+    res.status(500).json({ success: false, message: "SERVER_ERROR" });
+  }
 });
 
+
+
 /* ======================================================
-   🔵 تسجيل الدخول عبر Google (Customers)
+   🔵 تسجيل الدخول عبر Google (Customers)
 ====================================================== */
 router.post("/google", async (req, res) => {
-  try {
-    const { token } = req.body;
+  try {
+    const { token } = req.body;
 
-    if (!token) {
-      return res.json({ success: false, message: "Google token missing" });
-    }
+    if (!token) {
+      return res.json({ success: false, message: "Google token missing" });
+    }
 
-    const ticket = await googleClient.verifyIdToken({
-      idToken: token,
-      audience: process.env.GOOGLE_WEB_CLIENT_ID,
-    });
+  const ticket = await googleClient.verifyIdToken({
+      idToken: token,
+      audience: process.env.GOOGLE_WEB_CLIENT_ID, // فقط Web Client ID
+    });
 
-    const payload = ticket.getPayload();
 
-    if (!payload || !payload.email) {
-      return res.json({ success: false, message: "Invalid Google token" });
-    }
+    const payload = ticket.getPayload();
 
-    const email = payload.email;
+    if (!payload || !payload.email) {
+      return res.json({ success: false, message: "Invalid Google token" });
+    }
 
-    const [rows] = await db.query(
-      `SELECT id, email, name, phone, is_profile_complete
-       FROM customers WHERE email = ? LIMIT 1`,
-      [email]
-    );
+    const email = payload.email;
 
-    let customer;
+    const [rows] = await db.query(
+      `SELECT id, email, name, phone, is_profile_complete
+       FROM customers WHERE email = ? LIMIT 1`,
+      [email]
+    );
 
-    if (rows.length) {
-      customer = rows[0];
-      // ✅ تحديث الحالة: متصل + وقت الدخول
-      await db.query(
-        "UPDATE customers SET is_online = 1, last_login = NOW() WHERE id = ?",
-        [customer.id]
-      );
-    } else {
-      // ✅ إنشاء عميل جديد (متصل تلقائياً)
-      const [result] = await db.query(
-        `INSERT INTO customers (email, is_profile_complete, is_online, last_login, created_at)
-         VALUES (?, 0, 1, NOW(), NOW())`,
-        [email]
-      );
+    let customer;
 
-      customer = {
-        id: result.insertId,
-        email,
-        name: null,
-        phone: null,
-        is_profile_complete: 0,
-      };
-    }
+    if (rows.length) {
+      customer = rows[0];
+    } else {
+      const [result] = await db.query(
+        `INSERT INTO customers (email, is_profile_complete)
+         VALUES (?, 0)`,
+        [email]
+      );
 
-    return res.json({
-      success: true,
-      customer,
-      needProfile: true, // عادة Google لا يعطي رقم الهاتف، لذا نحتاج استكمال الملف
-    });
-  } catch (err) {
-    console.error("❌ GOOGLE LOGIN ERROR FULL:", err?.message || err);
-    return res.json({ success: false, message: "Google auth failed" });
-  }
+      customer = {
+        id: result.insertId,
+        email,
+        name: null,
+        phone: null,
+        is_profile_complete: 0,
+      };
+    }
+
+    return res.json({
+      success: true,
+      customer,
+      needProfile: true,
+    });
+
+ } catch (err) {
+  console.error("❌ GOOGLE LOGIN ERROR FULL:", err?.message || err);
+  return res.json({ success: false, message: "Google auth failed" });
+}
+
 });
 
+
+
 /* ======================================================
-   📱 OTP HELPERS
+   📱 OTP HELPERS
 ====================================================== */
 function generateOtp() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
 function hashOtp(code) {
-  return crypto.createHash("sha256").update(code).digest("hex");
+  return crypto.createHash("sha256").update(code).digest("hex");
 }
 
 /* ======================================================
-   🔢 التحقق من OTP (مع تحديث الحالة)
+   🔢 التحقق من OTP (نسخة مستقرة)
 ====================================================== */
 router.post("/verify-otp", async (req, res) => {
-  try {
-    let { phone, code } = req.body;
+  try {
+    let { phone, code } = req.body;
 
-    if (!phone || !code) {
-      return res.json({ success: false, message: "بيانات ناقصة" });
-    }
+    if (!phone || !code) {
+      return res.json({
+        success: false,
+        message: "بيانات ناقصة",
+      });
+    }
 
-    const normalizedPhone = phone.replace(/\s+/g, "").trim();
-    const codeHash = hashOtp(code);
+    const normalizedPhone = phone.replace(/\s+/g, "").trim();
+    const codeHash = hashOtp(code);
 
-    const [otpRows] = await db.query(
-      `
-      SELECT id
-      FROM otp_codes
-      WHERE phone = ?
-        AND code_hash = ?
-        AND expires_at > NOW()
-      LIMIT 1
-      `,
-      [normalizedPhone, codeHash]
-    );
+    const [otpRows] = await db.query(
+      `
+      SELECT id
+      FROM otp_codes
+      WHERE phone = ?
+        AND code_hash = ?
+        AND expires_at > NOW()
+      LIMIT 1
+      `,
+      [normalizedPhone, codeHash]
+    );
 
-    if (!otpRows.length) {
-      return res.json({
-        success: false,
-        message: "رمز غير صحيح أو منتهي",
-      });
-    }
+    if (!otpRows.length) {
+      return res.json({
+        success: false,
+        message: "رمز غير صحيح أو منتهي",
+      });
+    }
 
-    // حذف الرمز بعد الاستخدام
-    await db.query("DELETE FROM otp_codes WHERE phone = ?", [normalizedPhone]);
+    await db.query("DELETE FROM otp_codes WHERE phone = ?", [normalizedPhone]);
 
-    // البحث عن العميل
-    const [customers] = await db.query(
-      `
-      SELECT id, name, phone, is_profile_complete
-      FROM customers
-      WHERE phone = ?
-      LIMIT 1
-      `,
-      [normalizedPhone]
-    );
+    const [customers] = await db.query(
+      `
+      SELECT id, name, phone, is_profile_complete
+      FROM customers
+      WHERE phone = ?
+      LIMIT 1
+      `,
+      [normalizedPhone]
+    );
 
-    let customer;
-    let needProfile = false;
+    let customer;
+    let needProfile = false;
 
-    if (customers.length) {
-      customer = customers[0];
-      needProfile = customer.is_profile_complete === 0;
+    if (customers.length) {
+      customer = customers[0];
+      needProfile = customer.is_profile_complete === 0;
+    } else {
+      const [result] = await db.query(
+        `
+        INSERT INTO customers (phone, is_profile_complete)
+        VALUES (?, 0)
+        `,
+        [normalizedPhone]
+      );
 
-      // ✅ تحديث الحالة: متصل + وقت الدخول
-      await db.query(
-        "UPDATE customers SET is_online = 1, last_login = NOW() WHERE id = ?",
-        [customer.id]
-      );
-    } else {
-      // ✅ عميل جديد: إنشاء مع تعيينه كـ متصل
-      const [result] = await db.query(
-        `
-        INSERT INTO customers (phone, is_profile_complete, is_online, last_login, created_at)
-        VALUES (?, 0, 1, NOW(), NOW())
-        `,
-        [normalizedPhone]
-      );
+      customer = {
+        id: result.insertId,
+        phone: normalizedPhone,
+        name: null,
+        is_profile_complete: 0,
+      };
+      needProfile = true;
+    }
 
-      customer = {
-        id: result.insertId,
-        phone: normalizedPhone,
-        name: null,
-        is_profile_complete: 0,
-      };
-      needProfile = true;
-    }
+    return res.json({
+      success: true,
+      customer,
+      needProfile,
+    });
+  } catch (err) {
+    console.error("❌ VERIFY OTP ERROR:", err);
+    return res.status(500).json({
+      success: false,
+      message: "SERVER_ERROR",
+    });
+  }
+}); // ← هنا نغلق verify-otp بالكامل ✅
 
-    return res.json({
-      success: true,
-      customer,
-      needProfile,
-    });
-  } catch (err) {
-    console.error("❌ VERIFY OTP ERROR:", err);
-    return res.status(500).json({
-      success: false,
-      message: "SERVER_ERROR",
-    });
-  }
-});
 
 /* ======================================================
-   🔢 إرسال OTP
+   🔢 إرسال OTP (نسخة متوافقة مع التطبيق)
 ====================================================== */
 router.post("/send-otp", async (req, res) => {
-  try {
-    const { phone } = req.body;
+  try {
+    const { phone } = req.body;
 
-    if (!phone) {
-      return res.json({ success: false, message: "رقم الهاتف مطلوب" });
-    }
+    if (!phone) {
+      return res.json({
+        success: false,
+        message: "رقم الهاتف مطلوب",
+      });
+    }
 
-    const normalizedPhone = phone.replace(/\s+/g, "").trim();
-    const code = generateOtp();
-    const codeHash = hashOtp(code);
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+    const normalizedPhone = phone.replace(/\s+/g, "").trim();
+    const code = generateOtp();
+    const codeHash = hashOtp(code);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-    await db.query(
-      `
-      INSERT INTO otp_codes (phone, code_hash, expires_at)
-      VALUES (?, ?, ?)
-      ON DUPLICATE KEY UPDATE 
-        code_hash = VALUES(code_hash),
-        expires_at = VALUES(expires_at)
-      `,
-      [normalizedPhone, codeHash, expiresAt]
-    );
+    await db.query(
+      `
+      INSERT INTO otp_codes (phone, code_hash, expires_at)
+      VALUES (?, ?, ?)
+      ON DUPLICATE KEY UPDATE 
+        code_hash = VALUES(code_hash),
+        expires_at = VALUES(expires_at)
+      `,
+      [normalizedPhone, codeHash, expiresAt]
+    );
 
-    console.log(`📲 OTP for ${normalizedPhone}: ${code}`);
+    console.log(`📲 OTP for ${normalizedPhone}: ${code}`);
 
-    return res.json({
-      success: true,
-      message: "تم إرسال رمز التحقق بنجاح",
-      debug_code: code, // 🔴 مؤقت للتطوير فقط
-    });
-  } catch (err) {
-    console.error("❌ SEND OTP ERROR:", err);
-    return res.status(500).json({
-      success: false,
-      message: "SERVER_ERROR",
-    });
-  }
+    return res.json({
+      success: true,
+      message: "تم إرسال رمز التحقق بنجاح",
+    });
+  } catch (err) {
+    console.error("❌ SEND OTP ERROR:", err);
+    return res.status(500).json({
+      success: false,
+      message: "SERVER_ERROR",
+    });
+  }
 });
 
-/* ======================================================
-   🚪 تسجيل الخروج (تحديث الحالة إلى Offline)
-====================================================== */
-router.post("/logout", authMiddleware, async (req, res) => {
-  try {
-    // نفترض أن authMiddleware يضيف user object إلى الـ req
-    // وأن user.id هو معرف العميل (أو المستخدم)
-    if (!req.user || !req.user.id) {
-      return res.status(401).json({ success: false, message: "Unauthorized" });
-    }
-
-    // ✅ تحديث الحالة إلى غير متصل
-    // ملاحظة: هذا الاستعلام يعمل للعملاء. إذا كان المستخدم موظفاً، قد تحتاج لجدول users
-    // ولكن بما أن طلبك يركز على "حالة العملاء"، سنحدث جدول customers
-    
-    // يمكننا التحقق من الدور إذا كان الـ Middleware يمرره، لكن للأمان سنحاول التحديث في customers
-    await db.query("UPDATE customers SET is_online = 0 WHERE id = ?", [
-      req.user.id,
-    ]);
-
-    res.json({ success: true, message: "تم تسجيل الخروج" });
-  } catch (err) {
-    console.error("❌ LOGOUT ERROR:", err);
-    res.status(500).json({ success: false, message: "SERVER_ERROR" });
-  }
-});
 
 export default router;
