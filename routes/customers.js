@@ -97,15 +97,16 @@ router.get("/", async (req, res) => {
 
     // جملة الاستعلام الأساسية مع تنسيق التاريخ
     // DATE_FORMAT يحول التاريخ إلى نص: "2024-01-28 14:30:00"
-    const selectQuery = `
-      SELECT 
-        c.*, 
-        b.name AS branch_name,
-        DATE_FORMAT(c.last_login, '%Y-%m-%d %H:%i:%s') as last_login
-        c.is_online
-      FROM customers c
-      LEFT JOIN branches b ON b.id = c.branch_id
-    `;
+  // ✅ الكود المصحح:
+const selectQuery = `
+  SELECT 
+    c.*, 
+    b.name AS branch_name,
+    DATE_FORMAT(c.last_login, '%Y-%m-%d %H:%i:%s') as last_login, -- تم إضافة الفاصلة هنا
+    c.is_online
+  FROM customers c
+  LEFT JOIN branches b ON b.id = c.branch_id
+`;
 
     // 1. الإدارة العامة: كل العملاء
     if (user.is_admin_branch === 1 || user.is_admin_branch === true) {
