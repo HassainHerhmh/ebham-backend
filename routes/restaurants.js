@@ -12,9 +12,13 @@ router.get("/app/:id/categories", async (req, res) => {
   try {
     const restaurantId = req.params.id;
 
+
     const [rows] = await db.query(
       `
-      SELECT c.id, c.name
+      SELECT 
+        c.id,
+        c.name,
+        c.image_url
       FROM categories c
       INNER JOIN restaurant_categories rc
         ON rc.category_id = c.id
