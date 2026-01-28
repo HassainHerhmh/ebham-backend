@@ -5,7 +5,7 @@ import auth from "../middlewares/auth.js";
 const router = express.Router();
 
 /* =========================
-   POST /customers/public  (للتطبيق)
+   POST /customers/public  (للتطبيق - تسجيل جديد)
 ========================= */
 router.post("/public", async (req, res) => {
   try {
@@ -15,10 +15,11 @@ router.post("/public", async (req, res) => {
       return res.json({ success: false, message: "بيانات ناقصة" });
     }
 
+    // عند التسجيل الجديد، نعتبر العميل نشطاً ومتصلاً
     const [result] = await db.query(
       `
-      INSERT INTO customers (name, phone, email, password, branch_id, created_at, is_active)
-      VALUES (?, ?, ?, ?, ?, NOW(), 1)
+      INSERT INTO customers (name, phone, email, password, branch_id, created_at, is_active, last_active_at, last_login)
+      VALUES (?, ?, ?, ?, ?, NOW(), 1, NOW(), NOW())
       `,
       [name, phone, email || null, password || null, branch_id]
     );
@@ -38,7 +39,7 @@ router.post("/public", async (req, res) => {
 });
 
 /* =========================
-   PUT /customers/public/:id  (للتطبيق - بدون auth)
+   PUT /customers/public/:id  (للتطبيق - تحديث الملف الشخصي)
 ========================= */
 router.put("/public/:id", async (req, res) => {
   try {
@@ -83,36 +84,62 @@ router.put("/public/:id", async (req, res) => {
 });
 
 /* =========================
-   حماية كل المسارات التالية
+   🛡️ حماية كل المسارات التالية
 ========================= */
 router.use(auth);
 
 /* =========================
-   GET /customers
-   (تم التحديث: جلب وتنسيق last_login)
+   💓 POST /customers/heartbeat
+   (يستدعيه التطبيق كل دقيقة لتحديث آخر ظهور)
+========================= */
+router.post("/heartbeat", async (req, res) => {
+  try {
+    // نفترض أن العميل مسجل دخول والتوكن سليم
+    const userId = req.user.id;
+    
+    // تحديث وقت آخر نشاط فقط
+    await db.query("UPDATE customers SET last_active_at = NOW() WHERE id = ?", [userId]);
+    
+    res.json({ success: true });
+  } catch (err) {
+    // لا نرجع خطأ 500 هنا لتجنب إزعاج التطبيق، فقط false
+    res.json({ success: false });
+  }
+});
+
+/* =========================
+   📋 GET /customers
+   (حساب الحالة online/offline بناءً على الوقت)
 ========================= */
 router.get("/", async (req, res) => {
   try {
     const user = req.user;
 
-    // جملة الاستعلام الأساسية مع تنسيق التاريخ
-    // DATE_FORMAT يحول التاريخ إلى نص: "2024-01-28 14:30:00"
-  // ✅ الكود المصحح:
-const selectQuery = `
-  SELECT 
-    c.*, 
-    b.name AS branch_name,
-    DATE_FORMAT(c.last_login, '%Y-%m-%d %H:%i:%s') as last_login, -- تم إضافة الفاصلة هنا
-    c.is_online
-  FROM customers c
-  LEFT JOIN branches b ON b.id = c.branch_id
-`;
+    // المنطق:
+    // 1. is_online_calculated: إذا كان last_active_at خلال آخر دقيقتين = 1 (متصل)، وإلا 0.
+    const selectQuery = `
+      SELECT 
+        c.*, 
+        b.name AS branch_name,
+        DATE_FORMAT(c.last_login, '%Y-%m-%d %H:%i:%s') as last_login,
+        
+        CASE 
+          WHEN c.last_active_at >= NOW() - INTERVAL 2 MINUTE THEN 1 
+          ELSE 0 
+        END as is_online_calculated
+
+      FROM customers c
+      LEFT JOIN branches b ON b.id = c.branch_id
+    `;
+
+    // ترتيب النتائج حسب الأحدث نشاطاً
+    const orderBy = "ORDER BY c.last_active_at DESC, c.id DESC";
 
     // 1. الإدارة العامة: كل العملاء
     if (user.is_admin_branch === 1 || user.is_admin_branch === true) {
       const [rows] = await db.query(`
         ${selectQuery}
-        ORDER BY c.id DESC
+        ${orderBy}
       `);
       return res.json({ success: true, mode: "admin", customers: rows });
     }
@@ -126,7 +153,7 @@ const selectQuery = `
       `
       ${selectQuery}
       WHERE c.branch_id = ?
-      ORDER BY c.id DESC
+      ${orderBy}
       `,
       [user.branch_id]
     );
@@ -139,7 +166,7 @@ const selectQuery = `
 });
 
 /* =========================
-   POST /customers (لوحة التحكم)
+   ➕ POST /customers (إضافة عميل من لوحة التحكم)
 ========================= */
 router.post("/", async (req, res) => {
   try {
@@ -156,7 +183,7 @@ router.post("/", async (req, res) => {
       finalBranchId = Number(selectedBranch);
     }
 
-    // تم إضافة is_active = 1 افتراضياً
+    // افتراضياً العميل المضاف يدوياً يكون نشطاً ولكن ليس متصلاً (last_active_at = NULL)
     await db.query(
       `
       INSERT INTO customers (name, phone, phone_alt, email, password, branch_id, created_at, is_active)
@@ -180,7 +207,7 @@ router.post("/", async (req, res) => {
 });
 
 /* =========================
-   PUT /customers/:id
+   ✏️ PUT /customers/:id
 ========================= */
 router.put("/:id", async (req, res) => {
   const { name, phone, phone_alt, email, is_active } = req.body;
@@ -231,7 +258,7 @@ router.put("/:id", async (req, res) => {
 });
 
 /* =========================
-   DELETE /customers/:id
+   🗑️ DELETE /customers/:id
 ========================= */
 router.delete("/:id", async (req, res) => {
   try {
@@ -244,7 +271,7 @@ router.delete("/:id", async (req, res) => {
 });
 
 /* =========================
-   POST /customers/:id/toggle
+   🔄 POST /customers/:id/toggle (تعطيل/تفعيل الحساب)
 ========================= */
 router.post("/:id/toggle", async (req, res) => {
   try {
@@ -272,7 +299,7 @@ router.post("/:id/toggle", async (req, res) => {
 });
 
 /* =========================
-   POST /customers/:id/reset-password
+   🔑 POST /customers/:id/reset-password
 ========================= */
 router.post("/:id/reset-password", async (req, res) => {
   try {
@@ -304,23 +331,25 @@ router.post("/:id/reset-password", async (req, res) => {
 });
 
 /* =========================
-   POST /customers/logout
-   (تغيير الحالة إلى غير متصل)
+   👋 POST /customers/logout
 ========================= */
 router.post("/logout", auth, async (req, res) => {
   try {
-    // auth middleware يضع بيانات العميل في req.user
     const customerId = req.user.id; 
 
+    // عند تسجيل الخروج يدوياً، نصفر وقت آخر نشاط ليظهر كغير متصل فوراً
+    // ملاحظة: يمكن أيضاً استخدام حقل is_online القديم إذا أردت، لكن الاعتماد على الوقت أدق
+    // هنا سنقوم بتحديث last_active_at إلى وقت قديم جداً ليصبح offline فوراً
     await db.query(
-      "UPDATE customers SET is_online = 0 WHERE id = ?",
+      "UPDATE customers SET last_active_at = NULL WHERE id = ?",
       [customerId]
     );
 
-    res.json({ success: true, message: "تم تسجيل الخروج وتحديث الحالة" });
+    res.json({ success: true, message: "تم تسجيل الخروج" });
   } catch (err) {
     console.error("LOGOUT ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
+
 export default router;
