@@ -294,6 +294,7 @@ router.post("/send-otp", async (req, res) => {
     return res.json({
       success: true,
       message: "تم إرسال رمز التحقق بنجاح",
+      debug_code: code, // 🔴 مؤقت للتطوير فقط
     });
   } catch (err) {
     console.error("❌ SEND OTP ERROR:", err);
