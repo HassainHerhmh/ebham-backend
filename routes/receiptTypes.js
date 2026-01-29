@@ -11,48 +11,37 @@ router.use(auth);
 router.get("/", async (req, res) => {
   try {
     const { is_admin_branch, branch_id } = req.user;
-    const headerBranch = req.headers["x-branch-id"];
+    const { search } = req.query; // استقبلنا متغير البحث
 
     let where = "WHERE 1=1 ";
     const params = [];
 
-    if (is_admin_branch) {
-      if (headerBranch) {
-        where += " AND rv.branch_id = ? ";
-        params.push(headerBranch);
-      }
-    } else {
-      where += " AND rv.branch_id = ? ";
+    // 1. تصفية حسب الفرع
+    if (!is_admin_branch) {
+      where += " AND branch_id = ? ";
       params.push(branch_id);
     }
 
+    // 2. منطق البحث (لأن الرابط في الصورة يحتوي على ?search=)
+    if (search) {
+      where += " AND (name_ar LIKE ? OR code LIKE ?) ";
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    // 3. الاستعلام الصحيح من جدول receipt_types
     const [rows] = await db.query(
       `
-      SELECT
-        rv.*,
-        c.name_ar  AS currency_name,
-        a.name_ar  AS account_name,
-        cb.name_ar AS cash_box_name,
-        b.name_ar  AS bank_name,
-        u.name     AS user_name,
-        br.name_ar AS branch_name
-      FROM receipt_vouchers rv
-      LEFT JOIN currencies c  ON c.id = rv.currency_id
-      LEFT JOIN accounts   a  ON a.id = rv.account_id
-      LEFT JOIN cash_boxes cb ON cb.id = rv.cash_box_account_id
-      LEFT JOIN banks      b  ON b.id = rv.bank_account_id
-      LEFT JOIN users      u  ON u.id = rv.created_by
-      LEFT JOIN branches   br ON br.id = rv.branch_id
+      SELECT * FROM receipt_types
       ${where}
-      ORDER BY rv.id DESC
+      ORDER BY sort_order ASC, id DESC
       `,
       params
     );
 
     res.json({ success: true, list: rows });
   } catch (err) {
-    console.error("GET RECEIPT VOUCHERS ERROR:", err);
-    res.status(500).json({ success: false });
+    console.error("GET RECEIPT TYPES ERROR:", err);
+    res.status(500).json({ success: false, message: "خطأ في الخادم" });
   }
 });
 
@@ -64,10 +53,12 @@ router.post("/", async (req, res) => {
     const { code, name_ar, name_en, sort_order } = req.body;
     const { id: user_id, branch_id } = req.user;
 
+    // التحقق من الحقول المطلوبة
+    // سبب الخطأ 400 في الصورة هو أن أحد هذه الحقول (غالباً code أو sort_order) لم يتم إرساله من الفرونت
     if (!code || !name_ar || !sort_order) {
       return res.status(400).json({
         success: false,
-        message: "الرقم والاسم والترتيب مطلوبة",
+        message: "الرقم والاسم والترتيب حقول مطلوبة",
       });
     }
 
@@ -125,9 +116,7 @@ router.put("/:id", async (req, res) => {
 ========================= */
 router.delete("/:id", async (req, res) => {
   try {
-    await db.query("DELETE FROM receipt_types WHERE id = ?", [
-      req.params.id,
-    ]);
+    await db.query("DELETE FROM receipt_types WHERE id = ?", [req.params.id]);
     res.json({ success: true });
   } catch (err) {
     console.error("DELETE RECEIPT TYPE ERROR:", err);
