@@ -264,8 +264,7 @@ if (req.file) {
       `INSERT INTO restaurants
        (name, type_id, address, phone, image_url, map_url, delivery_time, is_active, sort_order, branch_id, agent_id, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`, // 👈 أضفنا علامة استفهام لـ display_type
-      [
-        name,
+      
       [
         name,
         type_id || null,
