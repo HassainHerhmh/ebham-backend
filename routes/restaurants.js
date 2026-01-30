@@ -94,6 +94,7 @@ router.get("/app", async (req, res) => {
     r.sort_order,
     r.branch_id,
     r.type_id,
+    r.display_type,
     r.delivery_time,
 
     CASE 
@@ -227,6 +228,7 @@ router.post("/", upload.single("image"), async (req, res) => {
       category_ids = [],
       schedule = "[]",
       type_id = null,
+       display_type = "product",
       agent_id = null,
       delivery_time = null,
       is_active = 1,
@@ -261,10 +263,13 @@ if (req.file) {
     const [result] = await db.query(
       `INSERT INTO restaurants
        (name, type_id, address, phone, image_url, map_url, delivery_time, is_active, sort_order, branch_id, agent_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`, // 👈 أضفنا علامة استفهام لـ display_type
+      [
+        name,
       [
         name,
         type_id || null,
+         display_type, // 👈 تمرير القيمة هنا
         address,
         phone,
         image_url,
@@ -327,6 +332,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       category_ids,
       schedule,
       type_id = null,
+       display_type, // 👈 استقبال القيمة هنا
       agent_id = null,
       delivery_time,
       is_active,
@@ -337,6 +343,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     const params = [];
 
     if (name !== undefined) { updates.push("name=?"); params.push(name); }
+     if (display_type !== undefined) { updates.push("display_type=?"); params.push(display_type); } // 👈 تحديث القيمة
     if (address !== undefined) { updates.push("address=?"); params.push(address); }
     if (phone !== undefined) { updates.push("phone=?"); params.push(phone); }
     if (map_url !== undefined) { updates.push("map_url=?"); params.push(map_url || null); }
