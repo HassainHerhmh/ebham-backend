@@ -50,25 +50,43 @@ router.get("/customer/:customerId", async (req, res) => {
 /* =========================
    POST /customer-addresses/public  (للتطبيق بدون auth)
 ========================= */
-router.post("/public", async (req, res) => {
-    console.log("📥 ADD ADDRESS BODY:", req.body);
+router.post("/", auth, async (req, res) => {
   try {
+
+    const customer_id = req.user.id; // 🔥 من التوكن
     const {
-      customer_id,
       district,
       location_type,
       address,
       gps_link,
       latitude,
       longitude,
-      branch_id,
     } = req.body;
 
-    if (!customer_id || !district || !branch_id) {
-      return res.json({ success: false, message: "بيانات ناقصة" });
+    if (!customer_id || !district) {
+      return res.status(400).json({
+        success: false,
+        message: "بيانات ناقصة",
+      });
     }
 
-    await db.query(
+    const { is_admin_branch, branch_id } = req.user;
+    const selectedBranch = req.headers["x-branch-id"];
+
+    let finalBranchId = branch_id;
+
+    if (is_admin_branch && selectedBranch && selectedBranch !== "all") {
+      finalBranchId = Number(selectedBranch);
+    }
+
+    if (!finalBranchId) {
+      return res.status(400).json({
+        success: false,
+        message: "الفرع غير محدد",
+      });
+    }
+
+    const [result] = await db.query(
       `
       INSERT INTO customer_addresses
       (customer_id, district, location_type, address, gps_link, latitude, longitude, branch_id)
@@ -82,14 +100,23 @@ router.post("/public", async (req, res) => {
         gps_link || null,
         latitude || null,
         longitude || null,
-        branch_id,
+        finalBranchId,
       ]
     );
 
-    res.json({ success: true });
+    return res.json({
+      success: true,
+      id: result.insertId,
+    });
+
   } catch (err) {
-    console.error("ADD CUSTOMER ADDRESS PUBLIC ERROR:", err);
-    res.status(500).json({ success: false });
+
+    console.error("ADD CUSTOMER ADDRESS ERROR:", err);
+
+    return res.status(500).json({
+      success: false,
+      message: "فشل حفظ العنوان",
+    });
   }
 });
 
