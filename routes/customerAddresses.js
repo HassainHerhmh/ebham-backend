@@ -70,21 +70,21 @@ router.post("/", auth, async (req, res) => {
       });
     }
 
-    const { is_admin_branch, branch_id } = req.user;
-    const selectedBranch = req.headers["x-branch-id"];
+ const { is_admin_branch, branch_id } = req.user;
 
-    let finalBranchId = branch_id;
+const selectedBranch =
+  req.body.branch_id || req.headers["x-branch-id"];
 
-    if (is_admin_branch && selectedBranch && selectedBranch !== "all") {
-      finalBranchId = Number(selectedBranch);
-    }
+let finalBranchId = branch_id;
 
-    if (!finalBranchId) {
-      return res.status(400).json({
-        success: false,
-        message: "الفرع غير محدد",
-      });
-    }
+if (is_admin_branch && selectedBranch && selectedBranch !== "all") {
+  finalBranchId = Number(selectedBranch);
+}
+
+if (!finalBranchId) {
+  return res.json({ success: false, message: "الفرع غير محدد" });
+}
+
 
     const [result] = await db.query(
       `
