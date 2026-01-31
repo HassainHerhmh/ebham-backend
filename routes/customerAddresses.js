@@ -48,12 +48,10 @@ router.get("/customer/:customerId", async (req, res) => {
 });
 
 /* ============================================================
-   2. POST / (إضافة عنوان جديد)
-   تم تحديث المنطق لضمان قراءة الفرع من الجسم (Body) أو الهيدر
+   2. POST / (إضافة عنوان جديد) - نسخة مصححة نهائياً
 ============================================================ */
 router.post("/", auth, async (req, res) => {
   try {
-    // 1. استخراج البيانات من جسم الطلب
     const {
       customer_id,
       district,
@@ -62,50 +60,28 @@ router.post("/", auth, async (req, res) => {
       gps_link,
       latitude,
       longitude,
-      branch_id: bodyBranchId // القادم من الـ payload في React
+      branch_id: bodyBranchId 
     } = req.body;
 
-    // 2. طباعة البيانات المستلمة للفحص (Log) لضمان الشفافية أثناء التطوير
-    console.log("📥 Incoming Save Address Request:", {
-      customerIdFromRoot: customer_id,
-      branchIdFromBody: bodyBranchId,
-      branchIdFromHeader: req.headers["x-branch-id"]
-    });
+    console.log("📥 Incoming Request Data:", { customer_id, bodyBranchId });
 
-    // 3. تحديد ID العميل: الأولوية للمرسل في الجسم ثم المستخرج من التوكن (req.user)
     const finalCustomerId = customer_id || req.user.id;
-
-    if (!finalCustomerId || !district) {
-      return res.status(400).json({
-        success: false,
-        message: "البيانات الأساسية (العميل والحي) مطلوبة",
-      });
-    }
-
-    // 4. منطق تحديد الفرع (الحل الجذري لمشكلة "الفرع غير محدد"):
     const { is_admin_branch, branch_id: userBranchId } = req.user;
     const headerBranchId = req.headers["x-branch-id"];
 
-    // الترتيب: 1. الجسم (Body) | 2. الهيدر (Header) | 3. فرع المستخدم الافتراضي
     let selectedBranch = bodyBranchId || headerBranchId;
     let finalBranchId = userBranchId;
 
-    // إذا كان المستخدم يملك صلاحيات (Admin) أو تم إرسال فرع محدد بشكل صريح
     if (selectedBranch && selectedBranch !== "all" && selectedBranch !== "null") {
       finalBranchId = Number(selectedBranch);
     }
 
-    // 5. التحقق النهائي من وجود معرف الفرع
     if (!finalBranchId) {
-      console.error("❌ Save Failed: branch_id is still missing after checks.");
-      return res.json({ 
-        success: false, 
-        message: "عذراً، تعذر تحديد الفرع المرتبط بالعنوان. يرجى إعادة اختيار الفرع." 
-      });
+      return res.json({ success: false, message: "الفرع غير محدد" });
     }
 
-    // 6. تنفيذ عملية الإدخال في قاعدة البيانات
-    const [result] = await pool.query( // تأكد من استخدام pool أو db حسب تعريفك
+    // ✅ التعديل هنا: استخدام db بدلاً من pool ليتوافق مع الـ import في أعلى ملفك
+    const [result] = await db.query( 
       `
       INSERT INTO customer_addresses
       (customer_id, district, location_type, address, gps_link, latitude, longitude, branch_id)
@@ -123,8 +99,6 @@ router.post("/", auth, async (req, res) => {
       ]
     );
 
-    console.log("✅ Address saved successfully with ID:", result.insertId);
-
     return res.json({
       success: true,
       id: result.insertId,
@@ -132,10 +106,10 @@ router.post("/", auth, async (req, res) => {
     });
 
   } catch (err) {
-    console.error("🔥 ADD ADDRESS CRITICAL ERROR:", err);
+    console.error("🔥 ADD ADDRESS CRITICAL ERROR:", err.message);
     return res.status(500).json({ 
       success: false, 
-      message: "حدث خطأ داخلي أثناء محاولة حفظ العنوان" 
+      message: "حدث خطأ في السيرفر أثناء الحفظ" 
     });
   }
 });
