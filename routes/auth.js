@@ -148,11 +148,22 @@ router.post("/google", async (req, res) => {
       };
     }
 
-    return res.json({
-      success: true,
-      customer,
-      needProfile: true, // عادة Google لا يعطي رقم الهاتف، لذا نحتاج استكمال الملف
-    });
+  const jwtToken = jwt.sign(
+  {
+    id: customer.id,
+    role: "customer",
+  },
+  process.env.JWT_SECRET,
+  { expiresIn: "30d" }
+);
+
+return res.json({
+  success: true,
+  token: jwtToken,   // ✅
+  customer,
+  needProfile: true,
+});
+
   } catch (err) {
     console.error("❌ GOOGLE LOGIN ERROR FULL:", err?.message || err);
     return res.json({ success: false, message: "Google auth failed" });
@@ -248,11 +259,25 @@ router.post("/verify-otp", async (req, res) => {
       needProfile = true;
     }
 
-    return res.json({
-      success: true,
-      customer,
-      needProfile,
-    });
+    // 🔐 إنشاء JWT للعميل
+const token = jwt.sign(
+  {
+    id: customer.id,
+    role: "customer",
+  },
+  process.env.JWT_SECRET,
+  {
+    expiresIn: "30d",
+  }
+);
+
+return res.json({
+  success: true,
+  token,        // ✅ مهم
+  customer,
+  needProfile,
+});
+
   } catch (err) {
     console.error("❌ VERIFY OTP ERROR:", err);
     return res.status(500).json({
