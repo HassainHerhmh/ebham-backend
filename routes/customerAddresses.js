@@ -47,44 +47,50 @@ router.get("/customer/:customerId", async (req, res) => {
   }
 });
 
-/* =========================
-   POST /customer-addresses/public  (للتطبيق بدون auth)
-========================= */
+/* ============================================================
+   2. POST / (إضافة عنوان جديد)
+   تم دمج المسارين ومعالجة تحديد الفرع بشكل ذكي
+============================================================ */
 router.post("/", auth, async (req, res) => {
   try {
-
-    const customer_id = req.user.id; // 🔥 من التوكن
     const {
+      customer_id,   // القادم من الفورم
       district,
       location_type,
       address,
       gps_link,
       latitude,
       longitude,
+      branch_id: bodyBranchId // القادم من الـ payload في React
     } = req.body;
 
-    if (!customer_id || !district) {
+    // تحديد ID العميل: إما المرسل في الجسم أو من التوكن
+    const finalCustomerId = customer_id || req.user.id;
+
+    if (!finalCustomerId || !district) {
       return res.status(400).json({
         success: false,
-        message: "بيانات ناقصة",
+        message: "العميل والحي مطلوبان",
       });
     }
 
- const { is_admin_branch, branch_id } = req.user;
+    const { is_admin_branch, branch_id: userBranchId } = req.user;
+    const headerBranchId = req.headers["x-branch-id"];
 
-const selectedBranch =
-  req.body.branch_id || req.headers["x-branch-id"];
+    // منطق تحديد الفرع:
+    // 1. الأولوية لما تم إرساله في الـ body (تطبيقك يرسل 7)
+    // 2. ثم الهيدر
+    // 3. ثم فرع المستخدم نفسه من التوكن
+    let selectedBranch = bodyBranchId || headerBranchId;
+    let finalBranchId = userBranchId;
 
-let finalBranchId = branch_id;
+    if (is_admin_branch && selectedBranch && selectedBranch !== "all") {
+      finalBranchId = Number(selectedBranch);
+    }
 
-if (is_admin_branch && selectedBranch && selectedBranch !== "all") {
-  finalBranchId = Number(selectedBranch);
-}
-
-if (!finalBranchId) {
-  return res.json({ success: false, message: "الفرع غير محدد" });
-}
-
+    if (!finalBranchId) {
+      return res.json({ success: false, message: "الفرع غير محدد" });
+    }
 
     const [result] = await db.query(
       `
@@ -93,7 +99,7 @@ if (!finalBranchId) {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
-        customer_id,
+        finalCustomerId,
         district,
         location_type || null,
         address || null,
@@ -107,19 +113,14 @@ if (!finalBranchId) {
     return res.json({
       success: true,
       id: result.insertId,
+      message: "تم حفظ العنوان بنجاح"
     });
 
   } catch (err) {
-
-    console.error("ADD CUSTOMER ADDRESS ERROR:", err);
-
-    return res.status(500).json({
-      success: false,
-      message: "فشل حفظ العنوان",
-    });
+    console.error("ADD ADDRESS ERROR:", err);
+    return res.status(500).json({ success: false, message: "فشل حفظ العنوان" });
   }
 });
-
 /* =========================
    حماية كل المسارات
 ========================= */
