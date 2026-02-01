@@ -31,30 +31,30 @@ router.get("/", async (req, res) => {
 });
 
 /* ========================
-   جلب الطرق المفعّلة فقط
+   جلب الطرق المفعّلة فقط - نسخة محسنة
 ======================== */
 router.get("/active", async (req, res) => {
   try {
+    // التأكد من جلب الحقول التي نحتاجها في الـ Frontend (شركة، رقم حساب، اسم المالك)
     const [rows] = await db.query(`
       SELECT 
-        id,
-        company,
-        account_number,
-        owner_name,
-        address,
-        account_id
-      FROM payment_methods
-      WHERE CAST(is_active AS UNSIGNED) = 1
+        id, 
+        company, 
+        account_number, 
+        owner_name, 
+        address
+      FROM payment_methods 
+      WHERE is_active = 1
       ORDER BY sort_order ASC
     `);
 
+    console.log("✅ البنوك النشطة المستخرجة:", rows.length); // للفحص في السيرفر
     res.json({ success: true, methods: rows });
   } catch (err) {
-    console.error("Get active payment methods error:", err);
-    res.status(500).json({ success: false });
+    console.error("❌ خطأ في جلب البنوك:", err);
+    res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 });
-
 /* ========================
    إضافة طريقة دفع
 ======================== */
