@@ -10,6 +10,7 @@ const router = express.Router();
 ========================= */
 router.post("/calc-fees", async (req, res) => {
   try {
+     
     const { address_id, restaurants } = req.body;
     const user = req.user || {};
 
@@ -107,6 +108,8 @@ router.use(auth);
 ========================*/
 router.get("/app", async (req, res) => {
   try {
+         console.log("USER FROM TOKEN:", req.user); // 👈 أضف هذا
+
     const user = req.user;
 
     // لازم يكون عميل
@@ -146,6 +149,9 @@ router.get("/app", async (req, res) => {
       orders: [],
     });
   }
+
+       console.log("USER FROM TOKEN:", req.user); // 👈 أضف هذا
+
 });
 
 
