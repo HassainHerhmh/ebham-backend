@@ -34,10 +34,13 @@ export default async function auth(req, res, next) {
     };
 
     // 🔹 دعم تغيير الفرع من الهيدر (للإدارة فقط)
-    const headerBranch = req.headers["x-branch-id"];
-    if (headerBranch && req.user.is_admin_branch) {
-      req.user.branch_id = Number(headerBranch);
-    }
+   // 🔹 دعم الفرع من الهيدر (للإدارة + التطبيق)
+const headerBranch = req.headers["x-branch-id"];
+
+if (headerBranch) {
+  req.user.branch_id = Number(headerBranch);
+}
+
 
     next();
   } catch (e) {
