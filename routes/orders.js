@@ -102,34 +102,36 @@ router.post("/calc-fees", async (req, res) => {
 router.use(auth);
 
 /* =========================
-   GET /app/orders (Customer)
+   GET /orders/app
+   خاص بالتطبيق (العميل)
 ========================= */
-router.get("/app/orders", async (req, res) => {
+router.get("/app", async (req, res) => {
   try {
     const user = req.user;
 
+    // لازم يكون عميل
     if (!user.customer_id) {
       return res.status(403).json({
         success: false,
-        message: "غير مصرح",
+        message: "غير مصرح"
       });
     }
 
-    const [rows] = await db.query(`
+    const [rows] = await db.query(
+      `
       SELECT 
-        o.id,
-        o.status,
-        o.total_amount,
-        o.created_at,
+        o.*,
+        b.name AS branch_name,
         r.name AS restaurant_name,
-        r.image AS restaurant_image,
-        b.name AS branch_name
+        r.image AS restaurant_image
       FROM orders o
-      JOIN restaurants r ON r.id = o.restaurant_id
       LEFT JOIN branches b ON b.id = o.branch_id
+      LEFT JOIN restaurants r ON r.id = o.restaurant_id
       WHERE o.customer_id = ?
       ORDER BY o.id DESC
-    `, [user.customer_id]);
+      `,
+      [user.customer_id]
+    );
 
     res.json({
       success: true,
