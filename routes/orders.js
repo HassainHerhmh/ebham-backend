@@ -95,25 +95,7 @@ router.post("/calc-fees", async (req, res) => {
   }
 });
 
-    /* ================= FALLBACK ================= */
-    else {
-      rows = [];
-    }
-
-    res.json({
-      success: true,
-      orders: rows
-    });
-
-  } catch (err) {
-    console.error("GET ORDERS ERROR:", err);
-    res.status(500).json({
-      success: false,
-      orders: []
-    });
-  }
-});
-
+  
 /*==========================
 حماية المسار
 ==================== */
