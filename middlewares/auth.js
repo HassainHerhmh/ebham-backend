@@ -24,15 +24,26 @@ export default async function auth(req, res, next) {
       [decoded.id]
     );
 
-    const isAdminBranch = rows.length ? rows[0].is_admin === 1 : false;
 
-    req.user = {
-      id: decoded.id,
-      role: decoded.role,
-      branch_id: decoded.branch_id || null,
-      is_admin_branch: isAdminBranch,
-    };
+const isAdminBranch = rows.length ? rows[0].is_admin === 1 : false;
 
+
+// ✅ جلب customer_id
+const [cust] = await db.query(
+  "SELECT id FROM customers WHERE user_id = ?",
+  [decoded.id]
+);
+
+
+req.user = {
+  id: decoded.id,
+  role: decoded.role,
+
+  customer_id: cust.length ? cust[0].id : null, // ✅ هذا المهم
+
+  branch_id: decoded.branch_id || null,
+  is_admin_branch: isAdminBranch,
+};
     // 🔹 دعم تغيير الفرع من الهيدر (للإدارة فقط)
    // 🔹 دعم الفرع من الهيدر (للإدارة + التطبيق)
 const headerBranch = req.headers["x-branch-id"];
