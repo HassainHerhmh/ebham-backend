@@ -5,49 +5,80 @@ export default async function auth(req, res, next) {
   const header = req.headers.authorization;
 
   if (!header) {
-    return res.status(401).json({ success: false, message: "غير مصرح" });
+    return res.status(401).json({
+      success: false,
+      message: "غير مصرح",
+    });
   }
 
   const token = header.split(" ")[1];
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET
+    );
 
-    // جلب حالة الفرع من قاعدة البيانات
-    const [rows] = await db.query(
-      `
-      SELECT b.is_admin
-      FROM users u
-      JOIN branches b ON b.id = u.branch_id
-      WHERE u.id = ?
-      `,
+    /* جلب المستخدم */
+    const [[user]] = await db.query(
+      "SELECT * FROM users WHERE id = ? LIMIT 1",
       [decoded.id]
     );
 
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "مستخدم غير موجود",
+      });
+    }
 
-const isAdminBranch = rows.length ? rows[0].is_admin === 1 : false;
+    /* جلب العميل لو موجود */
+    const [[customer]] = await db.query(
+      "SELECT id FROM customers WHERE phone = ? LIMIT 1",
+      [user.phone]
+    );
 
+    /* جلب حالة الفرع */
+    const [[branch]] = await db.query(
+      `
+      SELECT is_admin 
+      FROM branches 
+      WHERE id = ?
+      `,
+      [user.branch_id]
+    );
 
+    const isAdminBranch =
+      branch?.is_admin === 1;
 
+    req.user = {
+      id: user.id,
+      role: user.role,
 
+      customer_id: customer?.id || null,
 
-req.user = {
-  id: decoded.id,
-  role: decoded.role,
-  branch_id: decoded.branch_id || null,
-  is_admin_branch: isAdminBranch,
-};
-    // 🔹 دعم تغيير الفرع من الهيدر (للإدارة فقط)
-   // 🔹 دعم الفرع من الهيدر (للإدارة + التطبيق)
-const headerBranch = req.headers["x-branch-id"];
+      branch_id: user.branch_id || null,
 
-if (headerBranch) {
-  req.user.branch_id = Number(headerBranch);
-}
+      is_admin_branch: isAdminBranch,
+    };
 
+    /* السماح بتغيير الفرع */
+    const headerBranch =
+      req.headers["x-branch-id"];
+
+    if (headerBranch) {
+      req.user.branch_id = Number(headerBranch);
+    }
+
+    console.log("USER AUTH:", req.user);
 
     next();
-  } catch (e) {
-    return res.status(401).json({ success: false, message: "توكن غير صالح" });
+  } catch (err) {
+    console.error("AUTH ERROR:", err);
+
+    return res.status(401).json({
+      success: false,
+      message: "توكن غير صالح",
+    });
   }
 }
