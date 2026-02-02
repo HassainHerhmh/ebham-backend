@@ -108,6 +108,8 @@ router.use(auth);
 ========================*/
 router.get("/app", async (req, res) => {
   try {
+         console.log("USER FROM TOKEN:", req.user); // 👈 أضف هذا
+
     const user = req.user;
 
     if (!user.customer_id) {
