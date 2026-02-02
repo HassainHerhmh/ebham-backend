@@ -255,8 +255,14 @@ router.post("/", async (req, res) => {
         }
       }
     }
-
+      const userId =
+  req.user && (req.user.is_admin_branch || req.user.role === "admin")
+    ? req.user.id
+    : null;
+     
     const [result] = await db.query(
+ 
+
       `
       INSERT INTO orders 
         (
@@ -281,7 +287,7 @@ router.post("/", async (req, res) => {
         gps_link || null,
         storesCount,
         branchId,
-        user.id || null, // استخدام الارتباط الاختياري لمنع خطأ ReferenceError
+  userId, // ✅ ذكي
         deliveryFee,
         extraStoreFee,
         payment_method || null,
