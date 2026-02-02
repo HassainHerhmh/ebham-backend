@@ -3,6 +3,101 @@ import db from "../db.js";
 import auth from "../middlewares/auth.js";
 
 const router = express.Router();
+
+
+/* =========================
+   POST /orders/calc-fees
+========================= */
+router.post("/calc-fees", async (req, res) => {
+  try {
+    const { address_id, restaurants } = req.body;
+    const user = req.user || {};
+
+    if (!restaurants || !restaurants.length) {
+      return res.json({ success: false });
+    }
+
+    const storeIds = restaurants.map(r => r.restaurant_id);
+    const storesCount = new Set(storeIds).size;
+
+    let branchId = user.branch_id;
+
+    if (!branchId && address_id) {
+      const [addr] = await db.query(
+        "SELECT branch_id FROM customer_addresses WHERE id=?",
+        [address_id]
+      );
+
+      if (addr.length) {
+        branchId = addr[0].branch_id;
+      }
+    }
+
+    let deliveryFee = 0;
+    let extraStoreFee = 0;
+
+    if (branchId) {
+      const [settingsRows] = await db.query(
+        "SELECT * FROM branch_delivery_settings WHERE branch_id=? LIMIT 1",
+        [branchId]
+      );
+
+      if (settingsRows.length) {
+        const settings = settingsRows[0];
+
+        /* ===== حسب الحي ===== */
+        if (settings.method === "neighborhood" && address_id) {
+          const [addr] = await db.query(
+            "SELECT district FROM customer_addresses WHERE id=?",
+            [address_id]
+          );
+
+          if (addr.length) {
+            const [n] = await db.query(
+              "SELECT delivery_fee, extra_store_fee FROM neighborhoods WHERE id=?",
+              [addr[0].district]
+            );
+
+            if (n.length) {
+              deliveryFee = Number(n[0].delivery_fee) || 0;
+
+              if (storesCount > 1) {
+                extraStoreFee =
+                  (storesCount - 1) *
+                  (Number(n[0].extra_store_fee) || 0);
+              }
+            }
+          }
+        }
+
+        /* ===== حسب المسافة ===== */
+        if (settings.method === "distance") {
+          deliveryFee = Number(settings.km_price_single) || 0;
+
+          if (storesCount > 1) {
+            extraStoreFee =
+              (storesCount - 1) *
+              (Number(settings.km_price_multi) || 0);
+          }
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      delivery_fee: deliveryFee,
+      extra_store_fee: extraStoreFee,
+    });
+
+  } catch (err) {
+    console.error("CALC FEES ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
+/*==========================
+حماية المسار
+==================== */
 router.use(auth);
 
 
