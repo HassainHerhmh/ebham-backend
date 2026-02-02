@@ -28,19 +28,12 @@ export default async function auth(req, res, next) {
 const isAdminBranch = rows.length ? rows[0].is_admin === 1 : false;
 
 
-// ✅ جلب customer_id
-const [cust] = await db.query(
-  "SELECT id FROM customers WHERE user_id = ?",
-  [decoded.id]
-);
+
 
 
 req.user = {
   id: decoded.id,
   role: decoded.role,
-
-  customer_id: cust.length ? cust[0].id : null, // ✅ هذا المهم
-
   branch_id: decoded.branch_id || null,
   is_admin_branch: isAdminBranch,
 };
