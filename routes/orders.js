@@ -126,7 +126,8 @@ router.get("/app", async (req, res) => {
         o.*,
         b.name AS branch_name,
         r.name AS restaurant_name,
-        r.image AS restaurant_image
+       r.image_url AS restaurant_image
+
       FROM orders o
       LEFT JOIN branches b ON b.id = o.branch_id
       LEFT JOIN restaurants r ON r.id = o.restaurant_id
