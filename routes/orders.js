@@ -108,33 +108,46 @@ router.use(auth);
 ========================*/
 router.get("/app", async (req, res) => {
   try {
-         console.log("USER FROM TOKEN:", req.user); // 👈 أضف هذا
-
     const user = req.user;
 
-    // لازم يكون عميل
-    if (user.role !== "customer") {
+    if (!user.customer_id) {
       return res.status(403).json({
         success: false,
-        message: "غير مصرح"
+        message: "غير مصرح",
+      });
+    }
+
+    if (!user.branch_id) {
+      return res.status(400).json({
+        success: false,
+        message: "لم يتم تحديد الفرع",
       });
     }
 
     const [rows] = await db.query(
       `
       SELECT 
-        o.*,
-        b.name AS branch_name,
-        r.name AS restaurant_name,
-       r.image_url AS restaurant_image
+        o.id,
+        o.status,
+        o.total_amount,
+        o.created_at,
+
+        r.id    AS restaurant_id,
+        r.name  AS restaurant_name,
+        r.image AS restaurant_image
 
       FROM orders o
-      LEFT JOIN branches b ON b.id = o.branch_id
-      LEFT JOIN restaurants r ON r.id = o.restaurant_id
-      WHERE o.customer_id = ?
+
+      JOIN restaurants r 
+        ON r.id = o.restaurant_id
+
+      WHERE 
+        o.customer_id = ?
+        AND o.branch_id = ?
+
       ORDER BY o.id DESC
       `,
-      [user.id] // ✅ هنا الحل
+      [user.customer_id, user.branch_id]
     );
 
     res.json({
@@ -144,13 +157,12 @@ router.get("/app", async (req, res) => {
 
   } catch (err) {
     console.error("APP ORDERS ERROR:", err);
+
     res.status(500).json({
       success: false,
-      message: err.message,
       orders: [],
     });
   }
-
 });
 
 
