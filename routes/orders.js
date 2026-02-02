@@ -150,8 +150,6 @@ router.get("/app", async (req, res) => {
     });
   }
 
-    console.log("CUSTOMER ID:", user.id); // 👈 وأيضًا هذا
-
 });
 
 
