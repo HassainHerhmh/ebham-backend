@@ -101,6 +101,50 @@ router.post("/calc-fees", async (req, res) => {
 ==================== */
 router.use(auth);
 
+/* =========================
+   GET /app/orders (Customer)
+========================= */
+router.get("/app/orders", async (req, res) => {
+  try {
+    const user = req.user;
+
+    if (!user.customer_id) {
+      return res.status(403).json({
+        success: false,
+        message: "غير مصرح",
+      });
+    }
+
+    const [rows] = await db.query(`
+      SELECT 
+        o.id,
+        o.status,
+        o.total_amount,
+        o.created_at,
+        r.name AS restaurant_name,
+        r.image AS restaurant_image,
+        b.name AS branch_name
+      FROM orders o
+      JOIN restaurants r ON r.id = o.restaurant_id
+      LEFT JOIN branches b ON b.id = o.branch_id
+      WHERE o.customer_id = ?
+      ORDER BY o.id DESC
+    `, [user.customer_id]);
+
+    res.json({
+      success: true,
+      orders: rows,
+    });
+
+  } catch (err) {
+    console.error("APP ORDERS ERROR:", err);
+    res.status(500).json({
+      success: false,
+      orders: [],
+    });
+  }
+});
+
 
 /* =========================
    GET /orders
