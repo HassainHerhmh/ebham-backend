@@ -3,6 +3,51 @@ import db from "../db.js";
 import auth from "../middlewares/auth.js";
 
 const router = express.Router();
+/* =========================
+   GET /orders/app
+   خاص بالتطبيق (العميل)
+========================= */
+router.get("/app", async (req, res) => {
+  try {
+    const user = req.user;
+
+    // لازم يكون عميل
+    if (!user.customer_id) {
+      return res.status(403).json({
+        success: false,
+        message: "غير مصرح"
+      });
+    }
+
+    const [rows] = await db.query(
+      `
+      SELECT 
+        o.*,
+        b.name AS branch_name,
+        r.name AS restaurant_name,
+        r.image AS restaurant_image
+      FROM orders o
+      LEFT JOIN branches b ON b.id = o.branch_id
+      LEFT JOIN restaurants r ON r.id = o.restaurant_id
+      WHERE o.customer_id = ?
+      ORDER BY o.id DESC
+      `,
+      [user.customer_id]
+    );
+
+    res.json({
+      success: true,
+      orders: rows,
+    });
+
+  } catch (err) {
+    console.error("APP ORDERS ERROR:", err);
+    res.status(500).json({
+      success: false,
+      orders: [],
+    });
+  }
+});
 
 
 /* =========================
@@ -101,51 +146,6 @@ router.post("/calc-fees", async (req, res) => {
 ==================== */
 router.use(auth);
 
-/* =========================
-   GET /orders/app
-   خاص بالتطبيق (العميل)
-========================= */
-router.get("/app", async (req, res) => {
-  try {
-    const user = req.user;
-
-    // لازم يكون عميل
-    if (!user.customer_id) {
-      return res.status(403).json({
-        success: false,
-        message: "غير مصرح"
-      });
-    }
-
-    const [rows] = await db.query(
-      `
-      SELECT 
-        o.*,
-        b.name AS branch_name,
-        r.name AS restaurant_name,
-        r.image AS restaurant_image
-      FROM orders o
-      LEFT JOIN branches b ON b.id = o.branch_id
-      LEFT JOIN restaurants r ON r.id = o.restaurant_id
-      WHERE o.customer_id = ?
-      ORDER BY o.id DESC
-      `,
-      [user.customer_id]
-    );
-
-    res.json({
-      success: true,
-      orders: rows,
-    });
-
-  } catch (err) {
-    console.error("APP ORDERS ERROR:", err);
-    res.status(500).json({
-      success: false,
-      orders: [],
-    });
-  }
-});
 
 
 /* =========================
