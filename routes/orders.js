@@ -3,16 +3,12 @@ import db from "../db.js";
 import auth from "../middlewares/auth.js";
 
 const router = express.Router();
-/* =========================
-   GET /orders/app
-   خاص بالتطبيق (العميل)
-========================= */
 router.get("/app", async (req, res) => {
   try {
     const user = req.user;
 
     // لازم يكون عميل
-    if (!user.customer_id) {
+    if (user.role !== "customer") {
       return res.status(403).json({
         success: false,
         message: "غير مصرح"
@@ -32,7 +28,7 @@ router.get("/app", async (req, res) => {
       WHERE o.customer_id = ?
       ORDER BY o.id DESC
       `,
-      [user.customer_id]
+      [user.id] // ✅ هنا الحل
     );
 
     res.json({
@@ -44,10 +40,12 @@ router.get("/app", async (req, res) => {
     console.error("APP ORDERS ERROR:", err);
     res.status(500).json({
       success: false,
+      message: err.message,
       orders: [],
     });
   }
 });
+
 
 
 /* =========================
