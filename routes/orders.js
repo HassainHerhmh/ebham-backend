@@ -115,41 +115,26 @@ router.get("/app", async (req, res) => {
     if (!user.customer_id) {
       return res.status(403).json({
         success: false,
-        message: "غير مصرح",
-      });
-    }
-
-    if (!user.branch_id) {
-      return res.status(400).json({
-        success: false,
-        message: "لم يتم تحديد الفرع",
+        message: "غير مصرح"
       });
     }
 
     const [rows] = await db.query(
       `
       SELECT 
-        o.id,
-        o.status,
-        o.total_amount,
-        o.created_at,
-
-        r.id    AS restaurant_id,
-        r.name  AS restaurant_name,
-        r.image AS restaurant_image
-
+        o.*,
+        b.name AS branch_name,
+        r.name AS restaurant_name,
+        r.image_url AS restaurant_image
       FROM orders o
-
-      JOIN restaurants r 
-        ON r.id = o.restaurant_id
-
+      LEFT JOIN branches b ON b.id = o.branch_id
+      LEFT JOIN restaurants r ON r.id = o.restaurant_id
       WHERE 
         o.customer_id = ?
         AND o.branch_id = ?
-
       ORDER BY o.id DESC
       `,
-      [user.customer_id, user.branch_id]
+      [user.customer_id, user.branch_id] // ✅ مهم
     );
 
     res.json({
@@ -159,7 +144,6 @@ router.get("/app", async (req, res) => {
 
   } catch (err) {
     console.error("APP ORDERS ERROR:", err);
-
     res.status(500).json({
       success: false,
       orders: [],
