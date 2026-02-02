@@ -107,6 +107,8 @@ router.use(auth);
 للتطبيق
 ========================*/
 router.get("/app", auth, async (req, res) => {
+   console.log("APP ORDERS USER:", req.user);
+
   try {
     const user = req.user;
 
