@@ -150,7 +150,7 @@ router.get("/app", async (req, res) => {
     });
   }
 
-       console.log("USER FROM TOKEN:", req.user); // 👈 أضف هذا
+    console.log("CUSTOMER ID:", user.id); // 👈 وأيضًا هذا
 
 });
 
