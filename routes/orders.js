@@ -424,6 +424,8 @@ io.emit("notification", {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+//////////////////////////
 router.get("/:id", async (req, res) => {
   try {
     const orderId = req.params.id;
@@ -467,6 +469,7 @@ router.get("/:id", async (req, res) => {
         oi.quantity,
         oi.restaurant_id,
         r.name AS restaurant_name,
+            r.image_url AS restaurant_image, 
         r.phone AS restaurant_phone,
         r.map_url
       FROM order_items oi
