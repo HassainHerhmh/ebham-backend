@@ -488,6 +488,7 @@ router.get("/:id", async (req, res) => {
         map[it.restaurant_id] = {
           id: it.restaurant_id,
           name: it.restaurant_name,
+             image: it.restaurant_image,
           phone: it.restaurant_phone,
           map_url: it.map_url,
           items: [],
