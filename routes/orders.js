@@ -682,6 +682,57 @@ router.post("/:id/assign", async (req, res) => {
   }
 });
 
+/* =========================
+   GET /orders/stats
+========================= */
+router.get("/stats/summary", async (req, res) => {
+  try {
+    const user = req.user;
+
+    if (!user.customer_id) {
+      return res.json({
+        success: false,
+        message: "ليس عميل",
+      });
+    }
+
+    // عدد كل الطلبات بدون فلترة فرع
+    const [[ordersRow]] = await db.query(
+      `
+      SELECT COUNT(*) AS total_orders
+      FROM orders
+      WHERE customer_id = ?
+      `,
+      [user.customer_id]
+    );
+
+    // الرصيد (لو عندك جدول wallet عدله حسبك)
+    const [[walletRow]] = await db.query(
+      `
+      SELECT balance
+      FROM wallets
+      WHERE customer_id = ?
+      LIMIT 1
+      `,
+      [user.customer_id]
+    );
+
+    res.json({
+      success: true,
+      orders: ordersRow.total_orders || 0,
+      balance: walletRow?.balance || 0,
+      points: 0, // مؤقتًا
+    });
+
+  } catch (err) {
+    console.error("STATS ERROR:", err);
+
+    res.status(500).json({
+      success: false,
+    });
+  }
+});
+
 export default router;
 
 
