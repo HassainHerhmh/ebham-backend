@@ -2,83 +2,74 @@ import jwt from "jsonwebtoken";
 import db from "../db.js";
 
 export default async function auth(req, res, next) {
-  const header = req.headers.authorization;
+    const header = req.headers.authorization;
 
-  if (!header) {
-    return res.status(401).json({
-      success: false,
-      message: "غير مصرح",
-    });
-  }
-
-  const token = header.split(" ")[1];
-
-  try {
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET
-    );
-
-    /* جلب المستخدم */
-    const [[user]] = await db.query(
-      "SELECT * FROM users WHERE id = ? LIMIT 1",
-      [decoded.id]
-    );
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: "مستخدم غير موجود",
-      });
+    // 1. التحقق من وجود الهيدر
+    if (!header || !header.startsWith("Bearer ")) {
+        return res.status(401).json({
+            success: false,
+            message: "غير مصرح - التوكن مفقود",
+        });
     }
 
-    /* جلب العميل لو موجود */
-    const [[customer]] = await db.query(
-      "SELECT id FROM customers WHERE phone = ? LIMIT 1",
-      [user.phone]
-    );
+    const token = header.split(" ")[1];
 
-    /* جلب حالة الفرع */
-    const [[branch]] = await db.query(
-      `
-      SELECT is_admin 
-      FROM branches 
-      WHERE id = ?
-      `,
-      [user.branch_id]
-    );
+    try {
+        // 2. فك تشفير التوكن
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    const isAdminBranch =
-      branch?.is_admin === 1;
+        let userRecord = null;
 
-    req.user = {
-      id: user.id,
-      role: user.role,
+        // 3. التوجيه الذكي بناءً على الدور (Role)
+        if (decoded.role === "customer") {
+            // البحث في جدول العملاء إذا كان المسجل "عميل"
+            const [rows] = await db.query(
+                "SELECT id, name, phone, 'customer' as role FROM customers WHERE id = ? LIMIT 1",
+                [decoded.id]
+            );
+            userRecord = rows[0];
+        } else {
+            // البحث في جدول المستخدمين للإداريين والموظفين
+            const [rows] = await db.query(
+                "SELECT id, name, phone, role, branch_id FROM users WHERE id = ? LIMIT 1",
+                [decoded.id]
+            );
+            userRecord = rows[0];
+        }
 
-      customer_id: customer?.id || null,
+        // 4. التحقق من وجود السجل في قاعدة البيانات
+        if (!userRecord) {
+            console.error(`❌ لم يتم العثور على سجل للدور ${decoded.role} بالمعرف ${decoded.id}`);
+            return res.status(401).json({
+                success: false,
+                message: "مستخدم غير موجود في النظام المرفوع",
+            });
+        }
 
-      branch_id: user.branch_id || null,
+        // 5. بناء كائن المستخدم للطلبات اللاحقة (req.user)
+        // نضمن وجود معرف العميل إذا كان الدور عميل
+        req.user = {
+            id: userRecord.id,
+            role: userRecord.role,
+            phone: userRecord.phone,
+            customer_id: decoded.role === "customer" ? userRecord.id : null,
+            branch_id: userRecord.branch_id || null,
+        };
 
-      is_admin_branch: isAdminBranch,
-    };
+        // 6. السماح بتغيير الفرع عبر الهيدر (اختياري)
+        const headerBranch = req.headers["x-branch-id"];
+        if (headerBranch) {
+            req.user.branch_id = Number(headerBranch);
+        }
 
-    /* السماح بتغيير الفرع */
-    const headerBranch =
-      req.headers["x-branch-id"];
+        console.log("✅ تم التوثيق بنجاح لـ:", req.user.phone);
+        next();
 
-    if (headerBranch) {
-      req.user.branch_id = Number(headerBranch);
+    } catch (err) {
+        console.error("AUTH ERROR:", err.message);
+        return res.status(401).json({
+            success: false,
+            message: "توكن غير صالح أو منتهي الصلاحية",
+        });
     }
-
-    console.log("USER AUTH:", req.user);
-
-    next();
-  } catch (err) {
-    console.error("AUTH ERROR:", err);
-
-    return res.status(401).json({
-      success: false,
-      message: "توكن غير صالح",
-    });
-  }
 }
