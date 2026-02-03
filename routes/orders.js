@@ -682,21 +682,24 @@ router.post("/:id/assign", async (req, res) => {
   }
 });
 
+
+
 /* =========================
-   GET /orders/stats
+   GET /profile/stats
+   إحصائيات البروفايل
 ========================= */
-router.get("/stats/summary", async (req, res) => {
+router.get("/profile/stats", async (req, res) => {
   try {
     const user = req.user;
 
     if (!user.customer_id) {
-      return res.json({
+      return res.status(403).json({
         success: false,
         message: "ليس عميل",
       });
     }
 
-    // عدد كل الطلبات بدون فلترة فرع
+    /* عدد الطلبات (كل الفروع) */
     const [[ordersRow]] = await db.query(
       `
       SELECT COUNT(*) AS total_orders
@@ -706,12 +709,25 @@ router.get("/stats/summary", async (req, res) => {
       [user.customer_id]
     );
 
-    // الرصيد (لو عندك جدول wallet عدله حسبك)
+    /* الرصيد من customer_guarantees */
     const [[walletRow]] = await db.query(
       `
-      SELECT balance
-      FROM wallets
-      WHERE customer_id = ?
+      SELECT
+        CASE 
+          WHEN cg.type = 'account' THEN
+            IFNULL((
+              SELECT IFNULL(SUM(je.debit),0) - IFNULL(SUM(je.credit),0)
+              FROM journal_entries je
+              WHERE je.account_id = cg.account_id
+            ), 0)
+          ELSE IFNULL((
+            SELECT SUM(m.amount_base)
+            FROM customer_guarantee_moves m
+            WHERE m.guarantee_id = cg.id
+          ), 0)
+        END AS balance
+      FROM customer_guarantees cg
+      WHERE cg.customer_id = ?
       LIMIT 1
       `,
       [user.customer_id]
@@ -719,19 +735,21 @@ router.get("/stats/summary", async (req, res) => {
 
     res.json({
       success: true,
-      orders: ordersRow.total_orders || 0,
-      balance: walletRow?.balance || 0,
-      points: 0, // مؤقتًا
+      total_orders: ordersRow?.total_orders || 0,
+      balance: Number(walletRow?.balance || 0),
     });
 
   } catch (err) {
-    console.error("STATS ERROR:", err);
+    console.error("PROFILE STATS ERROR:", err);
 
     res.status(500).json({
       success: false,
+      total_orders: 0,
+      balance: 0,
     });
   }
 });
+
 
 export default router;
 
