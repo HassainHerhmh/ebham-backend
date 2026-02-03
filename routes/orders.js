@@ -434,6 +434,8 @@ router.get("/:id", async (req, res) => {
       `
       SELECT 
         o.id,
+          o.status,          -- ✅ أضف هذا
+  o.created_at,      -- ✅ وهذا
         c.name AS customer_name,
         c.phone AS customer_phone,
         a.district AS neighborhood_name,
