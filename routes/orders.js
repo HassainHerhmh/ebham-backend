@@ -379,12 +379,22 @@ router.post("/", async (req, res) => {
     let total = 0;
 
     for (const p of products) {
-      const [[prod]] = await db.query(
-        "SELECT name, price FROM products WHERE id=?",
-        [p.product_id]
-      );
+  const [[prod]] = await db.query(
+  "SELECT name, price FROM products WHERE id=?",
+  [p.product_id]
+);
 
-      const subtotal = prod.price * p.quantity;
+if (!prod) {
+  console.error("PRODUCT NOT FOUND:", p.product_id);
+
+  return res.status(400).json({
+    success: false,
+    message: "أحد المنتجات غير موجود"
+  });
+}
+
+const subtotal = Number(prod.price) * Number(p.quantity);
+
       total += subtotal;
 
       await db.query(
