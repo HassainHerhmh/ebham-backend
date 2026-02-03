@@ -429,6 +429,71 @@ io.emit("notification", {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+/* =========================
+   GET /profile/stats
+   إحصائيات البروفايل
+========================= */
+router.get("/profile/stats", async (req, res) => {
+  try {
+    const user = req.user;
+
+    if (!user.customer_id) {
+      return res.status(403).json({
+        success: false,
+        message: "ليس عميل",
+      });
+    }
+
+    /* عدد الطلبات (كل الفروع) */
+    const [[ordersRow]] = await db.query(
+      `
+      SELECT COUNT(*) AS total_orders
+      FROM orders
+      WHERE customer_id = ?
+      `,
+      [user.customer_id]
+    );
+
+    /* الرصيد من customer_guarantees */
+    const [[walletRow]] = await db.query(
+      `
+      SELECT
+        CASE 
+          WHEN cg.type = 'account' THEN
+            IFNULL((
+              SELECT IFNULL(SUM(je.debit),0) - IFNULL(SUM(je.credit),0)
+              FROM journal_entries je
+              WHERE je.account_id = cg.account_id
+            ), 0)
+          ELSE IFNULL((
+            SELECT SUM(m.amount_base)
+            FROM customer_guarantee_moves m
+            WHERE m.guarantee_id = cg.id
+          ), 0)
+        END AS balance
+      FROM customer_guarantees cg
+      WHERE cg.customer_id = ?
+      LIMIT 1
+      `,
+      [user.customer_id]
+    );
+
+    res.json({
+      success: true,
+      total_orders: ordersRow?.total_orders || 0,
+      balance: Number(walletRow?.balance || 0),
+    });
+
+  } catch (err) {
+    console.error("PROFILE STATS ERROR:", err);
+
+    res.status(500).json({
+      success: false,
+      total_orders: 0,
+      balance: 0,
+    });
+  }
+});
 
 //////////////////////////
 router.get("/:id", async (req, res) => {
@@ -684,71 +749,6 @@ router.post("/:id/assign", async (req, res) => {
 
 
 
-/* =========================
-   GET /profile/stats
-   إحصائيات البروفايل
-========================= */
-router.get("/profile/stats", async (req, res) => {
-  try {
-    const user = req.user;
-
-    if (!user.customer_id) {
-      return res.status(403).json({
-        success: false,
-        message: "ليس عميل",
-      });
-    }
-
-    /* عدد الطلبات (كل الفروع) */
-    const [[ordersRow]] = await db.query(
-      `
-      SELECT COUNT(*) AS total_orders
-      FROM orders
-      WHERE customer_id = ?
-      `,
-      [user.customer_id]
-    );
-
-    /* الرصيد من customer_guarantees */
-    const [[walletRow]] = await db.query(
-      `
-      SELECT
-        CASE 
-          WHEN cg.type = 'account' THEN
-            IFNULL((
-              SELECT IFNULL(SUM(je.debit),0) - IFNULL(SUM(je.credit),0)
-              FROM journal_entries je
-              WHERE je.account_id = cg.account_id
-            ), 0)
-          ELSE IFNULL((
-            SELECT SUM(m.amount_base)
-            FROM customer_guarantee_moves m
-            WHERE m.guarantee_id = cg.id
-          ), 0)
-        END AS balance
-      FROM customer_guarantees cg
-      WHERE cg.customer_id = ?
-      LIMIT 1
-      `,
-      [user.customer_id]
-    );
-
-    res.json({
-      success: true,
-      total_orders: ordersRow?.total_orders || 0,
-      balance: Number(walletRow?.balance || 0),
-    });
-
-  } catch (err) {
-    console.error("PROFILE STATS ERROR:", err);
-
-    res.status(500).json({
-      success: false,
-      total_orders: 0,
-      balance: 0,
-    });
-  }
-});
 
 
 export default router;
