@@ -137,8 +137,7 @@ router.get("/app", async (req, res) => {
 
         r.id   AS restaurant_id,
         r.name AS restaurant_name,
-        r.image AS restaurant_image,
-
+r.image_url AS restaurant_image,
         b.name AS branch_name
 
       FROM orders o
