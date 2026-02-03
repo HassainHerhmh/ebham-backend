@@ -127,38 +127,43 @@ router.get("/app", async (req, res) => {
       });
     }
 
-    const [orders] = await db.query(
-      `
-      SELECT 
-        o.id,
-        o.status,
-        o.total_amount,
-        o.created_at,
+  const [orders] = await db.query(
+  `
+SELECT 
+  o.id,
+  o.status,
+  o.total_amount,
+  o.created_at,
+  b.name AS branch_name,
 
-        r.id   AS restaurant_id,
-        r.name AS restaurant_name,
-r.image_url AS restaurant_image,
-        b.name AS branch_name
+  GROUP_CONCAT(DISTINCT r.id)   AS restaurant_ids,
+  GROUP_CONCAT(DISTINCT r.name) AS restaurant_names,
+  GROUP_CONCAT(DISTINCT r.image_url) AS restaurant_images
 
-      FROM orders o
+FROM orders o
 
-      JOIN restaurants r
-        ON r.id = o.restaurant_id
+JOIN order_items oi
+  ON oi.order_id = o.id
 
-      JOIN branches b
-        ON b.id = o.branch_id
+JOIN restaurants r
+  ON r.id = oi.restaurant_id
 
-      WHERE 
-        o.customer_id = ?
-        AND o.branch_id = ?
+JOIN branches b
+  ON b.id = o.branch_id
 
-      ORDER BY o.id DESC
-      `,
-      [
-        user.customer_id,
-        user.branch_id,
-      ]
-    );
+WHERE 
+  o.customer_id = ?
+  AND o.branch_id = ?
+
+GROUP BY o.id
+
+ORDER BY o.id DESC
+  `,
+  [
+    user.customer_id,
+    user.branch_id,
+  ]
+);
 
     res.json({
       success: true,
