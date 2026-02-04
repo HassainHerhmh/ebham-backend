@@ -353,6 +353,13 @@ app.use("/api/customer-guarantees", customerGuarantees);
 import { createServer } from "http";
 import { Server } from "socket.io";
 
+/*=====================
+مسار تقارير العامه 
+====================*/
+import systemReports from "./routes/systemReports.js";
+
+app.use("/api/system-reports", systemReports);
+
 /* =========================
    Start Server + Socket.IO
 ========================= */
