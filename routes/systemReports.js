@@ -28,70 +28,73 @@ router.get("/commissions", async (req, res) => {
       params.push(branch_id);
     }
 
-    const [rows] = await db.query(
-      `
-      SELECT
+ const [rows] = await db.query(
+`
+SELECT
 
-        DATE(o.created_at) AS order_date,
+  DATE(o.created_at) AS order_date,
 
-        cap.name AS captain_name,
+  cap.name AS captain_name,
 
-        r.name AS restaurant_name,
+  r.name AS restaurant_name,
 
-        o.id AS order_id,
+  o.id AS order_id,
 
-        o.total_amount,
+  o.total_amount,
 
-        /* ===== عمولة المطعم ===== */
-        SUM(
-          CASE 
-            WHEN rc.commission_type = 'percent'
-            THEN (oi.price * oi.quantity * rc.commission_value / 100)
-            ELSE IFNULL(rc.commission_value,0)
-          END
-        ) AS restaurant_commission,
+  /* ===== عمولة المطعم ===== */
+  SUM(
+    CASE 
+      WHEN rc.commission_type = 'percent'
+      THEN (oi.price * oi.quantity * rc.commission_value / 100)
+      ELSE IFNULL(rc.commission_value,0)
+    END
+  ) AS restaurant_commission,
 
-        /* ===== عمولة الكابتن ===== */
-        CASE
-          WHEN cc.commission_type = 'percent'
-          THEN (o.delivery_fee * cc.commission_value / 100)
-          ELSE IFNULL(cc.commission_value,0)
-        END AS captain_commission
+  /* ===== عمولة الكابتن ===== */
+  SUM(
+    CASE
+      WHEN cc.commission_type = 'percent'
+      THEN (o.delivery_fee * cc.commission_value / 100)
+      ELSE IFNULL(cc.commission_value,0)
+    END
+  ) AS captain_commission
 
+FROM orders o
 
-      FROM orders o
+LEFT JOIN captains cap 
+  ON cap.id = o.captain_id
 
-      LEFT JOIN captains cap 
-        ON cap.id = o.captain_id
+LEFT JOIN order_items oi 
+  ON oi.order_id = o.id
 
-      LEFT JOIN order_items oi 
-        ON oi.order_id = o.id
+LEFT JOIN restaurants r 
+  ON r.id = oi.restaurant_id
 
-      LEFT JOIN restaurants r 
-        ON r.id = oi.restaurant_id
+LEFT JOIN commissions rc
+  ON rc.account_type = 'agent'
+  AND rc.account_id = r.agent_id
+  AND rc.is_active = 1
 
-      /* ===== عمولة المطعم ===== */
-      LEFT JOIN commissions rc
-        ON rc.account_type = 'agent'
-        AND rc.account_id = r.agent_id
-        AND rc.is_active = 1
+LEFT JOIN commissions cc
+  ON cc.account_type = 'captain'
+  AND cc.account_id = o.captain_id
+  AND cc.is_active = 1
 
-      /* ===== عمولة الكابتن ===== */
-      LEFT JOIN commissions cc
-        ON cc.account_type = 'captain'
-        AND cc.account_id = o.captain_id
-        AND cc.is_active = 1
+WHERE ${where}
 
+GROUP BY
+  o.id,
+  DATE(o.created_at),
+  cap.name,
+  r.name,
+  o.total_amount
 
-      WHERE ${where}
+ORDER BY o.created_at DESC
+`,
+params
+);
 
-      /* مهم: Group فقط بالطلب */
-      GROUP BY o.id
-
-      ORDER BY o.created_at DESC
-      `,
-      params
-    );
 
     res.json({
       success: true,
