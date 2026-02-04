@@ -9,9 +9,18 @@ router.use(auth);
    GET /agent-info
 ========================= */
 router.get("/", async (req, res) => {
-  console.log("REQ USER =>", req.user);
-
   try {
+    const { branch_id, is_admin_branch } = req.user;
+
+    let where = "1=1";
+    const params = [];
+
+    // لو ليس إدارة → فلترة حسب الفرع
+    if (!is_admin_branch) {
+      where = "acc1.branch_id = ?";
+      params.push(branch_id);
+    }
+
     const [rows] = await db.query(`
       SELECT 
         c.id,
@@ -40,29 +49,38 @@ router.get("/", async (req, res) => {
         END AS is_valid_now
 
       FROM commissions c
+
       LEFT JOIN agents a 
         ON c.account_type = 'agent' AND a.id = c.account_id
+
       LEFT JOIN captains k 
         ON c.account_type = 'captain' AND k.id = c.account_id
+
       LEFT JOIN agent_groups g 
         ON g.id = c.group_id
 
       LEFT JOIN accounts acc1 
         ON acc1.id = c.agent_account_id
+
       LEFT JOIN accounts acc2 
         ON acc2.id = c.commission_account_id
+
       LEFT JOIN currencies cur
         ON cur.id = c.currency_id
 
-      ORDER BY c.id DESC
-    `);
+      WHERE ${where}
 
-    res.json(rows);
+      ORDER BY c.id DESC
+    `, params);
+
+    res.json({ success: true, list: rows });
+
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ success: false, error: e.message });
+    console.error("GET AGENT INFO ERROR:", e);
+    res.status(500).json({ success: false });
   }
 });
+
 
 
 /* =========================
