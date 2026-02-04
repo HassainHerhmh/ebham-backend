@@ -196,6 +196,8 @@ router.get("/", async (req, res) => {
         c.phone AS customer_phone,
         u.name AS user_name,
         o.status,
+        o.note,   -- ✅
+
         o.total_amount,
         o.delivery_fee,
         o.extra_store_fee,
@@ -488,7 +490,9 @@ router.get("/:id", async (req, res) => {
       SELECT 
         o.id,
           o.status,          -- ✅ أضف هذا
+
   o.created_at,      -- ✅ وهذا
+    o.note,    
         c.name AS customer_name,
         c.phone AS customer_phone,
         a.district AS neighborhood_name,
