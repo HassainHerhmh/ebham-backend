@@ -253,6 +253,7 @@ router.post("/", async (req, res) => {
       restaurants, // المصفوفة القادمة من الفرونت إند
       payment_method,
       bank_id,
+       note ,
       gps_link
     } = req.body;
 
@@ -329,9 +330,9 @@ router.post("/", async (req, res) => {
 
     // إنشاء رأس الطلب (Order Header)
     const [result] = await db.query(
-      `INSERT INTO orders (customer_id, address_id, restaurant_id, gps_link, stores_count, branch_id, user_id, delivery_fee, extra_store_fee, payment_method, bank_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [customer_id, address_id, mainRestaurantId, gps_link || null, storesCount, branchId, userId, deliveryFee, extraStoreFee, payment_method || null, bank_id || null]
+      `INSERT INTO orders (customer_id, address_id, restaurant_id, note,    gps_link, stores_count, branch_id, user_id, delivery_fee, extra_store_fee, payment_method, bank_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [customer_id, address_id, mainRestaurantId, gps_link || null,  note || null, storesCount, branchId, userId, deliveryFee, extraStoreFee, payment_method || null, bank_id || null]
     );
 
     const orderId = result.insertId;
