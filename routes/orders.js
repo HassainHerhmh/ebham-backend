@@ -243,38 +243,55 @@ router.get("/", async (req, res) => {
   }
 });
 
-/*============================
-   POST /orders (المعدل)
+/* ============================
+   POST /orders (المعدل لحل مشكلة التكرار)
 =============================*/
 router.post("/", async (req, res) => {
   try {
     const {
       customer_id,
       address_id,
-      gps_link,
-      restaurants,
+      restaurants, // المصفوفة القادمة من الفرونت إند
       payment_method,
-      bank_id,
     } = req.body;
 
-    // إصلاح مشكلة user_id is not defined: تأكدنا من وجود كائن المستخدم
-    const user = req.user || {}; 
-
     if (!restaurants || !restaurants.length) {
-      return res.json({ success: false, message: "لا توجد مطاعم" });
+      return res.json({ success: false, message: "السلة فارغة" });
     }
 
-    const products = restaurants.flatMap((r) =>
-      (r.products || []).map((p) => ({
-        restaurant_id: r.restaurant_id,
-        product_id: p.product_id,
-        quantity: p.quantity,
-      }))
-    );
+    // --- التعديل الجوهري هنا ---
+    // تحويل البيانات القادمة لضمان الحصول على المعرف الصحيح للمنتج
+    const products = [];
+    restaurants.forEach(rest => {
+      if (rest.products && rest.products.length) {
+        // إذا كانت الهيكلية: { restaurant_id, products: [{ product_id, quantity }] }
+        rest.products.forEach(p => {
+          products.push({
+            restaurant_id: rest.restaurant_id,
+            product_id: p.product_id || p.id, // يقبل المعرف بأي اسم
+            quantity: p.quantity
+          });
+        });
+      } else if (rest.items && rest.items.length) { 
+        // إذا كانت الهيكلية قادمة من "تكرار الطلب" مباشرة (items):
+        rest.items.forEach(item => {
+          products.push({
+            restaurant_id: rest.id || rest.restaurant_id,
+            product_id: item.product_id || item.id, 
+            quantity: item.quantity
+          });
+        });
+      }
+    });
 
-    if (!products.length) {
-      return res.json({ success: false, message: "لا توجد منتجات" });
+    // التأكد من وجود منتجات فعلياً بعد المعالجة
+    if (products.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "لم يتم العثور على منتجات صالحة في الطلب" 
+      });
     }
+
 
     const storeIds = [...new Set(products.map((p) => p.restaurant_id))];
     const storesCount = storeIds.length;
