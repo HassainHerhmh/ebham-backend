@@ -584,128 +584,318 @@ router.get("/:id", async (req, res) => {
    PUT /orders/:id/status
    تحديث حالة الطلب وتوليد القيود المحاسبية لجميع المطاعم المشاركة
 ===================================================== */
+/* =====================================================
+   PUT /orders/:id/status
+   تحديث الحالة + القيود المحاسبية الصحيحة
+===================================================== */
 router.put("/:id/status", async (req, res) => {
   const conn = await db.getConnection();
+
   try {
-    const { status } = req.body; 
+    const { status } = req.body;
     const orderId = req.params.id;
 
-    if (!status) return res.status(400).json({ success: false, message: "الحالة غير محددة" });
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        message: "الحالة غير محددة",
+      });
+    }
 
     await conn.beginTransaction();
 
-    // 1. تحديث حالة الطلب
-    await conn.query("UPDATE orders SET status=? WHERE id=?", [status, orderId]);
+    /* تحديث الحالة */
+    await conn.query(
+      "UPDATE orders SET status=? WHERE id=?",
+      [status, orderId]
+    );
 
-    // 2. توليد القيود عند الانتقال لحالة "قيد التوصيل"
+    /* عند بدء التوصيل */
     if (status === "delivering") {
-      const [[settings]] = await conn.query("SELECT * FROM settings LIMIT 1");
-      const [[baseCur]] = await conn.query("SELECT id FROM currencies WHERE is_local=1 LIMIT 1");
-      const journalTypeId = 5; 
 
-      // جلب بيانات الطلب العامة (العميل، الكابتن، طرق الدفع)
+      /* الإعدادات */
+      const [[settings]] = await conn.query(
+        "SELECT * FROM settings LIMIT 1"
+      );
+
+      const [[baseCur]] = await conn.query(
+        "SELECT id FROM currencies WHERE is_local=1 LIMIT 1"
+      );
+
+      const journalTypeId = 5;
+
+      /* بيانات الطلب */
       const [orderRows] = await conn.query(`
         SELECT 
           o.*,
           pm.account_id AS bank_account_id,
+
+          cg.account_id AS customer_wallet_acc,
+
           cap.name AS captain_name,
-          cg.type AS guarantee_type, cg.account_id AS direct_acc_id,
-          c_comm.agent_account_id AS cap_acc_id, 
-          c_comm.commission_type AS cap_comm_type, 
+
+          c_comm.agent_account_id AS cap_acc_id,
+          c_comm.commission_type AS cap_comm_type,
           c_comm.commission_value AS cap_comm_val
+
         FROM orders o
-        LEFT JOIN customer_guarantees cg ON cg.customer_id = o.customer_id
-        LEFT JOIN payment_methods pm ON o.bank_id = pm.id
-        LEFT JOIN captains cap ON cap.id = o.captain_id
-        LEFT JOIN commissions c_comm ON (c_comm.account_id = o.captain_id AND c_comm.account_type = 'captain' AND c_comm.is_active = 1)
+
+        LEFT JOIN payment_methods pm 
+          ON o.bank_id = pm.id
+
+        LEFT JOIN customer_guarantees cg 
+          ON cg.customer_id = o.customer_id
+
+        LEFT JOIN captains cap 
+          ON cap.id = o.captain_id
+
+        LEFT JOIN commissions c_comm 
+          ON (
+            c_comm.account_id = o.captain_id
+            AND c_comm.account_type = 'captain'
+            AND c_comm.is_active = 1
+          )
+
         WHERE o.id = ?
       `, [orderId]);
 
       const order = orderRows[0];
       if (!order) throw new Error("الطلب غير موجود");
 
-      // تحديد الحساب المدين الرئيسي (من سيتحمل التكلفة الكلية)
-      let mainDebitAccount = null;
-      if (order.guarantee_type === 'account' && order.direct_acc_id) {
-        mainDebitAccount = order.direct_acc_id;
-      } else {
-        const pMethod = String(order.payment_method).toLowerCase();
-        if (pMethod === "cod") mainDebitAccount = order.cap_acc_id;
-        else if (pMethod === "bank") mainDebitAccount = order.bank_account_id || 10;
-        else mainDebitAccount = settings.customer_guarantee_account || 51;
+      /* =============================
+         تحديد مصدر الأموال
+      ============================= */
+
+      let sourceAccount = null;
+
+      const pay = String(order.payment_method || "").toLowerCase();
+
+      if (pay === "cod") {
+        sourceAccount = order.cap_acc_id; // الكابتن
       }
 
-      // --- أ: جلب جميع المطاعم المشاركة في هذا الطلب وحساب مبالغها ---
-      const [restaurantItems] = await conn.query(`
-SELECT 
-  oi.restaurant_id, 
-  MAX(r.name) AS restaurant_name,
-  MAX(r_comm.agent_account_id) AS res_acc_id, 
-  MAX(r_comm.commission_type) AS res_comm_type, 
-  MAX(r_comm.commission_value) AS res_comm_val,
-  SUM(oi.price * oi.quantity) AS net_amount
-FROM order_items oi
-JOIN restaurants r ON oi.restaurant_id = r.id
-LEFT JOIN commissions r_comm 
-  ON (r_comm.account_id = r.agent_id 
-      AND r_comm.account_type = 'agent' 
-      AND r_comm.is_active = 1)
-WHERE oi.order_id = ?
-GROUP BY oi.restaurant_id
+      else if (pay === "wallet") {
+        sourceAccount = order.customer_wallet_acc; // رصيد العميل
+      }
 
+      else if (pay === "bank") {
+        sourceAccount = order.bank_account_id; // بنك
+      }
+
+      else {
+        sourceAccount = settings.customer_guarantee_account || 51;
+      }
+
+      /* =============================
+         جلب المطاعم
+      ============================= */
+
+      const [restaurantItems] = await conn.query(`
+        SELECT 
+          oi.restaurant_id,
+
+          MAX(r.name) AS restaurant_name,
+
+          MAX(r_comm.agent_account_id) AS res_acc_id,
+
+          MAX(r_comm.commission_type) AS res_comm_type,
+
+          MAX(r_comm.commission_value) AS res_comm_val,
+
+          SUM(oi.price * oi.quantity) AS net_amount
+
+        FROM order_items oi
+
+        JOIN restaurants r
+          ON oi.restaurant_id = r.id
+
+        LEFT JOIN commissions r_comm 
+          ON (
+            r_comm.account_id = r.agent_id
+            AND r_comm.account_type = 'agent'
+            AND r_comm.is_active = 1
+          )
+
+        WHERE oi.order_id = ?
+
+        GROUP BY oi.restaurant_id
       `, [orderId]);
 
-      for (const res of restaurantItems) {
-        if (res.res_acc_id && res.net_amount > 0) {
-          // قيد مبيعات المطعم (من حساب المديونية إلى حساب المطعم)
-          await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, mainDebitAccount, res.net_amount, 0, `قيمة وجبات من ${res.restaurant_name} طلب #${orderId}`, req);
-          await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, res.res_acc_id, 0, res.net_amount, `صافي مبيعات طلب #${orderId}`, req);
+      /* =============================
+         1) في Wallet / Bank: تحويل للكابتن
+      ============================= */
 
-          // خصم عمولة المطعم لكل مطعم على حدة
-          if (settings.commission_income_account && res.res_comm_val > 0) {
-            let resComm = (res.res_comm_type === 'percent') ? (res.net_amount * Number(res.res_comm_val)) / 100 : Number(res.res_comm_val);
-            await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, res.res_acc_id, resComm, 0, `خصم عمولة ${res.restaurant_name} طلب #${orderId}`, req);
-            await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, settings.commission_income_account, 0, resComm, `إيراد عمولة مطعم #${orderId}`, req);
+      if (pay !== "cod" && order.cap_acc_id) {
+
+        await insertJournalEntry(
+          conn,
+          journalTypeId,
+          orderId,
+          baseCur.id,
+          sourceAccount,
+          order.total_amount,
+          0,
+          `تحويل قيمة طلب #${orderId} للكابتن`,
+          req
+        );
+
+        await insertJournalEntry(
+          conn,
+          journalTypeId,
+          orderId,
+          baseCur.id,
+          order.cap_acc_id,
+          0,
+          order.total_amount,
+          `استلام طلب #${orderId}`,
+          req
+        );
+      }
+
+      /* =============================
+         2) من الكابتن → المطاعم
+      ============================= */
+
+      for (const res of restaurantItems) {
+
+        if (!res.res_acc_id || res.net_amount <= 0) continue;
+
+        /* للكابتن → مطعم */
+        await insertJournalEntry(
+          conn,
+          journalTypeId,
+          orderId,
+          baseCur.id,
+          order.cap_acc_id,
+          res.net_amount,
+          0,
+          `تحويل للمطعم ${res.restaurant_name}`,
+          req
+        );
+
+        await insertJournalEntry(
+          conn,
+          journalTypeId,
+          orderId,
+          baseCur.id,
+          res.res_acc_id,
+          0,
+          res.net_amount,
+          `مبيعات طلب #${orderId}`,
+          req
+        );
+
+        /* =============================
+           عمولة الشركة من المطعم
+        ============================= */
+
+        if (settings.commission_income_account && res.res_comm_val > 0) {
+
+          const comm =
+            res.res_comm_type === "percent"
+              ? (res.net_amount * Number(res.res_comm_val)) / 100
+              : Number(res.res_comm_val);
+
+          if (comm > 0) {
+
+            await insertJournalEntry(
+              conn,
+              journalTypeId,
+              orderId,
+              baseCur.id,
+              res.res_acc_id,
+              comm,
+              0,
+              `عمولة شركة من ${res.restaurant_name}`,
+              req
+            );
+
+            await insertJournalEntry(
+              conn,
+              journalTypeId,
+              orderId,
+              baseCur.id,
+              settings.commission_income_account,
+              0,
+              comm,
+              `إيراد عمولة مطعم`,
+              req
+            );
           }
         }
       }
 
-      // --- ب: قيود رسوم التوصيل (تتم مرة واحدة للطلب) ---
-      const deliveryTotal = Number(order.delivery_fee || 0) + Number(order.extra_store_fee || 0);
-      if (deliveryTotal > 0 && order.cap_acc_id) {
-        await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, mainDebitAccount, deliveryTotal, 0, `إجمالي رسوم توصيل طلب #${orderId}`, req);
-        await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, order.cap_acc_id, 0, deliveryTotal, `إيراد توصيل كابتن طلب #${orderId}`, req);
+      /* =============================
+         3) رسوم التوصيل
+      ============================= */
 
-        // عمولة الشركة من الكابتن
-        if (settings.courier_commission_account && order.cap_comm_val > 0) {
-          let capComm = (order.cap_comm_type === 'percent') ? (deliveryTotal * Number(order.cap_comm_val)) / 100 : Number(order.cap_comm_val);
-          await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, order.cap_acc_id, capComm, 0, `خصم عمولة شركة من الكابتن طلب #${orderId}`, req);
-          await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, settings.courier_commission_account, 0, capComm, `إيراد عمولة كابتن #${orderId}`, req);
-        }
+      const deliveryTotal =
+        Number(order.delivery_fee || 0) +
+        Number(order.extra_store_fee || 0);
+
+      if (deliveryTotal > 0 && order.cap_acc_id) {
+
+        /* من الكابتن → عمولات الكباتن */
+        await insertJournalEntry(
+          conn,
+          journalTypeId,
+          orderId,
+          baseCur.id,
+          order.cap_acc_id,
+          deliveryTotal,
+          0,
+          `رسوم توصيل طلب #${orderId}`,
+          req
+        );
+
+        await insertJournalEntry(
+          conn,
+          journalTypeId,
+          orderId,
+          baseCur.id,
+          settings.courier_commission_account,
+          0,
+          deliveryTotal,
+          `إيراد توصيل`,
+          req
+        );
       }
-    }
+
+    } // end delivering
 
     await conn.commit();
 
-     
-// 🔔 إشعار تغيير حالة
-const io = req.app.get("io");
-io.emit("notification", {
-  message: `🔄 تم تحديث حالة الطلب #${orderId} إلى (${status})`,
-  user: req.user?.name || "النظام",
-  order_id: orderId,
-  status,
-});
-     
+    /* إشعار */
+    const io = req.app.get("io");
+
+    if (io) {
+      io.emit("notification", {
+        message: `🔄 تم تحديث حالة الطلب #${orderId} إلى (${status})`,
+        user: req.user?.name || "النظام",
+        order_id: orderId,
+        status,
+      });
+    }
+
     res.json({ success: true });
+
   } catch (err) {
+
     if (conn) await conn.rollback();
-    console.error("FINALIZE ORDER ERROR:", err.message);
-    res.status(500).json({ success: false, message: err.message });
+
+    console.error("FINALIZE ORDER ERROR:", err);
+
+    res.status(500).json({
+      success: false,
+      message: "خطأ في ترحيل القيود",
+    });
+
   } finally {
+
     if (conn) conn.release();
   }
 });
+
 /* =====================================================
    دالة مساعدة لإدراج القيود (insertJournalEntry)
 ===================================================== */
