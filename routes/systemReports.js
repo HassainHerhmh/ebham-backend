@@ -16,65 +16,82 @@ router.get("/commissions", async (req, res) => {
     let where = "1=1";
     const params = [];
 
-    // فلترة تاريخ
+    /* ===== فلترة التاريخ ===== */
     if (from && to) {
       where += " AND o.created_at BETWEEN ? AND ?";
       params.push(from, to);
     }
 
-    // فلترة فرع
+    /* ===== فلترة الفرع ===== */
     if (!is_admin_branch) {
       where += " AND o.branch_id = ?";
       params.push(branch_id);
     }
 
-    const [rows] = await db.query(`
+    const [rows] = await db.query(
+      `
       SELECT
+
         DATE(o.created_at) AS order_date,
 
         cap.name AS captain_name,
+
         r.name AS restaurant_name,
 
         o.id AS order_id,
+
         o.total_amount,
 
-        -- عمولة المطعم
+        /* ===== عمولة المطعم ===== */
         SUM(
           CASE 
             WHEN rc.commission_type = 'percent'
             THEN (oi.price * oi.quantity * rc.commission_value / 100)
-            ELSE rc.commission_value
+            ELSE IFNULL(rc.commission_value,0)
           END
         ) AS restaurant_commission,
 
-        -- عمولة الكابتن
+        /* ===== عمولة الكابتن ===== */
         CASE
           WHEN cc.commission_type = 'percent'
           THEN (o.delivery_fee * cc.commission_value / 100)
-          ELSE cc.commission_value
+          ELSE IFNULL(cc.commission_value,0)
         END AS captain_commission
+
 
       FROM orders o
 
-      LEFT JOIN captains cap ON cap.id = o.captain_id
-      LEFT JOIN order_items oi ON oi.order_id = o.id
-      LEFT JOIN restaurants r ON r.id = oi.restaurant_id
+      LEFT JOIN captains cap 
+        ON cap.id = o.captain_id
 
+      LEFT JOIN order_items oi 
+        ON oi.order_id = o.id
+
+      LEFT JOIN restaurants r 
+        ON r.id = oi.restaurant_id
+
+      /* ===== عمولة المطعم ===== */
       LEFT JOIN commissions rc
         ON rc.account_type = 'agent'
         AND rc.account_id = r.agent_id
         AND rc.is_active = 1
 
+      /* ===== عمولة الكابتن ===== */
       LEFT JOIN commissions cc
         ON cc.account_type = 'captain'
         AND cc.account_id = o.captain_id
         AND cc.is_active = 1
 
+
       WHERE ${where}
 
-      GROUP BY o.id, r.id
+      /* مهم: Group فقط بالطلب */
+      GROUP BY o.id
+
       ORDER BY o.created_at DESC
-    `, params);
+      `,
+      params
+    );
 
     res.json({
       success: true,
@@ -83,7 +100,10 @@ router.get("/commissions", async (req, res) => {
 
   } catch (err) {
     console.error("SYSTEM COMMISSIONS ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 });
 
