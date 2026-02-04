@@ -125,9 +125,12 @@ router.post("/", async (req, res) => {
       finalBranchId = null;
     }
 
-    const [[{ maxCode }]] = await db.query(
-      "SELECT COALESCE(MAX(code), 0) AS maxCode FROM accounts"
-    );
+   const [[{ maxCode }]] = await db.query(`
+  SELECT COALESCE(MAX(code), 10000) AS maxCode 
+  FROM accounts
+  WHERE code >= 10000
+`);
+
 
     const newCode = Number(maxCode) + 1;
 
