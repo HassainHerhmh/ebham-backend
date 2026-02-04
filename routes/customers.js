@@ -118,19 +118,32 @@ router.get("/", async (req, res) => {
     // المنطق:
     // 1. is_online_calculated: إذا كان last_active_at خلال آخر دقيقتين = 1 (متصل)، وإلا 0.
     const selectQuery = `
-      SELECT 
-        c.*, 
-        b.name AS branch_name,
-        DATE_FORMAT(c.last_login, '%Y-%m-%d %H:%i:%s') as last_login,
-        
-        CASE 
-          WHEN c.last_active_at >= NOW() - INTERVAL 2 MINUTE THEN 1 
-          ELSE 0 
-        END as is_online_calculated
+  SELECT 
+    c.*, 
+    b.name AS branch_name,
 
-      FROM customers c
-      LEFT JOIN branches b ON b.id = c.branch_id
-    `;
+    DATE_FORMAT(c.last_login, '%Y-%m-%d %H:%i:%s') AS last_login,
+
+    DATE_FORMAT(c.created_at, '%Y-%m-%d') AS register_date, -- تاريخ التسجيل
+
+    COUNT(o.id) AS orders_count, -- عدد الطلبات
+
+    MAX(o.created_at) AS last_order_date, -- آخر طلب
+
+    CASE 
+      WHEN c.last_active_at >= NOW() - INTERVAL 2 MINUTE THEN 1 
+      ELSE 0 
+    END AS is_online_calculated
+
+  FROM customers c
+
+  LEFT JOIN branches b 
+    ON b.id = c.branch_id
+
+  LEFT JOIN orders o 
+    ON o.customer_id = c.id
+`;
+
 
     // ترتيب النتائج حسب الأحدث نشاطاً
     const orderBy = "ORDER BY c.last_active_at DESC, c.id DESC";
@@ -149,14 +162,16 @@ router.get("/", async (req, res) => {
       return res.json({ success: true, customers: [] });
     }
 
-    const [rows] = await db.query(
-      `
-      ${selectQuery}
-      WHERE c.branch_id = ?
-      ${orderBy}
-      `,
-      [user.branch_id]
-    );
+const [rows] = await db.query(
+  `
+  ${selectQuery}
+  WHERE c.branch_id = ?
+  GROUP BY c.id
+  ${orderBy}
+  `,
+  [user.branch_id]
+);
+
 
     return res.json({ success: true, mode: "branch", customers: rows });
   } catch (err) {
