@@ -15,9 +15,8 @@ router.get("/", async (req, res) => {
     let where = "1=1";
     const params = [];
 
-    // لو ليس إدارة → فلترة حسب الفرع
     if (!is_admin_branch) {
-      where = "acc1.branch_id = ?";
+      where = "(acc1.branch_id = ? OR acc1.branch_id IS NULL)";
       params.push(branch_id);
     }
 
@@ -38,10 +37,12 @@ router.get("/", async (req, res) => {
 
         COALESCE(a.name, k.name) AS agent_name,
         g.name AS group_name,
-        br.name AS branch_name,
 
         acc1.name_ar AS agent_account_name,
         acc2.name_ar AS commission_account_name,
+
+        br.name AS branch_name,
+
         cur.code AS currency_code,
 
         CASE 
@@ -59,15 +60,15 @@ router.get("/", async (req, res) => {
 
       LEFT JOIN agent_groups g 
         ON g.id = c.group_id
-        
-      LEFT JOIN branches br
-  ON br.id = acc1.branch_id
 
       LEFT JOIN accounts acc1 
         ON acc1.id = c.agent_account_id
 
       LEFT JOIN accounts acc2 
         ON acc2.id = c.commission_account_id
+
+      LEFT JOIN branches br
+        ON br.id = acc1.branch_id   -- ✅ ربط آمن
 
       LEFT JOIN currencies cur
         ON cur.id = c.currency_id
@@ -80,11 +81,13 @@ router.get("/", async (req, res) => {
     res.json({ success: true, list: rows });
 
   } catch (e) {
-    console.error("GET AGENT INFO ERROR:", e);
-    res.status(500).json({ success: false });
+    console.error("AGENT INFO ERROR:", e);
+    res.status(500).json({
+      success: false,
+      message: e.message
+    });
   }
 });
-
 
 
 /* =========================
