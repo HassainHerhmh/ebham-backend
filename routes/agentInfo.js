@@ -94,51 +94,11 @@ router.get("/", async (req, res) => {
    POST /agent-info
 ========================= */
 router.post("/", async (req, res) => {
-     console.log("REQ USER =>", req.user);
-  const {
-    account_type,
-    account_id,
-    group_id,
-    commission_type,
-    commission_value,
-    contract_start,
-    contract_end,
-    agent_account_id,
-    commission_account_id,
-    currency_id,
-  } = req.body;
+  try {
 
-  if (!account_type || !account_id || !contract_start || !contract_end) {
-    return res.json({ success: false, message: "بيانات ناقصة" });
-  }
+    console.log("REQ USER =>", req.user);
 
-  if (new Date(contract_end) < new Date(contract_start)) {
-    return res.json({ success: false, message: "تاريخ النهاية غير صحيح" });
-  }
-
-  const [exists] = await db.query(
-    `
-    SELECT id FROM commissions
-    WHERE account_type = ?
-      AND account_id = ?
-      AND CURDATE() BETWEEN contract_start AND contract_end
-      AND is_active = 1
-    LIMIT 1
-    `,
-    [account_type, account_id]
-  );
-
-  if (exists.length) {
-    return res.json({
-      success: false,
-      message: "يوجد عقد نشط لهذا الحساب بالفعل",
-    });
-  }
-
-  await db.query(
-    `
-    INSERT INTO commissions
-    (
+    const {
       account_type,
       account_id,
       group_id,
@@ -149,25 +109,105 @@ router.post("/", async (req, res) => {
       agent_account_id,
       commission_account_id,
       currency_id,
-      is_active
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-    `,
-    [
-      account_type,
-      Number(account_id),
-      group_id ? Number(group_id) : null,
-      commission_type,
-      Number(commission_value || 0),
-      contract_start,
-      contract_end,
-      agent_account_id ? Number(agent_account_id) : null,
-      commission_account_id ? Number(commission_account_id) : null,
-      currency_id ? Number(currency_id) : null,
-    ]
-  );
+    } = req.body;
 
-  res.json({ success: true });
+    /* فرع المستخدم */
+    const branch_id = req.user.branch_id;
+
+    /* تحقق أساسي */
+    if (
+      !account_type ||
+      !account_id ||
+      !contract_start ||
+      !contract_end ||
+      !branch_id
+    ) {
+      return res.json({
+        success: false,
+        message: "بيانات ناقصة",
+      });
+    }
+
+    /* تحقق من التواريخ */
+    if (new Date(contract_end) < new Date(contract_start)) {
+      return res.json({
+        success: false,
+        message: "تاريخ النهاية غير صحيح",
+      });
+    }
+
+    /* منع تكرار عقد في نفس الفرع */
+    const [exists] = await db.query(
+      `
+      SELECT id FROM commissions
+      WHERE account_type = ?
+        AND account_id = ?
+        AND branch_id = ?
+        AND CURDATE() BETWEEN contract_start AND contract_end
+        AND is_active = 1
+      LIMIT 1
+      `,
+      [account_type, account_id, branch_id]
+    );
+
+    if (exists.length) {
+      return res.json({
+        success: false,
+        message: "يوجد عقد نشط لهذا الحساب في هذا الفرع بالفعل",
+      });
+    }
+
+    /* إدخال العقد */
+    await db.query(
+      `
+      INSERT INTO commissions
+      (
+        branch_id,
+        account_type,
+        account_id,
+        group_id,
+        commission_type,
+        commission_value,
+        contract_start,
+        contract_end,
+        agent_account_id,
+        commission_account_id,
+        currency_id,
+        is_active
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      `,
+      [
+        branch_id,
+        account_type,
+        Number(account_id),
+        group_id ? Number(group_id) : null,
+        commission_type,
+        Number(commission_value || 0),
+        contract_start,
+        contract_end,
+        agent_account_id ? Number(agent_account_id) : null,
+        commission_account_id
+          ? Number(commission_account_id)
+          : null,
+        currency_id ? Number(currency_id) : null,
+      ]
+    );
+
+    res.json({
+      success: true,
+      message: "تم حفظ العقد بنجاح",
+    });
+
+  } catch (err) {
+
+    console.error("ADD COMMISSION ERROR:", err);
+
+    res.status(500).json({
+      success: false,
+      message: "حدث خطأ أثناء حفظ العقد",
+    });
+  }
 });
 
 
