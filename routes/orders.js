@@ -546,6 +546,7 @@ router.get("/:id", async (req, res) => {
       `
       SELECT 
         oi.id,
+        oi.product_id,   -- ✅ مهم جدًا
         oi.name,
         oi.price,
         oi.quantity,
