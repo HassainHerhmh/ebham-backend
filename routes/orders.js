@@ -488,6 +488,7 @@ router.get("/:id", async (req, res) => {
       SELECT 
         oi.id,
         oi.name,
+            oi.product_id,  
         oi.price,
         oi.quantity,
         oi.restaurant_id,
@@ -525,6 +526,7 @@ router.get("/:id", async (req, res) => {
 
       map[it.restaurant_id].items.push({
         id: it.id,
+           product_id: it.product_id, /
         name: it.name,
         price: it.price,
         quantity: it.quantity,
