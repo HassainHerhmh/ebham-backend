@@ -699,6 +699,35 @@ router.post("/:id/assign", async (req, res) => {
 });
 
 
+// routes/products.js أو داخل orders.js
+
+router.post("/products/check", async (req, res) => {
+  try {
+    const { ids } = req.body;
+
+    if (!ids || !ids.length) {
+      return res.json({ success: false, products: [] });
+    }
+
+    const placeholders = ids.map(() => "?").join(",");
+
+    const [rows] = await db.query(
+      `SELECT id, name, price, image_url AS image, is_available
+       FROM products
+       WHERE id IN (${placeholders})`,
+      ids
+    );
+
+    res.json({
+      success: true,
+      products: rows,
+    });
+
+  } catch (err) {
+    console.error("CHECK PRODUCTS ERROR:", err);
+    res.status(500).json({ success: false, products: [] });
+  }
+});
 
 
 
