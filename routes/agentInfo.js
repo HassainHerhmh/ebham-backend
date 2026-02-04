@@ -38,6 +38,7 @@ router.get("/", async (req, res) => {
 
         COALESCE(a.name, k.name) AS agent_name,
         g.name AS group_name,
+        br.name AS branch_name,
 
         acc1.name_ar AS agent_account_name,
         acc2.name_ar AS commission_account_name,
@@ -58,6 +59,9 @@ router.get("/", async (req, res) => {
 
       LEFT JOIN agent_groups g 
         ON g.id = c.group_id
+        
+      LEFT JOIN branches br
+  ON br.id = acc1.branch_id
 
       LEFT JOIN accounts acc1 
         ON acc1.id = c.agent_account_id
