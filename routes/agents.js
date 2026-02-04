@@ -81,15 +81,16 @@ router.get("/", auth, async (req, res) => {
 router.post("/", auth, async (req, res) => {
   try {
     const user = req.user;
-const { name, email, phone, address, branch_id, image_url } = req.body;
+    const { name, email, phone, address, branch_id, image_url } = req.body;
 
-
+    // تحقق من الاسم
     if (!name) {
       return res
         .status(400)
         .json({ success: false, message: "الاسم مطلوب" });
     }
 
+    // تحديد الفرع
     const finalBranch =
       user.is_admin === 1 ? branch_id : user.branch_id;
 
@@ -99,33 +100,80 @@ const { name, email, phone, address, branch_id, image_url } = req.body;
         .json({ success: false, message: "الفرع مطلوب" });
     }
 
+    /* =====================
+       التحقق من التكرار
+    ===================== */
+
+    // تحقق من الهاتف
+    if (phone) {
+      const [phoneRows] = await db.query(
+        "SELECT id FROM agents WHERE phone = ? LIMIT 1",
+        [phone]
+      );
+
+      if (phoneRows.length > 0) {
+        return res.status(409).json({
+          success: false,
+          message: "رقم الهاتف مستخدم مسبقًا",
+        });
+      }
+    }
+
+    // تحقق من البريد
+    if (email) {
+      const [emailRows] = await db.query(
+        "SELECT id FROM agents WHERE email = ? LIMIT 1",
+        [email]
+      );
+
+      if (emailRows.length > 0) {
+        return res.status(409).json({
+          success: false,
+          message: "البريد الإلكتروني مستخدم مسبقًا",
+        });
+      }
+    }
+
+    /* =====================
+       إنشاء كلمة المرور
+    ===================== */
+
     const plainPassword = generatePassword(8);
     const hash = await bcrypt.hash(plainPassword, 10);
 
-await db.query(
-  `
-  INSERT INTO agents
-    (name, email, phone, address, password, branch_id, is_active, image_url)
-  VALUES (?, ?, ?, ?, ?, ?, 1, ?)
-  `,
-  [
-    name,
-    email || null,
-    phone || null,
-    address || null,
-    hash,
-    finalBranch,
-    image_url || null,
-  ]
-);
+    /* =====================
+       الإدخال
+    ===================== */
+
+    await db.query(
+      `
+      INSERT INTO agents
+        (name, email, phone, address, password, branch_id, is_active, image_url)
+      VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+      `,
+      [
+        name,
+        email || null,
+        phone || null,
+        address || null,
+        hash,
+        finalBranch,
+        image_url || null,
+      ]
+    );
 
     res.json({
       success: true,
-      password: plainPassword, // تُعرض للإدارة مرة واحدة
+      password: plainPassword,
     });
+
   } catch (err) {
     console.error("ADD AGENT ERROR:", err);
-    res.status(500).json({ success: false });
+
+    res.status(500).json({
+      success: false,
+      message: "حدث خطأ في السيرفر، حاول لاحقًا",
+    });
   }
 });
 
