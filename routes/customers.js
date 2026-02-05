@@ -33,10 +33,6 @@ router.post("/public", async (req, res) => {
       });
     }
 
-    console.error("ADD CUSTOMER PUBLIC ERROR:", err);
-    res.status(500).json({ success: false, message: "خطأ في السيرفر" });
-  }
-});
 
 /* =========================
    PUT /customers/public/:id  (للتطبيق - تحديث الملف الشخصي)
