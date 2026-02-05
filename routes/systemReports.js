@@ -17,15 +17,15 @@ router.get("/commissions", async (req, res) => {
     let where = "je.reference_type = 'order'";
     const params = [];
 
-    /* فلترة التاريخ */
+    /* فلترة التاريخ (باستخدام journal_date) */
     if (from && to) {
-      where += " AND DATE(je.created_at) BETWEEN ? AND ?";
+      where += " AND je.journal_date BETWEEN ? AND ?";
       params.push(from, to);
     }
 
     /* فلترة الفرع */
     if (!is_admin_branch) {
-      where += " AND je.branch_id = ?";
+      where += " AND (je.branch_id = ? OR je.branch_id IS NULL)";
       params.push(branch_id);
     }
 
@@ -33,7 +33,7 @@ router.get("/commissions", async (req, res) => {
       `
       SELECT
 
-        DATE(je.created_at) AS order_date,
+        je.journal_date AS order_date,
 
         je.reference_id AS order_id,
 
@@ -46,7 +46,7 @@ router.get("/commissions", async (req, res) => {
         /* عمولة المطعم */
         SUM(
           CASE
-            WHEN je.notes LIKE '%خصم عمولة%' 
+            WHEN je.notes LIKE '%عمولة%' 
              AND je.notes LIKE '%مطعم%'
             THEN je.debit
             ELSE 0
@@ -56,7 +56,8 @@ router.get("/commissions", async (req, res) => {
         /* عمولة الكابتن */
         SUM(
           CASE
-            WHEN je.notes LIKE '%عمولة شركة من الكابتن%'
+            WHEN je.notes LIKE '%كابتن%'
+              OR je.notes LIKE '%شركة من الكابتن%'
             THEN je.debit
             ELSE 0
           END
@@ -78,9 +79,9 @@ router.get("/commissions", async (req, res) => {
 
       WHERE ${where}
 
-      GROUP BY je.reference_id, DATE(je.created_at)
+      GROUP BY je.reference_id, je.journal_date
 
-      ORDER BY order_date DESC
+      ORDER BY je.journal_date DESC
       `,
       params
     );
@@ -100,6 +101,7 @@ router.get("/commissions", async (req, res) => {
     });
   }
 });
+
 
 
 export default router;
