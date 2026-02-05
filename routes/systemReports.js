@@ -14,18 +14,25 @@ router.get("/commissions", async (req, res) => {
     const { from, to } = req.query;
     const { branch_id, is_admin_branch } = req.user;
 
-    let where = "je.reference_type = 'order'";
+    /* جلب حسابات العمولات */
+    const [[settings]] = await db.query(`
+      SELECT
+        commission_income_account,
+        courier_commission_account
+      FROM settings
+      LIMIT 1
+    `);
+
+    let where = "1=1";
     const params = [];
 
-    /* فلترة التاريخ (باستخدام journal_date) */
     if (from && to) {
       where += " AND je.journal_date BETWEEN ? AND ?";
       params.push(from, to);
     }
 
-    /* فلترة الفرع */
     if (!is_admin_branch) {
-      where += " AND (je.branch_id = ? OR je.branch_id IS NULL)";
+      where += " AND je.branch_id = ?";
       params.push(branch_id);
     }
 
@@ -46,9 +53,8 @@ router.get("/commissions", async (req, res) => {
         /* عمولة المطعم */
         SUM(
           CASE
-            WHEN je.notes LIKE '%عمولة%' 
-             AND je.notes LIKE '%مطعم%'
-            THEN je.debit
+            WHEN je.account_id = ?
+            THEN je.credit
             ELSE 0
           END
         ) AS restaurant_commission,
@@ -56,9 +62,8 @@ router.get("/commissions", async (req, res) => {
         /* عمولة الكابتن */
         SUM(
           CASE
-            WHEN je.notes LIKE '%كابتن%'
-              OR je.notes LIKE '%شركة من الكابتن%'
-            THEN je.debit
+            WHEN je.account_id = ?
+            THEN je.credit
             ELSE 0
           END
         ) AS captain_commission
@@ -83,7 +88,11 @@ router.get("/commissions", async (req, res) => {
 
       ORDER BY je.journal_date DESC
       `,
-      params
+      [
+        settings.commission_income_account,
+        settings.courier_commission_account,
+        ...params,
+      ]
     );
 
     res.json({
@@ -101,6 +110,7 @@ router.get("/commissions", async (req, res) => {
     });
   }
 });
+
 
 
 
