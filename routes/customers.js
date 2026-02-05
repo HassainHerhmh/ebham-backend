@@ -107,73 +107,90 @@ router.post("/heartbeat", async (req, res) => {
    📋 GET /customers
    (حساب الحالة online/offline بناءً على الوقت)
 ========================= */
+/* =========================
+   📋 GET /customers
+========================= */
 router.get("/", async (req, res) => {
-  try {
-    const user = req.user;
+  try {
 
-    // المنطق:
-    // 1. is_online_calculated: إذا كان last_active_at خلال آخر دقيقتين = 1 (متصل)، وإلا 0.
-    const selectQuery = `
-  SELECT 
-    c.*, 
-    b.name AS branch_name,
+    const user = req.user;
 
-    DATE_FORMAT(c.last_login, '%Y-%m-%d %H:%i:%s') AS last_login,
+    const selectQuery = `
+      SELECT
+        c.*,
+        b.name AS branch_name,
 
-    DATE_FORMAT(c.created_at, '%Y-%m-%d') AS register_date, -- تاريخ التسجيل
+        DATE_FORMAT(c.last_login, '%Y-%m-%d %H:%i:%s') AS last_login,
 
-    COUNT(o.id) AS orders_count, -- عدد الطلبات
+        DATE_FORMAT(c.created_at, '%Y-%m-%d') AS register_date,
 
-    MAX(o.created_at) AS last_order_date, -- آخر طلب
+        COUNT(o.id) AS orders_count,
 
-    CASE 
-      WHEN c.last_active_at >= NOW() - INTERVAL 2 MINUTE THEN 1 
-      ELSE 0 
-    END AS is_online_calculated
+        MAX(o.created_at) AS last_order_date,
 
-  FROM customers c
+        CASE
+          WHEN c.last_active_at >= NOW() - INTERVAL 2 MINUTE
+          THEN 1
+          ELSE 0
+        END AS is_online_calculated
 
-  LEFT JOIN branches b 
-    ON b.id = c.branch_id
+      FROM customers c
 
-  LEFT JOIN orders o 
-    ON o.customer_id = c.id
-`;
+      LEFT JOIN branches b
+        ON b.id = c.branch_id
 
+      LEFT JOIN orders o
+        ON o.customer_id = c.id
+    `;
 
-    // ترتيب النتائج حسب الأحدث نشاطاً
-    const orderBy = "ORDER BY c.last_active_at DESC, c.id DESC";
+    const orderBy = "ORDER BY c.last_active_at DESC, c.id DESC";
 
-    // 1. الإدارة العامة: كل العملاء
-    if (user.is_admin_branch === 1 || user.is_admin_branch === true) {
-      const [rows] = await db.query(`
-        ${selectQuery}
-        ${orderBy}
-      `);
-      return res.json({ success: true, mode: "admin", customers: rows });
-    }
+    /* ===== إدارة عامة ===== */
+    if (user.is_admin_branch === 1 || user.is_admin_branch === true) {
 
-    // 2. فرع عادي: عملاء الفرع فقط
-    if (!user.branch_id) {
-      return res.json({ success: true, customers: [] });
-    }
+      const [rows] = await db.query(`
+        ${selectQuery}
+        GROUP BY c.id
+        ${orderBy}
+      `);
 
-const [rows] = await db.query(
-  `
-  ${selectQuery}
-  WHERE c.branch_id = ?
-  GROUP BY c.id
-  ${orderBy}
-  `,
-  [user.branch_id]
-);
+      return res.json({
+        success: true,
+        mode: "admin",
+        customers: rows,
+      });
+    }
 
+    /* ===== فرع عادي ===== */
+    if (!user.branch_id) {
+      return res.json({ success: true, customers: [] });
+    }
 
-    return res.json({ success: true, mode: "branch", customers: rows });
-  } catch (err) {
-    console.error("GET CUSTOMERS ERROR:", err);
-    res.status(500).json({ success: false });
-  }
+    const [rows] = await db.query(
+      `
+      ${selectQuery}
+      WHERE c.branch_id = ?
+      GROUP BY c.id
+      ${orderBy}
+      `,
+      [user.branch_id]
+    );
+
+    return res.json({
+      success: true,
+      mode: "branch",
+      customers: rows,
+    });
+
+  } catch (err) {
+
+    console.error("GET CUSTOMERS ERROR:", err);
+
+    res.status(500).json({
+      success: false,
+      message: "فشل تحميل العملاء",
+    });
+  }
 });
 
 /* =========================
