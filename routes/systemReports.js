@@ -14,94 +14,77 @@ router.get("/commissions", async (req, res) => {
     const { from, to } = req.query;
     const { branch_id, is_admin_branch } = req.user;
 
-    let where = "1=1";
+    let where = "je.reference_type = 'order'";
     const params = [];
 
-    /* ===== فلترة التاريخ (مهم) ===== */
+    /* فلترة التاريخ */
     if (from && to) {
-      where += " AND DATE(o.created_at) BETWEEN ? AND ?";
+      where += " AND DATE(je.created_at) BETWEEN ? AND ?";
       params.push(from, to);
     }
 
-    /* ===== فلترة الفرع ===== */
+    /* فلترة الفرع */
     if (!is_admin_branch) {
-      where += " AND o.branch_id = ?";
+      where += " AND je.branch_id = ?";
       params.push(branch_id);
     }
 
-    /* ===== الاستعلام ===== */
     const [rows] = await db.query(
       `
       SELECT
 
-        DATE(o.created_at) AS order_date,
+        DATE(je.created_at) AS order_date,
 
-        cap.name AS captain_name,
+        je.reference_id AS order_id,
 
-        r.name AS restaurant_name,
+        MAX(o.total_amount) AS total_amount,
 
-        o.id AS order_id,
+        MAX(cap.name) AS captain_name,
 
-        o.total_amount,
+        MAX(r.name) AS restaurant_name,
 
         /* عمولة المطعم */
         SUM(
-          CASE 
-            WHEN rc.commission_type = 'percent'
-            THEN (oi.price * oi.quantity * rc.commission_value / 100)
-            ELSE IFNULL(rc.commission_value,0)
+          CASE
+            WHEN je.notes LIKE '%خصم عمولة%' 
+             AND je.notes LIKE '%مطعم%'
+            THEN je.debit
+            ELSE 0
           END
         ) AS restaurant_commission,
 
         /* عمولة الكابتن */
         SUM(
           CASE
-            WHEN cc.commission_type = 'percent'
-            THEN ((o.delivery_fee + o.extra_store_fee) * cc.commission_value / 100)
-            ELSE IFNULL(cc.commission_value,0)
+            WHEN je.notes LIKE '%عمولة شركة من الكابتن%'
+            THEN je.debit
+            ELSE 0
           END
         ) AS captain_commission
 
-      FROM orders o
+      FROM journal_entries je
 
-      LEFT JOIN captains cap 
+      LEFT JOIN orders o
+        ON o.id = je.reference_id
+
+      LEFT JOIN captains cap
         ON cap.id = o.captain_id
 
-      LEFT JOIN order_items oi 
+      LEFT JOIN order_items oi
         ON oi.order_id = o.id
 
-      LEFT JOIN restaurants r 
+      LEFT JOIN restaurants r
         ON r.id = oi.restaurant_id
-
-      /* عمولة المطعم حسب الفرع */
-      LEFT JOIN commissions rc
-        ON rc.account_type = 'agent'
-        AND rc.account_id = r.agent_id
-        AND rc.branch_id = o.branch_id
-        AND rc.is_active = 1
-
-      /* عمولة الكابتن حسب الفرع */
-      LEFT JOIN commissions cc
-        ON cc.account_type = 'captain'
-        AND cc.account_id = o.captain_id
-        AND cc.branch_id = o.branch_id
-        AND cc.is_active = 1
 
       WHERE ${where}
 
-      GROUP BY
-        o.id,
-        DATE(o.created_at),
-        cap.name,
-        r.name,
-        o.total_amount
+      GROUP BY je.reference_id, DATE(je.created_at)
 
-      ORDER BY o.created_at DESC
+      ORDER BY order_date DESC
       `,
       params
     );
 
-    /* ===== النتيجة ===== */
     res.json({
       success: true,
       list: rows,
@@ -109,13 +92,14 @@ router.get("/commissions", async (req, res) => {
 
   } catch (err) {
 
-    console.error("SYSTEM COMMISSIONS ERROR:", err);
+    console.error("COMMISSIONS REPORT ERROR:", err);
 
     res.status(500).json({
       success: false,
-      message: "فشل تحميل تقرير العمولات",
+      message: "فشل تحميل التقرير",
     });
   }
 });
+
 
 export default router;
