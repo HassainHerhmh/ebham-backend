@@ -40,9 +40,21 @@ SELECT
 
   o.id AS order_id,
 
+  const [rows] = await db.query(
+`
+SELECT
+
+  DATE(o.created_at) AS order_date,
+
+  cap.name AS captain_name,
+
+  r.name AS restaurant_name,
+
+  o.id AS order_id,
+
   o.total_amount,
 
-  /* ===== عمولة المطعم ===== */
+  /* عمولة المطعم */
   SUM(
     CASE 
       WHEN rc.commission_type = 'percent'
@@ -51,11 +63,11 @@ SELECT
     END
   ) AS restaurant_commission,
 
-  /* ===== عمولة الكابتن ===== */
+  /* عمولة الكابتن */
   SUM(
     CASE
       WHEN cc.commission_type = 'percent'
-      THEN (o.delivery_fee * cc.commission_value / 100)
+      THEN ((o.delivery_fee + o.extra_store_fee) * cc.commission_value / 100)
       ELSE IFNULL(cc.commission_value,0)
     END
   ) AS captain_commission
@@ -71,14 +83,18 @@ LEFT JOIN order_items oi
 LEFT JOIN restaurants r 
   ON r.id = oi.restaurant_id
 
+/* عمولة المطعم حسب الفرع */
 LEFT JOIN commissions rc
   ON rc.account_type = 'agent'
   AND rc.account_id = r.agent_id
+  AND rc.branch_id = o.branch_id
   AND rc.is_active = 1
 
+/* عمولة الكابتن حسب الفرع */
 LEFT JOIN commissions cc
   ON cc.account_type = 'captain'
   AND cc.account_id = o.captain_id
+  AND cc.branch_id = o.branch_id
   AND cc.is_active = 1
 
 WHERE ${where}
@@ -94,6 +110,7 @@ ORDER BY o.created_at DESC
 `,
 params
 );
+
 
 
     res.json({
