@@ -41,18 +41,14 @@ router.post("/public", async (req, res) => {
 /* =========================
    PUT /customers/public/:id  (للتطبيق - تحديث الملف الشخصي)
 ========================= */
+/* تحديث المسار في السيرفر ليكون مرناً */
 router.put("/public/:id", async (req, res) => {
   try {
-    const {
-      name,
-      phone,
-      branch_id,
-      neighborhood_id,
-      is_profile_complete,
-    } = req.body;
+    const { name, email, branch_id, neighborhood_id, is_profile_complete } = req.body;
 
-    if (!name || !phone || !branch_id || !neighborhood_id) {
-      return res.json({ success: false, message: "بيانات ناقصة" });
+    // الشرط الوحيد الإلزامي هو الاسم (لأنه لا يمكن أن يكون فارغاً)
+    if (!name) {
+      return res.json({ success: false, message: "الاسم مطلوب" });
     }
 
     await db.query(
@@ -60,17 +56,17 @@ router.put("/public/:id", async (req, res) => {
       UPDATE customers
       SET
         name = ?,
-        phone = ?,
-        branch_id = ?,
-        neighborhood_id = ?,
+        email = ?,
+        branch_id = IFNULL(?, branch_id),
+        neighborhood_id = IFNULL(?, neighborhood_id),
         is_profile_complete = ?
       WHERE id = ?
       `,
       [
         name,
-        phone,
-        branch_id,
-        neighborhood_id,
+        email || null,           // البريد اختياري
+        branch_id || null,       // إذا لم يرسل، يحافظ على القديم
+        neighborhood_id || null, // إذا لم يرسل، يحافظ على القديم
         is_profile_complete ? 1 : 0,
         req.params.id,
       ]
@@ -78,8 +74,8 @@ router.put("/public/:id", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("UPDATE CUSTOMER PUBLIC ERROR:", err);
-    res.status(500).json({ success: false });
+    console.error("UPDATE ERROR:", err);
+    res.status(500).json({ success: false, message: "خطأ في السيرفر" });
   }
 });
 
