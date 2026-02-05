@@ -10,15 +10,16 @@ router.use(auth);
 ========================= */
 router.get("/commissions", async (req, res) => {
   try {
+
     const { from, to } = req.query;
     const { branch_id, is_admin_branch } = req.user;
 
     let where = "1=1";
     const params = [];
 
-    /* ===== فلترة التاريخ ===== */
+    /* ===== فلترة التاريخ (مهم) ===== */
     if (from && to) {
-      where += " AND o.created_at BETWEEN ? AND ?";
+      where += " AND DATE(o.created_at) BETWEEN ? AND ?";
       params.push(from, to);
     }
 
@@ -28,101 +29,91 @@ router.get("/commissions", async (req, res) => {
       params.push(branch_id);
     }
 
- const [rows] = await db.query(
-`
-SELECT
+    /* ===== الاستعلام ===== */
+    const [rows] = await db.query(
+      `
+      SELECT
 
-  DATE(o.created_at) AS order_date,
+        DATE(o.created_at) AS order_date,
 
-  cap.name AS captain_name,
+        cap.name AS captain_name,
 
-  r.name AS restaurant_name,
+        r.name AS restaurant_name,
 
-  o.id AS order_id,
+        o.id AS order_id,
 
-  const [rows] = await db.query(
-`
-SELECT
+        o.total_amount,
 
-  DATE(o.created_at) AS order_date,
+        /* عمولة المطعم */
+        SUM(
+          CASE 
+            WHEN rc.commission_type = 'percent'
+            THEN (oi.price * oi.quantity * rc.commission_value / 100)
+            ELSE IFNULL(rc.commission_value,0)
+          END
+        ) AS restaurant_commission,
 
-  cap.name AS captain_name,
+        /* عمولة الكابتن */
+        SUM(
+          CASE
+            WHEN cc.commission_type = 'percent'
+            THEN ((o.delivery_fee + o.extra_store_fee) * cc.commission_value / 100)
+            ELSE IFNULL(cc.commission_value,0)
+          END
+        ) AS captain_commission
 
-  r.name AS restaurant_name,
+      FROM orders o
 
-  o.id AS order_id,
+      LEFT JOIN captains cap 
+        ON cap.id = o.captain_id
 
-  o.total_amount,
+      LEFT JOIN order_items oi 
+        ON oi.order_id = o.id
 
-  /* عمولة المطعم */
-  SUM(
-    CASE 
-      WHEN rc.commission_type = 'percent'
-      THEN (oi.price * oi.quantity * rc.commission_value / 100)
-      ELSE IFNULL(rc.commission_value,0)
-    END
-  ) AS restaurant_commission,
+      LEFT JOIN restaurants r 
+        ON r.id = oi.restaurant_id
 
-  /* عمولة الكابتن */
-  SUM(
-    CASE
-      WHEN cc.commission_type = 'percent'
-      THEN ((o.delivery_fee + o.extra_store_fee) * cc.commission_value / 100)
-      ELSE IFNULL(cc.commission_value,0)
-    END
-  ) AS captain_commission
+      /* عمولة المطعم حسب الفرع */
+      LEFT JOIN commissions rc
+        ON rc.account_type = 'agent'
+        AND rc.account_id = r.agent_id
+        AND rc.branch_id = o.branch_id
+        AND rc.is_active = 1
 
-FROM orders o
+      /* عمولة الكابتن حسب الفرع */
+      LEFT JOIN commissions cc
+        ON cc.account_type = 'captain'
+        AND cc.account_id = o.captain_id
+        AND cc.branch_id = o.branch_id
+        AND cc.is_active = 1
 
-LEFT JOIN captains cap 
-  ON cap.id = o.captain_id
+      WHERE ${where}
 
-LEFT JOIN order_items oi 
-  ON oi.order_id = o.id
+      GROUP BY
+        o.id,
+        DATE(o.created_at),
+        cap.name,
+        r.name,
+        o.total_amount
 
-LEFT JOIN restaurants r 
-  ON r.id = oi.restaurant_id
+      ORDER BY o.created_at DESC
+      `,
+      params
+    );
 
-/* عمولة المطعم حسب الفرع */
-LEFT JOIN commissions rc
-  ON rc.account_type = 'agent'
-  AND rc.account_id = r.agent_id
-  AND rc.branch_id = o.branch_id
-  AND rc.is_active = 1
-
-/* عمولة الكابتن حسب الفرع */
-LEFT JOIN commissions cc
-  ON cc.account_type = 'captain'
-  AND cc.account_id = o.captain_id
-  AND cc.branch_id = o.branch_id
-  AND cc.is_active = 1
-
-WHERE ${where}
-
-GROUP BY
-  o.id,
-  DATE(o.created_at),
-  cap.name,
-  r.name,
-  o.total_amount
-
-ORDER BY o.created_at DESC
-`,
-params
-);
-
-
-
+    /* ===== النتيجة ===== */
     res.json({
       success: true,
       list: rows,
     });
 
   } catch (err) {
+
     console.error("SYSTEM COMMISSIONS ERROR:", err);
+
     res.status(500).json({
       success: false,
-      message: err.message,
+      message: "فشل تحميل تقرير العمولات",
     });
   }
 });
