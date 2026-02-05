@@ -359,6 +359,13 @@ import { Server } from "socket.io";
 import systemReports from "./routes/systemReports.js";
 
 app.use("/api/system-reports", systemReports);
+/*======================
+وصل لي 
+====================*/
+
+import wasselOrders from "./routes/wasselOrders.js";
+
+app.use("/api/wassel-orders", wasselOrders);
 
 /* =========================
    Start Server + Socket.IO
