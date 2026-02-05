@@ -102,10 +102,12 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NOW())
 
     res.json({ success: true });
 
-  } catch (err) {
-    console.error("Add Wassel Order:", err);
-    res.status(500).json({ message: "Server error" });
-  }
+catch (err) {
+  console.error("SQL ERROR:", err.sqlMessage);
+  console.error("QUERY:", err.sql);
+  res.status(500).json({ message: err.sqlMessage });
+}
+
 });
 
 /* =========================
