@@ -187,11 +187,15 @@ router.post("/", async (req, res) => {
     if (!finalBranchId) {
       return res.json({ success: false, message: "الفرع غير محدد" });
     }
+let finalGpsLink = gps_link;
 
+if (!finalGpsLink && latitude && longitude) {
+  finalGpsLink = `https://www.google.com/maps?q=${latitude},${longitude}`;
+}
     await db.query(
       `
       INSERT INTO customer_addresses
-      (customer_id, district, location_type, address, gps_link, latitude, longitude, branch_id)
+      (customer_id, district, location_type, address,     finalGpsLink || null, latitude, longitude, branch_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
@@ -227,6 +231,13 @@ router.put("/:id", async (req, res) => {
   } = req.body;
 
   try {
+
+    let finalGpsLink = gps_link;
+
+if (!finalGpsLink && latitude && longitude) {
+  finalGpsLink = `https://www.google.com/maps?q=${latitude},${longitude}`;
+}
+
     await db.query(
       `
       UPDATE customer_addresses
@@ -243,7 +254,7 @@ router.put("/:id", async (req, res) => {
         district || null,
         location_type || null,
         address || null,
-        gps_link || null,
+finalGpsLink || null,
         latitude || null,
         longitude || null,
         req.params.id,
