@@ -8,27 +8,28 @@ const router = express.Router();
 router.use(auth);
 
 /* =========================
-   جلب كل طلبات وصل لي
+   جلب كل طلبات وصل لي (مع اسم الكابتن)
 ========================= */
 router.get("/", async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT 
         w.*,
-        c.name AS customer_name
+        c.name AS customer_name,
+        cap.name AS captain_name
       FROM wassel_orders w
       LEFT JOIN customers c ON c.id = w.customer_id
+      LEFT JOIN captains cap ON cap.id = w.captain_id
       ORDER BY w.id DESC
     `);
 
     res.json({ orders: rows });
 
   } catch (err) {
-    console.error("Get Wassel Orders:", err);
+    console.error("Get Wassel Orders Error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
-
 /* =========================
    إضافة طلب جديد
 ========================= */
