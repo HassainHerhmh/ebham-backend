@@ -34,22 +34,25 @@ router.get("/", async (req, res) => {
 ========================= */
 router.post("/", async (req, res) => {
   try {
-    const {
-      customer_id,
-      order_type,
+   const {
+  customer_id,
+  order_type,
 
-      from_address,
-      from_lat,
-      from_lng,
+  from_address_id,
+  from_address,
+  from_lat,
+  from_lng,
 
-      to_address,
-      to_lat,
-      to_lng,
+  to_address_id,
+  to_address,
+  to_lat,
+  to_lng,
 
-      delivery_fee,
-      extra_fee,
-      notes,
-    } = req.body;
+  delivery_fee,
+  extra_fee,
+  notes,
+} = req.body;
+
 
     if (!order_type || !from_address || !to_address) {
       return res.status(400).json({
@@ -59,45 +62,51 @@ router.post("/", async (req, res) => {
 
     await db.query(
       `
-      INSERT INTO wassel_orders
-      (
-        customer_id,
-        order_type,
+     INSERT INTO wassel_orders
+(
+  customer_id,
+  order_type,
 
-        from_address,
-        from_lat,
-        from_lng,
+  from_address_id,
+  from_address,
+  from_lat,
+  from_lng,
 
-        to_address,
-        to_lat,
-        to_lng,
+  to_address_id,
+  to_address,
+  to_lat,
+  to_lng,
 
-        delivery_fee,
-        extra_fee,
-        notes,
-        status,
-        created_at
-      )
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NOW())
+  delivery_fee,
+  extra_fee,
+  notes,
+  status,
+  created_at
+)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())
+
     `,
-      [
-        customer_id,
-        order_type,
+     [
+  customer_id,
+  order_type,
 
-        from_address,
-        from_lat,
-        from_lng,
+  from_address_id,
+  from_address,
+  from_lat,
+  from_lng,
 
-        to_address,
-        to_lat,
-        to_lng,
+  to_address_id,
+  to_address,
+  to_lat,
+  to_lng,
 
-        delivery_fee || 0,
-        extra_fee || 0,
-        notes || "",
+  delivery_fee || 0,
+  extra_fee || 0,
+  notes || "",
 
-        "pending",
-      ]
+  "pending",
+]
+
     );
 
     res.json({ success: true });
@@ -127,6 +136,8 @@ router.put("/:id", async (req, res) => {
       to_address,
       to_lat,
       to_lng,
+      from_address_id,
+to_address_id,
 
       delivery_fee,
       extra_fee,
@@ -136,25 +147,28 @@ router.put("/:id", async (req, res) => {
 
     await db.query(
       `
-      UPDATE wassel_orders
-      SET
-        customer_id = ?,
-        order_type = ?,
+ UPDATE wassel_orders
+SET
+  customer_id = ?,
+  order_type = ?,
 
-        from_address = ?,
-        from_lat = ?,
-        from_lng = ?,
+  from_address_id = ?,
+  from_address = ?,
+  from_lat = ?,
+  from_lng = ?,
 
-        to_address = ?,
-        to_lat = ?,
-        to_lng = ?,
+  to_address_id = ?,
+  to_address = ?,
+  to_lat = ?,
+  to_lng = ?,
 
-        delivery_fee = ?,
-        extra_fee = ?,
-        notes = ?,
-        status = ?
+  delivery_fee = ?,
+  extra_fee = ?,
+  notes = ?,
+  status = ?
 
-      WHERE id = ?
+WHERE id = ?
+
     `,
       [
         customer_id,
