@@ -86,16 +86,16 @@ router.post("/", async (req, res) => {
 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())
 
     `,
-     [
+   [
   customer_id,
   order_type,
 
-  from_address_id,
+  from_address_id || null,
   from_address,
   from_lat,
   from_lng,
 
-  to_address_id,
+  to_address_id || null,
   to_address,
   to_lat,
   to_lng,
@@ -170,25 +170,28 @@ SET
 WHERE id = ?
 
     `,
-      [
-        customer_id,
-        order_type,
+ [
+  customer_id,
+  order_type,
 
-        from_address,
-        from_lat,
-        from_lng,
+  from_address_id || null,
+  from_address,
+  from_lat,
+  from_lng,
 
-        to_address,
-        to_lat,
-        to_lng,
+  to_address_id || null,
+  to_address,
+  to_lat,
+  to_lng,
 
-        delivery_fee || 0,
-        extra_fee || 0,
-        notes || "",
-        status || "pending",
+  delivery_fee || 0,
+  extra_fee || 0,
+  notes || "",
+  status || "pending",
 
-        id,
-      ]
+  id,
+]
+
     );
 
     res.json({ success: true });
