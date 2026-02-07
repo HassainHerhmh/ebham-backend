@@ -4,6 +4,52 @@ import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 router.use(auth);
+/* ==============================================
+   🟢 GET /customer-guarantees/:customerId/balance
+   جلب رصيد عميل واحد
+============================================== */
+router.get("/:customerId/balance", async (req, res) => {
+  try {
+    const { customerId } = req.params;
+
+    const [[row]] = await db.query(`
+      SELECT 
+        cg.credit_limit,
+        IFNULL((
+          SELECT SUM(m.amount_base)
+          FROM customer_guarantee_moves m
+          WHERE m.guarantee_id = cg.id
+        ), 0) AS balance
+      FROM customer_guarantees cg
+      WHERE cg.customer_id = ?
+      LIMIT 1
+    `, [customerId]);
+
+    if (!row) {
+      return res.json({
+        success: true,
+        balance: 0,
+        credit_limit: 0,
+        exists: false
+      });
+    }
+
+    res.json({
+      success: true,
+      balance: Number(row.balance),
+      credit_limit: Number(row.credit_limit || 0),
+      exists: true
+    });
+
+  } catch (e) {
+    console.error("BALANCE ERROR:", e);
+
+    res.status(500).json({
+      success: false,
+      message: e.message
+    });
+  }
+});
 
 /* ==============================================
     🟢 GET /customer-guarantees
