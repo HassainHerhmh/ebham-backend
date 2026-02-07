@@ -6,12 +6,41 @@ const router = express.Router();
 router.use(auth);
 
 /* ==============================================
-   1. جلب قائمة البنوك (النشطة والمخصصة للفرع)
+   1. جلب رصيد العميل (حل مشكلة 404 الموضحة في الصور) ✅
+============================================== */
+router.get("/:customerId/balance", async (req, res) => {
+  try {
+    const { customerId } = req.params;
+    // استعلام لجلب الرصيد من جدول الحركات + السقف الائتماني
+    const [[row]] = await db.query(`
+      SELECT 
+        cg.credit_limit,
+        IFNULL((SELECT SUM(m.amount_base) FROM customer_guarantee_moves m WHERE m.guarantee_id = cg.id), 0) AS balance
+      FROM customer_guarantees cg
+      WHERE cg.customer_id = ? 
+      LIMIT 1`, [customerId]);
+    
+    if (!row) {
+      return res.json({ success: true, balance: 0, credit_limit: 0, exists: false });
+    }
+
+    res.json({ 
+      success: true, 
+      balance: Number(row.balance), 
+      credit_limit: Number(row.credit_limit || 0),
+      exists: true 
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+/* ==============================================
+   2. جلب قائمة البنوك (النشطة والمخصصة للفرع)
 ============================================== */
 router.get("/banks", async (req, res) => {
   try {
     const branchId = req.headers["x-branch-id"] || req.user.branch_id;
-    // جلب البنوك مع مراعاة الحسابات المخصصة لكل فرع لمنع التصفير
     const [banks] = await db.query(`
       SELECT pm.id, pm.company AS name 
       FROM payment_methods pm
@@ -23,7 +52,7 @@ router.get("/banks", async (req, res) => {
 });
 
 /* ==============================================
-   2. جلب جميع الطلبات
+   3. جلب جميع الطلبات
 ============================================== */
 router.get("/", async (req, res) => {
   try {
@@ -41,7 +70,7 @@ router.get("/", async (req, res) => {
 });
 
 /* ==============================================
-   3. إضافة طلب (مع فحص دقيق للرصيد والسقف)
+   4. إضافة طلب (مع فحص دقيق للرصيد والسقف)
 ============================================== */
 router.post("/", async (req, res) => {
   try {
@@ -49,7 +78,6 @@ router.post("/", async (req, res) => {
     const totalAmount = Number(delivery_fee || 0) + Number(extra_fee || 0);
 
     if (payment_method === 'wallet' && customer_id) {
-      // استعلام مصلح لجلب الرصيد الإجمالي من جدول الحركات
       const [[wallet]] = await db.query(`
         SELECT 
           cg.credit_limit,
@@ -74,7 +102,7 @@ router.post("/", async (req, res) => {
 });
 
 /* ==============================================
-   4. تحديث الحالة وتوليد القيود المحاسبية الصحيحة
+   5. تحديث الحالة وتوليد القيود المحاسبية الصحيحة
 ============================================== */
 router.put("/status/:id", async (req, res) => {
   const conn = await db.getConnection();
@@ -104,19 +132,13 @@ router.put("/status/:id", async (req, res) => {
       const detailNote = `طلب #${orderId}${o.extra_fee > 0 ? ` (شامل إضافي: ${o.extra_fee})` : ''}`;
 
       if (o.payment_method === 'cod') {
-        // دفع عند الاستلام: الكابتن مدين بالعمولة فقط
         await insertEntry(conn, o.cap_acc_id, commission, 0, `خصم عمولة ${detailNote}`, orderId, req);
         await insertEntry(conn, settings.courier_commission_account, 0, commission, `إيراد عمولة توصيل ${detailNote}`, orderId, req);
       } else {
         const sourceAcc = o.payment_method === 'bank' ? o.bank_acc : settings.transfer_guarantee_account;
-        
-        // 1. المصدر مدين (سداد)
         await insertEntry(conn, sourceAcc, totalCharge, 0, `سداد رسوم ${detailNote}`, orderId, req);
-        
-        // 2. ✅ تصحيح: الكابتن دائن (له - أخضر) بإيداع الرسوم
+        // ✅ الكابتن دائن (له - بالأخضر) - تصحيح الخلل المحاسبي
         await insertEntry(conn, o.cap_acc_id, 0, totalCharge, `إيداع رسوم ${detailNote} لحساب الكابتن`, orderId, req);
-        
-        // 3. الكابتن مدين (عليه) بالعمولة
         await insertEntry(conn, o.cap_acc_id, commission, 0, `خصم عمولة ${detailNote}`, orderId, req);
         await insertEntry(conn, settings.courier_commission_account, 0, commission, `إيراد عمولة توصيل ${detailNote}`, orderId, req);
       }
@@ -130,7 +152,7 @@ router.put("/status/:id", async (req, res) => {
 });
 
 /* ==============================================
-   5. إسناد كابتن
+   6. إسناد كابتن
 ============================================== */
 router.post("/assign", async (req, res) => {
   try {
@@ -149,17 +171,4 @@ async function insertEntry(conn, acc, deb, cre, n, ref, req) {
   );
 }
 
-// ✅ أضف هذا الكود في السيرفر لحل مشكلة الـ 404
-router.get("/:customerId/balance", async (req, res) => {
-  try {
-    const [[row]] = await db.query(`
-      SELECT 
-        cg.credit_limit,
-        IFNULL((SELECT SUM(amount_base) FROM customer_guarantee_moves WHERE guarantee_id = cg.id), 0) AS balance
-      FROM customer_guarantees cg
-      WHERE cg.customer_id = ?`, [req.params.customerId]);
-    
-    res.json({ success: true, balance: row?.balance || 0, credit_limit: row?.credit_limit || 0 });
-  } catch (err) { res.status(500).json({ success: false }); }
-});
 export default router;
