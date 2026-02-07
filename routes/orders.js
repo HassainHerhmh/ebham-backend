@@ -187,8 +187,26 @@ ORDER BY o.id DESC
 router.get("/", async (req, res) => {
   try {
     const user = req.user;
-    const limit = Number(req.query.limit) || 100;
 
+    const limit = Number(req.query.limit) || 100;
+    const dateFilter = req.query.date || "all"; // all | today | week
+
+    /* ======================
+       فلترة التاريخ من السيرفر
+    ====================== */
+    let dateWhere = "";
+
+    if (dateFilter === "today") {
+      dateWhere = "AND DATE(o.created_at) = CURDATE()";
+    }
+
+    if (dateFilter === "week") {
+      dateWhere = "AND o.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)";
+    }
+
+    /* ======================
+       الاستعلام الأساسي
+    ====================== */
     const baseQuery = `
       SELECT 
         o.id,
@@ -196,17 +214,20 @@ router.get("/", async (req, res) => {
         c.phone AS customer_phone,
         u.name AS user_name,
         o.status,
-        o.note,   -- ✅
+        o.note,
 
         o.total_amount,
         o.delivery_fee,
         o.extra_store_fee,
         o.stores_count,
         o.created_at,
+
         cap.name AS captain_name,
         o.payment_method,
+
         n.name AS neighborhood_name,
         b.name AS branch_name,
+
         CASE o.payment_method
           WHEN 'cod' THEN 'الدفع عند الاستلام'
           WHEN 'bank' THEN 'إيداع بنكي'
@@ -214,6 +235,7 @@ router.get("/", async (req, res) => {
           WHEN 'online' THEN 'دفع إلكتروني'
           ELSE '-'
         END AS payment_method_label
+
       FROM orders o
       JOIN customers c ON c.id = o.customer_id
       LEFT JOIN captains cap ON cap.id = o.captain_id
@@ -225,24 +247,52 @@ router.get("/", async (req, res) => {
 
     let rows = [];
 
+    /* ======================
+       Admin Branch
+    ====================== */
     if (user.is_admin_branch) {
       [rows] = await db.query(
-        `${baseQuery} ORDER BY o.id DESC LIMIT ?`,
+        `
+        ${baseQuery}
+        WHERE 1=1
+        ${dateWhere}
+        ORDER BY o.id DESC
+        LIMIT ?
+        `,
         [limit]
       );
+
+    /* ======================
+       User Branch
+    ====================== */
     } else {
       [rows] = await db.query(
-        `${baseQuery} WHERE o.branch_id = ? ORDER BY o.id DESC LIMIT ?`,
+        `
+        ${baseQuery}
+        WHERE o.branch_id = ?
+        ${dateWhere}
+        ORDER BY o.id DESC
+        LIMIT ?
+        `,
         [user.branch_id, limit]
       );
     }
 
-    res.json({ success: true, orders: rows });
+    res.json({
+      success: true,
+      orders: rows,
+    });
+
   } catch (err) {
     console.error("GET ORDERS ERROR:", err);
-    res.status(500).json({ success: false, orders: [] });
+
+    res.status(500).json({
+      success: false,
+      orders: [],
+    });
   }
 });
+
 /* ===================================================
    POST /orders (المحسن لدعم تكرار الطلب ومنع الأخطاء)
 ===================================================== */
