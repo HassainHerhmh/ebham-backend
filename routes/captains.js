@@ -24,7 +24,32 @@ router.get("/", async (req, res) => {
         c.*,
         b.name AS branch_name,
         a.code AS account_code,
-        a.name_ar AS account_name
+        a.name_ar AS account_name,
+
+        -- حساب الطلبات المعلقة من الجدولين (أي طلب حالته ليست مكتمل أو ملغي)
+        (
+          SELECT COUNT(*) FROM orders o 
+          WHERE o.captain_id = c.id 
+          AND o.status IN ('confirmed', 'preparing', 'ready', 'delivering')
+        ) + (
+          SELECT COUNT(*) FROM wassel_orders w 
+          WHERE w.captain_id = c.id 
+          AND w.status IN ('confirmed', 'preparing', 'ready', 'delivering')
+        ) AS pending_orders,
+
+        -- حساب الطلبات المكتملة اليوم فقط من الجدولين
+        (
+          SELECT COUNT(*) FROM orders o 
+          WHERE o.captain_id = c.id 
+          AND o.status = 'completed' 
+          AND DATE(o.created_at) = CURDATE()
+        ) + (
+          SELECT COUNT(*) FROM wassel_orders w 
+          WHERE w.captain_id = c.id 
+          AND w.status = 'completed' 
+          AND DATE(w.created_at) = CURDATE()
+        ) AS completed_today
+
       FROM captains c
       LEFT JOIN branches b ON b.id = c.branch_id
       LEFT JOIN accounts a ON a.id = c.account_id
@@ -63,7 +88,6 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false, message: "فشل في جلب الكباتن" });
   }
 });
-
 /* =========================
    POST /captains
 ========================= */
