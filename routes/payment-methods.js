@@ -6,6 +6,7 @@ const router = express.Router();
 
 /* ========================
    1. جلب جميع طرق الدفع (للإدارة)
+   عرض البنوك مع الحسابات الافتراضية
 ======================== */
 router.get("/", async (req, res) => {
   try {
@@ -13,9 +14,11 @@ router.get("/", async (req, res) => {
       SELECT 
         pm.*,
         b.name AS branch_name,
+        a.name_ar AS account_name,
         CAST(pm.is_active AS UNSIGNED) AS is_active
       FROM payment_methods pm
       LEFT JOIN branches b ON b.id = pm.branch_id
+      LEFT JOIN accounts a ON a.id = pm.account_id
       ORDER BY pm.sort_order ASC
     `);
 
@@ -27,56 +30,70 @@ router.get("/", async (req, res) => {
 });
 
 /* ========================
-   2. جلب الطرق المفعّلة للفرع المحدد أو الموحدة
+   2. جلب الطرق المفعّلة (مخصص لكل فرع) ✅
+   هذا المسار يضمن أن كل فرع يحصل على الحساب المحاسبي الخاص به
 ======================== */
 router.get("/active", async (req, res) => {
   try {
-    // جلب رقم الفرع من الهيدر (x-branch-id) أو من بيانات المستخدم
     const branchId = req.headers["x-branch-id"] || req.user?.branch_id;
 
-    let query = `
-      SELECT 
-        id, company, account_number, owner_name, address, branch_id
-      FROM payment_methods 
-      WHERE is_active = 1
-    `;
-    
-    let params = [];
-
-    // عرض بنوك الفرع المحدد + البنوك العامة (NULL)
-    if (branchId) {
-      query += ` AND (branch_id IS NULL OR branch_id = ?) `;
-      params.push(Number(branchId));
+    if (!branchId) {
+      return res.status(400).json({ success: false, message: "رقم الفرع مطلوب" });
     }
 
-    query += ` ORDER BY sort_order ASC `;
+    // جلب البنك مع الحساب المخصص للفرع من الجدول الوسيط
+    // إذا لم يوجد ربط في branch_payment_accounts، يتم استخدام الحساب الافتراضي من جدول البنوك
+    const [rows] = await db.query(`
+      SELECT 
+        pm.id, 
+        pm.company, 
+        pm.account_number, 
+        pm.owner_name, 
+        pm.address,
+        IFNULL(bpa.account_id, pm.account_id) AS account_id
+      FROM payment_methods pm
+      LEFT JOIN branch_payment_accounts bpa ON bpa.payment_method_id = pm.id AND bpa.branch_id = ?
+      WHERE pm.is_active = 1 
+      AND (pm.branch_id IS NULL OR pm.branch_id = ?)
+      ORDER BY pm.sort_order ASC
+    `, [branchId, branchId]);
 
-    const [rows] = await db.query(query, params);
     res.json({ success: true, methods: rows });
   } catch (err) {
-    console.error("❌ خطأ في جلب البنوك:", err);
+    console.error("❌ خطأ في جلب البنوك النشطة:", err);
     res.status(500).json({ success: false });
   }
 });
 
 /* ========================
-   3. إضافة طريقة دفع (مع دعم تحديد الفرع)
+   3. ربط بنك بحساب محاسبي لفرع معين ✅
+   (جديد: لإدارة استقلال حسابات الفروع)
+======================== */
+router.post("/assign-branch-account", async (req, res) => {
+  try {
+    const { payment_method_id, branch_id, account_id } = req.body;
+
+    await db.query(`
+      INSERT INTO branch_payment_accounts (payment_method_id, branch_id, account_id)
+      VALUES (?, ?, ?)
+      ON DUPLICATE KEY UPDATE account_id = VALUES(account_id)
+    `, [payment_method_id, branch_id, account_id]);
+
+    res.json({ success: true, message: "تم ربط الحساب بالفرع بنجاح" });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/* ========================
+   4. إضافة طريقة دفع جديدة
 ======================== */
 router.post("/", async (req, res) => {
   try {
     const { company, account_number, owner_name, address, account_id, branch_id } = req.body;
 
     if (!account_id) {
-      return res.json({ success: false, message: "يجب اختيار حساب فرعي" });
-    }
-
-    const [[acc]] = await db.query(
-      "SELECT id FROM accounts WHERE id=? AND parent_id IS NOT NULL",
-      [account_id]
-    );
-
-    if (!acc) {
-      return res.json({ success: false, message: "الحساب المختار ليس فرعيًا" });
+      return res.json({ success: false, message: "يجب اختيار حساب فرعي افتراضي" });
     }
 
     await db.query(
@@ -88,13 +105,12 @@ router.post("/", async (req, res) => {
 
     res.json({ success: true, message: "✅ تم إضافة طريقة الدفع" });
   } catch (err) {
-    console.error("Add payment method error:", err);
     res.status(500).json({ success: false });
   }
 });
 
 /* ========================
-   4. تعديل طريقة دفع
+   5. تعديل طريقة دفع
 ======================== */
 router.put("/:id", async (req, res) => {
   try {
@@ -109,13 +125,12 @@ router.put("/:id", async (req, res) => {
 
     res.json({ success: true, message: "✅ تم التعديل" });
   } catch (err) {
-    console.error("Update payment method error:", err);
     res.status(500).json({ success: false });
   }
 });
 
 /* ========================
-   5. حذف طريقة دفع
+   6. حذف طريقة دفع
 ======================== */
 router.delete("/:id", async (req, res) => {
   try {
@@ -127,7 +142,7 @@ router.delete("/:id", async (req, res) => {
 });
 
 /* ========================
-   6. تفعيل / تعطيل (تم التعديل إلى PUT لحل خطأ CORS) ✅
+   7. تفعيل / تعطيل (عبر PUT لحل مشاكل CORS)
 ======================== */
 router.put("/:id/toggle", async (req, res) => {
   const { id } = req.params;
@@ -147,7 +162,6 @@ router.put("/:id/toggle", async (req, res) => {
     res.json({ success: true, message: "تم تحديث الحالة بنجاح" });
   } catch (err) {
     await conn.rollback();
-    console.error("Toggle error:", err);
     res.status(500).json({ success: false });
   } finally {
     conn.release();
@@ -155,7 +169,7 @@ router.put("/:id/toggle", async (req, res) => {
 });
 
 /* ========================
-   7. ترتيب بالسحب
+   8. ترتيب بالسحب
 ======================== */
 router.post("/reorder", async (req, res) => {
   const { orders } = req.body;
@@ -176,25 +190,7 @@ router.post("/reorder", async (req, res) => {
 });
 
 /* ========================
-   8. سجل التغييرات
-======================== */
-router.get("/:id/logs", async (req, res) => {
-  try {
-    const [rows] = await db.query(`
-      SELECT l.action, l.created_at, u.name AS user_name
-      FROM payment_method_logs l
-      LEFT JOIN users u ON u.id = l.changed_by
-      WHERE l.payment_method_id = ?
-      ORDER BY l.created_at DESC
-    `, [req.params.id]);
-    res.json({ success: true, logs: rows });
-  } catch (err) {
-    res.status(500).json({ success: false });
-  }
-});
-
-/* ========================
-   9. تصدير PDF
+   9. تصدير PDF للسجلات
 ======================== */
 router.get("/:id/logs/pdf", async (req, res) => {
   try {
