@@ -4,11 +4,10 @@ import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 
-/* حماية جميع المسارات مسبقاً */
 router.use(auth);
 
 /* ==============================================
-   1. جلب طلبات وصل لي مع أسماء المستخدمين (المنشئ والمحدث)
+   1. جلب الطلبات مع أسماء (العميل، الكابتن، المستخدمين)
 ============================================== */
 router.get("/", async (req, res) => {
   try {
@@ -22,142 +21,150 @@ router.get("/", async (req, res) => {
       FROM wassel_orders w
       LEFT JOIN customers c ON c.id = w.customer_id
       LEFT JOIN captains cap ON cap.id = w.captain_id
-      LEFT JOIN users u_creator ON u_creator.id = w.user_id     -- من أضاف الطلب
-      LEFT JOIN users u_updater ON u_updater.id = w.updated_by -- من حدث الحالة
+      LEFT JOIN users u_creator ON u_creator.id = w.user_id
+      LEFT JOIN users u_updater ON u_updater.id = w.updated_by
       ORDER BY w.id DESC
     `);
     res.json({ success: true, orders: rows });
   } catch (err) {
-    console.error("GET WASSEL ORDERS ERROR:", err);
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
 /* ==============================================
-   2. إضافة طلب جديد (مع تسجيل معرف المنشئ)
+   2. إضافة طلب جديد مع طريقة الدفع
 ============================================== */
 router.post("/", async (req, res) => {
   try {
     const {
-      customer_id, order_type, from_address_id, from_address, 
-      from_lat, from_lng, to_address_id, to_address, 
-      to_lat, to_lng, delivery_fee, extra_fee, notes
+      customer_id, order_type, from_address, from_lat, from_lng,
+      to_address, to_lat, to_lng, delivery_fee, extra_fee, notes, payment_method
     } = req.body;
 
-    // الحصول على id المستخدم من التوكن عبر الـ middleware
     const user_id = req.user.id; 
 
-    if (!order_type || !from_address || !to_address) {
-      return res.status(400).json({ success: false, message: "بيانات ناقصة" });
-    }
-
-    await db.query(
+    const [result] = await db.query(
       `INSERT INTO wassel_orders (
-        customer_id, order_type, from_address_id, from_address, from_lat, from_lng,
-        to_address_id, to_address, to_lat, to_lng, delivery_fee, extra_fee, notes,
-        status, user_id, created_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
+        customer_id, order_type, from_address, from_lat, from_lng,
+        to_address, to_lat, to_lng, delivery_fee, extra_fee, notes,
+        status, payment_method, user_id, created_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
       [
-        customer_id || null, order_type, from_address_id || null, from_address, from_lat, from_lng,
-        to_address_id || null, to_address, to_lat, to_lng, delivery_fee || 0, extra_fee || 0, 
-        notes || "", "pending", user_id
+        customer_id || null, order_type, from_address, from_lat, from_lng,
+        to_address, to_lat, to_lng, delivery_fee || 0, extra_fee || 0, 
+        notes || "", "pending", payment_method || 'cod', user_id
       ]
     );
 
-    res.json({ success: true, message: "تم إضافة الطلب بنجاح" });
+    res.json({ success: true, order_id: result.insertId });
   } catch (err) {
-    console.error("ADD WASSEL ORDER ERROR:", err);
-    res.status(500).json({ success: false, message: "فشل في الإضافة" });
+    res.status(500).json({ success: false, message: "فشل الإضافة" });
   }
 });
 
 /* ==============================================
-   3. تعديل طلب بالكامل
-============================================== */
-router.put("/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const {
-      customer_id, order_type, from_address, from_lat, from_lng,
-      to_address, to_lat, to_lng, from_address_id, to_address_id,
-      delivery_fee, extra_fee, notes, status, captain_id
-    } = req.body;
-
-    await db.query(
-      `UPDATE wassel_orders SET 
-        customer_id=?, order_type=?, from_address_id=?, from_address=?, from_lat=?, from_lng=?,
-        to_address_id=?, to_address=?, to_lat=?, to_lng=?, delivery_fee=?, extra_fee=?, 
-        notes=?, status=?, captain_id=?
-      WHERE id=?`,
-      [
-        customer_id, order_type, from_address_id || null, from_address, from_lat, from_lng,
-        to_address_id || null, to_address, to_lat, to_lng, delivery_fee || 0, extra_fee || 0,
-        notes || "", status || "pending", captain_id || null, id
-      ]
-    );
-
-    res.json({ success: true, message: "تم تحديث الطلب" });
-  } catch (err) {
-    console.error("UPDATE WASSEL ERROR:", err);
-    res.status(500).json({ success: false, message: "خطأ في التعديل" });
-  }
-});
-
-/* ==============================================
-   4. إسناد كابتن وتحديث المستخدم المحدث
-============================================== */
-router.post("/assign", async (req, res) => {
-  const { orderId, captainId } = req.body;
-  const updated_by = req.user.id; 
-
-  if (!orderId || !captainId) {
-    return res.status(400).json({ success: false, message: "بيانات ناقصة" });
-  }
-
-  try {
-    await db.query(
-      `UPDATE wassel_orders SET captain_id = ?, updated_by = ? WHERE id = ?`,
-      [captainId, updated_by, orderId]
-    );
-
-    res.json({ success: true, message: "تم إسناد الكابتن بنجاح" });
-  } catch (err) {
-    console.error("ASSIGN CAPTAIN ERROR:", err);
-    res.status(500).json({ success: false, message: "فشل في تحديث قاعدة البيانات" });
-  }
-});
-
-/* ==============================================
-   5. تحديث الحالة فقط (مع تسجيل من قام بالتحديث)
+   3. تحديث الحالة وتوليد القيود المحاسبية (المنطق الرئيسي)
 ============================================== */
 router.put("/status/:id", async (req, res) => {
+  const conn = await db.getConnection();
   try {
-    const { id } = req.params;
     const { status } = req.body;
-    const updated_by = req.user.id; 
+    const orderId = req.params.id;
+    const updated_by = req.user.id;
 
-    await db.query(
-      `UPDATE wassel_orders SET status=?, updated_by=? WHERE id=?`, 
-      [status, updated_by, id]
-    );
-    res.json({ success: true, message: "تم تحديث الحالة" });
+    await conn.beginTransaction();
+
+    // أ- تحديث الحالة والمحدث
+    await conn.query("UPDATE wassel_orders SET status=?, updated_by=? WHERE id=?", [status, updated_by, orderId]);
+
+    // ب- توليد القيود عند حالة "قيد التوصيل"
+    if (status === "delivering") {
+      const [[settings]] = await conn.query("SELECT * FROM settings LIMIT 1");
+      const [[baseCur]] = await conn.query("SELECT id FROM currencies WHERE is_local=1 LIMIT 1");
+
+      const [orderRows] = await conn.query(`
+        SELECT w.*, cap.account_id AS cap_acc_id, 
+               comm.commission_value, comm.commission_type
+        FROM wassel_orders w
+        LEFT JOIN captains cap ON w.captain_id = cap.id
+        LEFT JOIN commissions comm ON (comm.account_id = cap.id AND comm.account_type = 'captain' AND comm.is_active = 1)
+        WHERE w.id = ?`, [orderId]);
+
+      const order = orderRows[0];
+      if (!order || !order.cap_acc_id) throw new Error("الكابتن غير مرتبط بحساب محاسبي");
+
+      const totalFee = Number(order.delivery_fee) + Number(order.extra_fee);
+      
+      // حساب العمولة
+      let commission = 0;
+      if (order.commission_value) {
+        commission = order.commission_type === 'percent' ? (totalFee * order.commission_value / 100) : order.commission_value;
+      }
+
+      const baseParams = { ref_id: orderId, cur: baseCur.id, user: updated_by, branch: req.user.branch_id };
+
+      // ج- تطبيق القيود حسب طريقة الدفع
+      if (order.payment_method === 'cod') {
+        // قيد العمولة فقط على الكابتن (مدين: الكابتن | دائن: إيراد عمولة)
+        await insertEntry(conn, order.cap_acc_id, 0, commission, `خصم عمولة طلب وصل لي #${orderId} - دفع عند الاستلام`, baseParams);
+        await insertEntry(conn, settings.commission_income_account, commission, 0, `إيراد عمولة طلب #${orderId}`, baseParams);
+
+      } else if (order.payment_method === 'wallet') {
+        // 1. تحويل المبلغ من التأمينات للكابتن
+        await insertEntry(conn, settings.customer_guarantee_account, 0, totalFee, `سداد طلب #${orderId} من الرصيد`, baseParams);
+        await insertEntry(conn, order.cap_acc_id, totalFee, 0, `إيداع قيمة طلب #${orderId} في حساب الكابتن`, baseParams);
+        
+        // 2. خصم العمولة من الكابتن
+        await insertEntry(conn, order.cap_acc_id, 0, commission, `خصم عمولة طلب #${orderId}`, baseParams);
+        await insertEntry(conn, settings.commission_income_account, commission, 0, `إيراد عمولة طلب #${orderId}`, baseParams);
+
+      } else if (order.payment_method === 'bank' || order.payment_method === 'online') {
+        const bankAcc = (order.payment_method === 'bank') ? settings.bank_account : settings.online_payment_account;
+        
+        // 1. من حساب البنك للكابتن
+        await insertEntry(conn, bankAcc, 0, totalFee, `تحويل قيمة طلب #${orderId} عبر البنك/إلكتروني`, baseParams);
+        await insertEntry(conn, order.cap_acc_id, totalFee, 0, `قيمة طلب #${orderId} محولة للكابتن`, baseParams);
+
+        // 2. خصم العمولة
+        await insertEntry(conn, order.cap_acc_id, 0, commission, `خصم عمولة طلب #${orderId}`, baseParams);
+        await insertEntry(conn, settings.commission_income_account, commission, 0, `إيراد عمولة طلب #${orderId}`, baseParams);
+      }
+    }
+
+    await conn.commit();
+    res.json({ success: true });
   } catch (err) {
-    console.error("UPDATE STATUS ERROR:", err);
-    res.status(500).json({ success: false, message: "خطأ في تحديث الحالة" });
+    if (conn) await conn.rollback();
+    console.error("ACCOUNTING ERROR:", err.message);
+    res.status(500).json({ success: false, message: err.message });
+  } finally {
+    if (conn) conn.release();
   }
 });
 
 /* ==============================================
-   6. حذف طلب
+   دالة مساعدة لإدراج القيد المحاسبي
 ============================================== */
-router.delete("/:id", async (req, res) => {
+async function insertEntry(conn, accId, debit, credit, note, p) {
+  if (!accId) throw new Error("أحد الحسابات الوسيطة غير معرف في الإعدادات");
+  return conn.query(
+    `INSERT INTO journal_entries 
+     (account_id, debit, credit, notes, reference_type, reference_id, journal_date, currency_id, created_by, branch_id) 
+     VALUES (?, ?, ?, ?, 'wassel_order', ?, CURDATE(), ?, ?, ?)`,
+    [accId, debit, credit, note, p.ref_id, p.cur, p.user, p.branch]
+  );
+}
+
+/* ==============================================
+   4. إسناد كابتن
+============================================== */
+router.post("/assign", async (req, res) => {
   try {
-    const { id } = req.params;
-    await db.query(`DELETE FROM wassel_orders WHERE id=?`, [id]);
+    const { orderId, captainId } = req.body;
+    await db.query("UPDATE wassel_orders SET captain_id = ?, updated_by = ? WHERE id = ?", [captainId, req.user.id, orderId]);
     res.json({ success: true });
   } catch (err) {
-    console.error("DELETE ERROR:", err);
-    res.status(500).json({ success: false, message: "خطأ في الحذف" });
+    res.status(500).json({ success: false });
   }
 });
 
