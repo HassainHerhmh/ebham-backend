@@ -5,7 +5,7 @@ import PDFDocument from "pdfkit";
 const router = express.Router();
 
 /* ========================
-   جلب جميع طرق الدفع (للإدارة)
+   1. جلب جميع طرق الدفع (للإدارة)
 ======================== */
 router.get("/", async (req, res) => {
   try {
@@ -27,7 +27,7 @@ router.get("/", async (req, res) => {
 });
 
 /* ========================
-   جلب الطرق المفعّلة للفرع المحدد أو الموحدة
+   2. جلب الطرق المفعّلة للفرع المحدد أو الموحدة
 ======================== */
 router.get("/active", async (req, res) => {
   try {
@@ -43,7 +43,7 @@ router.get("/active", async (req, res) => {
     
     let params = [];
 
-    // إذا تم إرسال رقم فرع، نعرض بنوك هذا الفرع + البنوك العامة (NULL)
+    // عرض بنوك الفرع المحدد + البنوك العامة (NULL)
     if (branchId) {
       query += ` AND (branch_id IS NULL OR branch_id = ?) `;
       params.push(Number(branchId));
@@ -60,7 +60,7 @@ router.get("/active", async (req, res) => {
 });
 
 /* ========================
-   إضافة طريقة دفع (مع دعم تحديد الفرع)
+   3. إضافة طريقة دفع (مع دعم تحديد الفرع)
 ======================== */
 router.post("/", async (req, res) => {
   try {
@@ -81,8 +81,8 @@ router.post("/", async (req, res) => {
 
     await db.query(
       `INSERT INTO payment_methods
-       (company, account_number, owner_name, address, account_id, branch_id, sort_order, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, 9999, 1)`,
+        (company, account_number, owner_name, address, account_id, branch_id, sort_order, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, 9999, 1)`,
       [company, account_number, owner_name, address, account_id, branch_id || null]
     );
 
@@ -94,7 +94,7 @@ router.post("/", async (req, res) => {
 });
 
 /* ========================
-   تعديل طريقة دفع
+   4. تعديل طريقة دفع
 ======================== */
 router.put("/:id", async (req, res) => {
   try {
@@ -102,8 +102,8 @@ router.put("/:id", async (req, res) => {
 
     await db.query(
       `UPDATE payment_methods
-       SET company=?, account_number=?, owner_name=?, address=?, account_id=?, branch_id=?
-       WHERE id=?`,
+        SET company=?, account_number=?, owner_name=?, address=?, account_id=?, branch_id=?
+        WHERE id=?`,
       [company, account_number, owner_name, address, account_id, branch_id || null, req.params.id]
     );
 
@@ -115,7 +115,7 @@ router.put("/:id", async (req, res) => {
 });
 
 /* ========================
-   حذف طريقة دفع
+   5. حذف طريقة دفع
 ======================== */
 router.delete("/:id", async (req, res) => {
   try {
@@ -127,9 +127,9 @@ router.delete("/:id", async (req, res) => {
 });
 
 /* ========================
-   تفعيل / تعطيل
+   6. تفعيل / تعطيل (تم التعديل إلى PUT لحل خطأ CORS) ✅
 ======================== */
-router.patch("/:id/toggle", async (req, res) => {
+router.put("/:id/toggle", async (req, res) => {
   const { id } = req.params;
   const { is_active } = req.body;
   const status = is_active ? 1 : 0;
@@ -144,9 +144,10 @@ router.patch("/:id/toggle", async (req, res) => {
       [id, status === 1 ? "activate" : "deactivate", userId]
     );
     await conn.commit();
-    res.json({ success: true });
+    res.json({ success: true, message: "تم تحديث الحالة بنجاح" });
   } catch (err) {
     await conn.rollback();
+    console.error("Toggle error:", err);
     res.status(500).json({ success: false });
   } finally {
     conn.release();
@@ -154,7 +155,7 @@ router.patch("/:id/toggle", async (req, res) => {
 });
 
 /* ========================
-   ترتيب بالسحب
+   7. ترتيب بالسحب
 ======================== */
 router.post("/reorder", async (req, res) => {
   const { orders } = req.body;
@@ -175,7 +176,7 @@ router.post("/reorder", async (req, res) => {
 });
 
 /* ========================
-   سجل التغييرات
+   8. سجل التغييرات
 ======================== */
 router.get("/:id/logs", async (req, res) => {
   try {
@@ -193,7 +194,7 @@ router.get("/:id/logs", async (req, res) => {
 });
 
 /* ========================
-   تصدير PDF
+   9. تصدير PDF
 ======================== */
 router.get("/:id/logs/pdf", async (req, res) => {
   try {
