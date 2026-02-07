@@ -7,7 +7,21 @@ const router = express.Router();
 router.use(auth);
 
 /* ==============================================
-   1. جلب الطلبات مع أسماء الأطراف
+   1. جلب قائمة البنوك (للمودال)
+============================================== */
+router.get("/banks", async (req, res) => {
+  try {
+    const [banks] = await db.query(
+      "SELECT id, company AS name, account_number FROM payment_methods WHERE is_active = 1"
+    );
+    res.json({ success: true, banks });
+  } catch (err) {
+    res.status(500).json({ success: false });
+  }
+});
+
+/* ==============================================
+   2. جلب الطلبات مع أسماء الأطراف
 ============================================== */
 router.get("/", async (req, res) => {
   try {
@@ -32,53 +46,77 @@ router.get("/", async (req, res) => {
 });
 
 /* ==============================================
-   2. إضافة طلب جديد
+   3. إضافة طلب جديد (مع فحص الرصيد والسقف)
 ============================================== */
 router.post("/", async (req, res) => {
   try {
     const {
       customer_id, order_type, from_address, to_address, 
-      delivery_fee, extra_fee, notes, payment_method
+      delivery_fee, extra_fee, notes, payment_method, bank_id
     } = req.body;
+
+    const totalAmount = Number(delivery_fee || 0) + Number(extra_fee || 0);
+
+    // ✅ فحص الرصيد والسقف عند الدفع من المحفظة
+    if (payment_method === 'wallet' && customer_id) {
+      const [[walletInfo]] = await db.query(`
+        SELECT 
+          IFNULL((SELECT SUM(amount_base) FROM customer_guarantee_moves WHERE guarantee_id = cg.id), 0) AS balance,
+          cg.credit_limit
+        FROM customer_guarantees cg
+        WHERE cg.customer_id = ?
+      `, [customer_id]);
+
+      if (walletInfo) {
+        const available = Number(walletInfo.balance) + Number(walletInfo.credit_limit);
+        if (totalAmount > available) {
+          return res.status(400).json({ 
+            success: false, 
+            message: `الرصيد غير كافٍ. المتاح مع السقف: ${available}` 
+          });
+        }
+      }
+    }
 
     const [result] = await db.query(
       `INSERT INTO wassel_orders (
         customer_id, order_type, from_address, to_address, delivery_fee, extra_fee, notes,
-        status, payment_method, user_id, created_at
-      ) VALUES (?,?,?,?,?,?,?, 'pending', ?, ?, NOW())`,
+        status, payment_method, bank_id, user_id, created_at
+      ) VALUES (?,?,?,?,?,?,?, 'pending', ?, ?, ?, NOW())`,
       [
         customer_id || null, order_type, from_address, to_address, 
         delivery_fee || 0, extra_fee || 0, notes || "", 
-        payment_method || 'cod', req.user.id
+        payment_method || 'cod', bank_id || null, req.user.id
       ]
     );
 
     res.json({ success: true, order_id: result.insertId });
   } catch (err) {
+    console.error("ADD ERROR:", err);
     res.status(500).json({ success: false, message: "فشل الإضافة" });
   }
 });
 
 /* ==============================================
-   3. تعديل طلب (إصلاح خطأ 404)
+   4. تعديل طلب (إصلاح خطأ 404 ودعم البنك)
 ============================================== */
 router.put("/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const {
       customer_id, order_type, from_address, to_address,
-      delivery_fee, extra_fee, notes, status, captain_id, payment_method
+      delivery_fee, extra_fee, notes, status, captain_id, payment_method, bank_id
     } = req.body;
 
     await db.query(
       `UPDATE wassel_orders SET 
         customer_id=?, order_type=?, from_address=?, to_address=?, 
-        delivery_fee=?, extra_fee=?, notes=?, status=?, captain_id=?, payment_method=?, updated_by=?
+        delivery_fee=?, extra_fee=?, notes=?, status=?, captain_id=?, payment_method=?, bank_id=?, updated_by=?
       WHERE id=?`,
       [
         customer_id, order_type, from_address, to_address, 
         delivery_fee || 0, extra_fee || 0, notes || "", 
-        status || "pending", captain_id || null, payment_method || 'cod', req.user.id, id
+        status || "pending", captain_id || null, payment_method || 'cod', bank_id || null, req.user.id, id
       ]
     );
 
@@ -90,7 +128,7 @@ router.put("/:id", async (req, res) => {
 });
 
 /* ==============================================
-   4. تحديث الحالة وتوليد القيود (إصلاح المحاسبة)
+   5. تحديث الحالة وتوليد القيود المحاسبية
 ============================================== */
 router.put("/status/:id", async (req, res) => {
   const conn = await db.getConnection();
@@ -108,50 +146,44 @@ router.put("/status/:id", async (req, res) => {
 
       const [orderRows] = await conn.query(`
         SELECT w.*, cap.account_id AS cap_acc_id, 
-                comm.commission_value, comm.commission_type
+                comm.commission_value, comm.commission_type,
+                pm.account_id AS selected_bank_acc
         FROM wassel_orders w
         LEFT JOIN captains cap ON w.captain_id = cap.id
+        LEFT JOIN payment_methods pm ON w.bank_id = pm.id
         LEFT JOIN commissions comm ON (comm.account_id = cap.id AND comm.account_type = 'captain' AND comm.is_active = 1)
         WHERE w.id = ?`, [orderId]);
 
       const order = orderRows[0];
       if (!order || !order.cap_acc_id) throw new Error("الكابتن غير مرتبط بحساب أو لم يتم إسناد كابتن");
 
-      // جمع الرسوم الأساسية والإضافية في مبلغ واحد
       const totalDeliveryCharge = Number(order.delivery_fee) + Number(order.extra_fee);
       const hasExtra = Number(order.extra_fee) > 0;
-      
-      // تجهيز البيان التفصيلي
       const detailNote = hasExtra 
           ? `رسوم توصيل #${orderId} (شاملة رسوم إضافية: ${order.extra_fee})` 
           : `رسوم توصيل طلب #${orderId}`;
 
       let commission = order.commission_type === 'percent' ? (totalDeliveryCharge * order.commission_value / 100) : (order.commission_value || 0);
-
       const baseParams = { ref_id: orderId, cur: baseCur.id, user: updated_by, branch: req.user.branch_id };
 
       if (order.payment_method === 'cod') {
-        // الكابتن مدين (عليه) بقيمة العمولة
         await insertEntry(conn, order.cap_acc_id, commission, 0, `خصم عمولة ${detailNote} - دفع عند الاستلام`, baseParams);
         await insertEntry(conn, settings.courier_commission_account, 0, commission, `إيراد عمولة توصيل طلب #${orderId}`, baseParams);
 
       } else if (order.payment_method === 'wallet') {
-        // من التأمينات للكابتن (كامل المبلغ)
         await insertEntry(conn, settings.transfer_guarantee_account, 0, totalDeliveryCharge, `سداد ${detailNote} من الرصيد`, baseParams);
         await insertEntry(conn, order.cap_acc_id, totalDeliveryCharge, 0, `إيداع ${detailNote} لحساب الكابتن`, baseParams);
         
-        // خصم العمولة (عليه)
         await insertEntry(conn, order.cap_acc_id, commission, 0, `خصم عمولة طلب وصل لي #${orderId}`, baseParams);
         await insertEntry(conn, settings.courier_commission_account, 0, commission, `إيراد عمولة توصيل طلب #${orderId}`, baseParams);
 
       } else if (order.payment_method === 'bank' || order.payment_method === 'online') {
-        const bankAcc = (order.payment_method === 'bank') ? settings.bank_account : settings.online_payment_account;
+        // استخدام حساب البنك المرتبط بالطلب أو حساب الإعدادات الافتراضي
+        const bankAcc = order.selected_bank_acc || (order.payment_method === 'bank' ? settings.bank_account : settings.online_payment_account);
         
-        // من البنك للكابتن (كامل المبلغ بقيد واحد)
         await insertEntry(conn, bankAcc, 0, totalDeliveryCharge, `تحويل ${detailNote} عبر البنك`, baseParams);
         await insertEntry(conn, order.cap_acc_id, totalDeliveryCharge, 0, `إيداع ${detailNote} لحساب الكابتن`, baseParams);
 
-        // خصم العمولة (عليه)
         await insertEntry(conn, order.cap_acc_id, commission, 0, `خصم عمولة طلب وصل لي #${orderId}`, baseParams);
         await insertEntry(conn, settings.courier_commission_account, 0, commission, `إيراد عمولة توصيل طلب #${orderId}`, baseParams);
       }
@@ -168,11 +200,10 @@ router.put("/status/:id", async (req, res) => {
 });
 
 /* ==============================================
-   دالة مساعدة لإدراج القيد (حل مشكلة journal_type_id)
+   دالة مساعدة لإدراج القيد
 ============================================== */
 async function insertEntry(conn, accId, debit, credit, note, p) {
   if (!accId) throw new Error("أحد الحسابات المحاسبية غير معرف في الإعدادات");
-
   return conn.query(
     `INSERT INTO journal_entries 
      (journal_type_id, account_id, debit, credit, notes, reference_type, reference_id, journal_date, currency_id, created_by, branch_id) 
@@ -182,7 +213,7 @@ async function insertEntry(conn, accId, debit, credit, note, p) {
 }
 
 /* ==============================================
-   5. إسناد كابتن
+   6. إسناد كابتن
 ============================================== */
 router.post("/assign", async (req, res) => {
   try {
