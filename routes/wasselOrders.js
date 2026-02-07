@@ -6,25 +6,19 @@ const router = express.Router();
 router.use(auth);
 
 /* ==============================================
-   1. جلب قائمة البنوك
+   1. جلب قائمة البنوك والمعطيات الأساسية
 ============================================== */
 router.get("/banks", async (req, res) => {
   try {
-    const [banks] = await db.query(
-      "SELECT id, company AS name, account_number FROM payment_methods WHERE is_active = 1"
-    );
+    const [banks] = await db.query("SELECT id, company AS name FROM payment_methods WHERE is_active = 1");
     res.json({ success: true, banks });
   } catch (err) { res.status(500).json({ success: false }); }
 });
 
-/* ==============================================
-   2. جلب الطلبات
-============================================== */
 router.get("/", async (req, res) => {
   try {
     const [rows] = await db.query(`
-      SELECT w.*, c.name AS customer_name, cap.name AS captain_name,
-             u1.name AS creator_name, u2.name AS updater_name  
+      SELECT w.*, c.name AS customer_name, cap.name AS captain_name, u1.name AS creator_name, u2.name AS updater_name  
       FROM wassel_orders w
       LEFT JOIN customers c ON c.id = w.customer_id
       LEFT JOIN captains cap ON cap.id = w.captain_id
@@ -37,7 +31,7 @@ router.get("/", async (req, res) => {
 });
 
 /* ==============================================
-   3. إضافة طلب (مع فحص الرصيد والسقف)
+   2. إضافة طلب (مع فحص السقف المالي)
 ============================================== */
 router.post("/", async (req, res) => {
   try {
@@ -46,7 +40,7 @@ router.post("/", async (req, res) => {
 
     if (payment_method === 'wallet' && customer_id) {
       const [[wallet]] = await db.query(`
-        SELECT IFNULL(SUM(amount_base), 0) AS balance, cg.credit_limit 
+        SELECT IFNULL(SUM(m.amount_base), 0) AS balance, cg.credit_limit 
         FROM customer_guarantees cg 
         LEFT JOIN customer_guarantee_moves m ON m.guarantee_id = cg.id 
         WHERE cg.customer_id = ?`, [customer_id]);
@@ -66,7 +60,7 @@ router.post("/", async (req, res) => {
 });
 
 /* ==============================================
-   4. تعديل طلب (إصلاح 404)
+   3. تعديل وتحديث الحالة (الإصلاح المحاسبي)
 ============================================== */
 router.put("/:id", async (req, res) => {
   try {
@@ -79,9 +73,6 @@ router.put("/:id", async (req, res) => {
   } catch (err) { res.status(500).json({ success: false }); }
 });
 
-/* ==============================================
-   5. تحديث الحالة والقيود (الإصلاح النهائي للمدين/الدائن)
-============================================== */
 router.put("/status/:id", async (req, res) => {
   const conn = await db.getConnection();
   try {
@@ -109,16 +100,15 @@ router.put("/status/:id", async (req, res) => {
       const detailNote = `طلب #${orderId}${o.extra_fee > 0 ? ` (شامل إضافي: ${o.extra_fee})` : ''}`;
 
       if (o.payment_method === 'cod') {
-        // دفع كاش: الكابتن عليه العمولة فقط
         await insertEntry(conn, o.cap_acc_id, commission, 0, `خصم عمولة ${detailNote} - دفع عند الاستلام`, orderId, req);
         await insertEntry(conn, settings.courier_commission_account, 0, commission, `إيراد عمولة توصيل ${detailNote}`, orderId, req);
       } else {
-        // دفع بنك أو رصيد: (من المصدر إلى الكابتن)
         const sourceAcc = o.payment_method === 'bank' ? o.bank_acc : settings.transfer_guarantee_account;
         
         // المصدر مدين (عليه) بقيمة السداد
         await insertEntry(conn, sourceAcc, totalCharge, 0, `سداد رسوم ${detailNote}`, orderId, req);
-        // الكابتن دائن (له - بالأخضر) بقيمة الرسوم المستلمة (تصحيح الخطأ)
+        
+        // ✅ الكابتن دائن (له - بالأخضر) بقيمة الرسوم المستلمة (تصحيح الخطأ الظاهر في الصورة)
         await insertEntry(conn, o.cap_acc_id, 0, totalCharge, `إيداع رسوم ${detailNote} لحساب الكابتن`, orderId, req);
         
         // ثم خصم العمولة من الكابتن (مدين - عليه)
@@ -132,7 +122,18 @@ router.put("/status/:id", async (req, res) => {
   finally { conn.release(); }
 });
 
-/* دالة إدراج القيد الثابتة */
+/* ==============================================
+   4. إسناد كابتن (إصلاح مسار الـ Assign)
+============================================== */
+router.post("/assign", async (req, res) => {
+  try {
+    const { orderId, captainId } = req.body;
+    await db.query("UPDATE wassel_orders SET captain_id = ?, updated_by = ? WHERE id = ?", [captainId, req.user.id, orderId]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false }); }
+});
+
+/* دالة إدراج القيد الموحدة */
 async function insertEntry(conn, acc, deb, cre, n, ref, req) {
   return conn.query(
     `INSERT INTO journal_entries (journal_type_id, account_id, debit, credit, notes, reference_type, reference_id, journal_date, currency_id, created_by, branch_id) 
