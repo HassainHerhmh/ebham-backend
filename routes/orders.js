@@ -207,7 +207,8 @@ router.get("/", async (req, res) => {
         o.payment_method,
         n.name AS neighborhood_name,
         b.name AS branch_name,
-
+        u1.name AS creator_name, -- اسم الموظف المنشئ
+        u2.name AS updater_name, -- اسم الموظف المحدث
         CASE o.payment_method
           WHEN 'cod' THEN 'الدفع عند الاستلام'
           WHEN 'bank' THEN 'إيداع بنكي'
@@ -219,6 +220,8 @@ router.get("/", async (req, res) => {
       JOIN customers c ON c.id = o.customer_id
       LEFT JOIN captains cap ON cap.id = o.captain_id
       LEFT JOIN users u ON o.user_id = u.id
+      LEFT JOIN users u1 ON o.user_id = u1.id      -- ربط المنشئ
+      LEFT JOIN users u2 ON o.updated_by = u2.id   -- ربط المحدث
       LEFT JOIN customer_addresses ca ON o.address_id = ca.id 
       LEFT JOIN neighborhoods n ON ca.district = n.id
       LEFT JOIN branches b ON b.id = o.branch_id
@@ -294,7 +297,8 @@ router.post("/", async (req, res) => {
     const storeIds = [...new Set(products.map((p) => p.restaurant_id))];
     const storesCount = storeIds.length;
     const mainRestaurantId = storeIds[0];
-
+    const userId = user.id; // تسجيل الموظف الذي أنشأ الطلب
+     
     const headerBranch = req.headers["x-branch-id"];
     let branchId = headerBranch ? Number(headerBranch) : user.branch_id || null;
 
@@ -589,6 +593,7 @@ router.put("/:id/status", async (req, res) => {
   try {
     const { status } = req.body; 
     const orderId = req.params.id;
+     const updated_by = req.user.id;
 
     if (!status) return res.status(400).json({ success: false, message: "الحالة غير محددة" });
 
