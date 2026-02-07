@@ -312,23 +312,27 @@ router.put("/status/:id", async (req, res) => {
           req
         );
 
-      } else {
+     } else {
 
-        const sourceAcc =
-          o.payment_method === "bank"
-            ? o.bank_acc
-            : settings.transfer_guarantee_account;
+  const sourceAcc =
+    o.payment_method === "bank"
+      ? o.bank_acc
+      : settings.customer_guarantee_account;
 
+  if (!sourceAcc) {
+    throw new Error("حساب محفظة العملاء غير مربوط في الإعدادات");
+  }
 
-        await insertEntry(
-          conn,
-          sourceAcc,
-          totalCharge,
-          0,
-          `سداد ${note}`,
-          orderId,
-          req
-        );
+  await insertEntry(
+    conn,
+    sourceAcc,
+    totalCharge,
+    0,
+    `سداد ${note}`,
+    orderId,
+    req
+  );
+
 
 
         await insertEntry(
