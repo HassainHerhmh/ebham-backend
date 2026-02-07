@@ -332,7 +332,6 @@ router.post("/", async (req, res) => {
       }
     }
 
-    const userId = (user.is_admin_branch || user.role === "admin") ? user.id : null;
 
     // إنشاء رأس الطلب (Order Header)
     const [result] = await db.query(
