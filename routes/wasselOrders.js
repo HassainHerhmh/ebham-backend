@@ -128,7 +128,7 @@ router.put("/:id", async (req, res) => {
 });
 
 /* ==============================================
-   5. تحديث الحالة وتوليد القيود المحاسبية
+   5. تحديث الحالة وتوليد القيود المحاسبية (النسخة النهائية المصححة)
 ============================================== */
 router.put("/status/:id", async (req, res) => {
   const conn = await db.getConnection();
@@ -157,33 +157,33 @@ router.put("/status/:id", async (req, res) => {
       const order = orderRows[0];
       if (!order || !order.cap_acc_id) throw new Error("الكابتن غير مرتبط بحساب أو لم يتم إسناد كابتن");
 
+      // جمع الرسوم الأساسية والإضافية في مبلغ واحد
       const totalDeliveryCharge = Number(order.delivery_fee) + Number(order.extra_fee);
       const hasExtra = Number(order.extra_fee) > 0;
+      
       const detailNote = hasExtra 
-          ? `رسوم توصيل #${orderId} (شاملة رسوم إضافية: ${order.extra_fee})` 
+          ? `رسوم توصيل #${orderId} (شاملة إضافي: ${order.extra_fee})` 
           : `رسوم توصيل طلب #${orderId}`;
 
       let commission = order.commission_type === 'percent' ? (totalDeliveryCharge * order.commission_value / 100) : (order.commission_value || 0);
       const baseParams = { ref_id: orderId, cur: baseCur.id, user: updated_by, branch: req.user.branch_id };
 
       if (order.payment_method === 'cod') {
+        // ✅ الكابتن مدين (عليه) بقيمة العمولة فقط لأن الكاش معه
         await insertEntry(conn, order.cap_acc_id, commission, 0, `خصم عمولة ${detailNote} - دفع عند الاستلام`, baseParams);
         await insertEntry(conn, settings.courier_commission_account, 0, commission, `إيراد عمولة توصيل طلب #${orderId}`, baseParams);
 
-      } else if (order.payment_method === 'wallet') {
-        await insertEntry(conn, settings.transfer_guarantee_account, 0, totalDeliveryCharge, `سداد ${detailNote} من الرصيد`, baseParams);
-        await insertEntry(conn, order.cap_acc_id, totalDeliveryCharge, 0, `إيداع ${detailNote} لحساب الكابتن`, baseParams);
+      } else {
+        // ✅ حالات البنك أو المحفظة: (من البنك/التأمينات إلى الكابتن)
+        const debitSourceAcc = order.payment_method === 'bank' ? order.selected_bank_acc : settings.transfer_guarantee_account;
         
-        await insertEntry(conn, order.cap_acc_id, commission, 0, `خصم عمولة طلب وصل لي #${orderId}`, baseParams);
-        await insertEntry(conn, settings.courier_commission_account, 0, commission, `إيراد عمولة توصيل طلب #${orderId}`, baseParams);
-
-      } else if (order.payment_method === 'bank' || order.payment_method === 'online') {
-        // استخدام حساب البنك المرتبط بالطلب أو حساب الإعدادات الافتراضي
-        const bankAcc = order.selected_bank_acc || (order.payment_method === 'bank' ? settings.bank_account : settings.online_payment_account);
+        // 1. سداد الرسوم من المصدر (مدين: المصدر)
+        await insertEntry(conn, debitSourceAcc, 0, totalDeliveryCharge, `سداد ${detailNote}`, baseParams);
         
-        await insertEntry(conn, bankAcc, 0, totalDeliveryCharge, `تحويل ${detailNote} عبر البنك`, baseParams);
-        await insertEntry(conn, order.cap_acc_id, totalDeliveryCharge, 0, `إيداع ${detailNote} لحساب الكابتن`, baseParams);
+        // 2. ✅ إيداع الرسوم في حساب الكابتن (دائن: له / بالأخضر) لتصحيح الخطأ في الصورة
+        await insertEntry(conn, order.cap_acc_id, 0, totalDeliveryCharge, `إيداع ${detailNote} لحساب الكابتن`, baseParams);
 
+        // 3. خصم العمولة من الكابتن (مدين: عليه)
         await insertEntry(conn, order.cap_acc_id, commission, 0, `خصم عمولة طلب وصل لي #${orderId}`, baseParams);
         await insertEntry(conn, settings.courier_commission_account, 0, commission, `إيراد عمولة توصيل طلب #${orderId}`, baseParams);
       }
@@ -193,6 +193,7 @@ router.put("/status/:id", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     if (conn) await conn.rollback();
+    console.error("ACCOUNTING ERROR:", err.message);
     res.status(500).json({ success: false, message: err.message });
   } finally {
     if (conn) conn.release();
@@ -200,7 +201,7 @@ router.put("/status/:id", async (req, res) => {
 });
 
 /* ==============================================
-   دالة مساعدة لإدراج القيد
+   دالة مساعدة لإدراج القيد (تثبيت نوع القيد 1)
 ============================================== */
 async function insertEntry(conn, accId, debit, credit, note, p) {
   if (!accId) throw new Error("أحد الحسابات المحاسبية غير معرف في الإعدادات");
