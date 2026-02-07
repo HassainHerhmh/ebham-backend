@@ -253,22 +253,25 @@ router.put("/status/:id", async (req, res) => {
         await conn.query("SELECT * FROM settings LIMIT 1");
 
 
-      const [orderRows] = await conn.query(`
-        SELECT
-          w.*,
-          cap.account_id AS cap_acc_id,
-          pm.account_id AS bank_acc,
-          comm.commission_value,
-          comm.commission_type
-        FROM wassel_orders w
-        LEFT JOIN captains cap ON cap.id = w.captain_id
-        LEFT JOIN payment_methods pm ON pm.id = w.bank_id
-        LEFT JOIN commissions comm
-          ON comm.account_id = cap.id
-          AND comm.account_type = 'captain'
-          AND comm.is_active = 1
-        WHERE w.id = ?
-      `, [orderId]);
+const [orderRows] = await conn.query(`
+  SELECT
+    w.*,
+    c.name AS customer_name,
+    cap.account_id AS cap_acc_id,
+    pm.account_id AS bank_acc,
+    comm.commission_value,
+    comm.commission_type
+  FROM wassel_orders w
+  LEFT JOIN customers c ON c.id = w.customer_id
+  LEFT JOIN captains cap ON cap.id = w.captain_id
+  LEFT JOIN payment_methods pm ON pm.id = w.bank_id
+  LEFT JOIN commissions comm
+    ON comm.account_id = cap.id
+    AND comm.account_type = 'captain'
+    AND comm.is_active = 1
+  WHERE w.id = ?
+`, [orderId]);
+
 
 
       const o = orderRows[0];
@@ -287,7 +290,7 @@ router.put("/status/:id", async (req, res) => {
           : Number(o.commission_value || 0);
 
 
-      const note = `طلب #${orderId}`;
+const note = `طلب #${orderId} - ${o.customer_name}`;
 
 
       if (o.payment_method === "cod") {
@@ -312,7 +315,7 @@ router.put("/status/:id", async (req, res) => {
           req
         );
 
-     } else {
+} else {
 
   const sourceAcc =
     o.payment_method === "bank"
@@ -320,8 +323,19 @@ router.put("/status/:id", async (req, res) => {
       : settings.customer_guarantee_account;
 
   if (!sourceAcc) {
-    throw new Error("حساب محفظة العملاء غير مربوط في الإعدادات");
+    throw new Error("حساب التأمين غير مربوط");
   }
+
+  // ✅ خصم من محفظة العميل
+  await insertEntry(
+    conn,
+    settings.customer_guarantee_account,
+    0,
+    totalCharge,
+    `خصم من تأمين العميل - ${note}`,
+    orderId,
+    req
+  );
 
   await insertEntry(
     conn,
