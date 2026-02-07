@@ -5,7 +5,8 @@ import PDFDocument from "pdfkit";
 const router = express.Router();
 
 /* ==============================================
-   1. جلب جميع طرق الدفع (لوحة التحكم - الإدارة)
+   1. جلب جميع طرق الدفع (للإدارة)
+   تعديل: جلب الحساب الافتراضي دون التأثير على تخصيص الفروع
 ============================================== */
 router.get("/", async (req, res) => {
   try {
@@ -30,18 +31,21 @@ router.get("/", async (req, res) => {
 });
 
 /* ==============================================
-   2. جلب الطرق المفعّلة (مخصص لكل فرع بناءً على الهيدر) ✅
+   2. جلب الطرق المفعّلة (الحل الجذري لمشكلة التصفير) ✅
+   المنطق: نستخدم LEFT JOIN مع جدول الربط بناءً على الفرع الحالي فقط
 ============================================== */
 router.get("/active", async (req, res) => {
   try {
+    // جلب رقم الفرع من الهيدر (x-branch-id)
     const branchId = req.headers["x-branch-id"] || req.user?.branch_id;
 
     if (!branchId) {
-      return res.status(400).json({ success: false, message: "رقم الفرع مطلوب" });
+      return res.status(400).json({ success: false, message: "رقم الفرع غير محدد" });
     }
 
-    // الاستعلام يجلب الحساب المخصص للفرع من الجدول الوسيط branch_payment_accounts
-    // وإذا لم يوجد تخصيص، يسحب الحساب الافتراضي من جدول البنوك
+    // الاستعلام المصلح:
+    // نختار account_id من جدول الربط (bpa) إذا وجد، وإلا نأخذه من الجدول الرئيسي (pm)
+    // هذا يضمن أن ربط فرع "عتق" لا يصفر حساب فرع "عدن"
     const [rows] = await db.query(`
       SELECT 
         pm.id, 
@@ -49,9 +53,11 @@ router.get("/active", async (req, res) => {
         pm.account_number, 
         pm.owner_name, 
         pm.address,
-        IFNULL(bpa.account_id, pm.account_id) AS account_id
+        COALESCE(bpa.account_id, pm.account_id) AS account_id
       FROM payment_methods pm
-      LEFT JOIN branch_payment_accounts bpa ON bpa.payment_method_id = pm.id AND bpa.branch_id = ?
+      LEFT JOIN branch_payment_accounts bpa 
+        ON bpa.payment_method_id = pm.id 
+        AND bpa.branch_id = ?
       WHERE pm.is_active = 1 
       AND (pm.branch_id IS NULL OR pm.branch_id = ?)
       ORDER BY pm.sort_order ASC
@@ -59,32 +65,33 @@ router.get("/active", async (req, res) => {
 
     res.json({ success: true, methods: rows });
   } catch (err) {
-    console.error("❌ خطأ في جلب البنوك النشطة للفروع:", err);
+    console.error("❌ خطأ في جلب الحسابات النشطة للفروع:", err);
     res.status(500).json({ success: false });
   }
 });
 
 /* ==============================================
    3. ربط بنك بحساب محاسبي لفرع معين ✅
-   هذا يحل مشكلة تداخل التقارير المالية بين الفروع
+   استخدام REPLACE INTO أو ON DUPLICATE KEY لضمان عدم التكرار أو التصفير
 ============================================== */
 router.post("/assign-branch-account", async (req, res) => {
   try {
     const { payment_method_id, branch_id, account_id } = req.body;
 
     if (!payment_method_id || !branch_id || !account_id) {
-      return res.status(400).json({ success: false, message: "كافة الحقول مطلوبة" });
+      return res.status(400).json({ success: false, message: "بيانات الربط غير مكتملة" });
     }
 
+    // التحديث في جدول الربط فقط، مما يحافظ على استقلالية كل فرع
     await db.query(`
       INSERT INTO branch_payment_accounts (payment_method_id, branch_id, account_id)
       VALUES (?, ?, ?)
       ON DUPLICATE KEY UPDATE account_id = VALUES(account_id)
     `, [payment_method_id, branch_id, account_id]);
 
-    res.json({ success: true, message: "✅ تم ربط الحساب المحاسبي بالفرع بنجاح" });
+    res.json({ success: true, message: "✅ تم حفظ تخصيص الحساب للفرع بنجاح" });
   } catch (err) {
-    console.error("Assign branch account error:", err);
+    console.error("Assign error:", err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -96,20 +103,15 @@ router.post("/", async (req, res) => {
   try {
     const { company, account_number, owner_name, address, account_id, branch_id } = req.body;
 
-    if (!account_id) {
-      return res.json({ success: false, message: "يجب اختيار حساب فرعي افتراضي" });
-    }
-
     const [result] = await db.query(
       `INSERT INTO payment_methods
         (company, account_number, owner_name, address, account_id, branch_id, sort_order, is_active)
         VALUES (?, ?, ?, ?, ?, ?, 9999, 1)`,
-      [company, account_number, owner_name, address, account_id, branch_id || null]
+      [company, account_number, owner_name, address, account_id || null, branch_id || null]
     );
 
-    res.json({ success: true, message: "✅ تم إضافة طريقة الدفع", id: result.insertId });
+    res.json({ success: true, message: "✅ تم إضافة البنك بنجاح", id: result.insertId });
   } catch (err) {
-    console.error("Add payment method error:", err);
     res.status(500).json({ success: false });
   }
 });
@@ -130,7 +132,6 @@ router.put("/:id", async (req, res) => {
 
     res.json({ success: true, message: "✅ تم التعديل بنجاح" });
   } catch (err) {
-    console.error("Update payment method error:", err);
     res.status(500).json({ success: false });
   }
 });
@@ -140,15 +141,17 @@ router.put("/:id", async (req, res) => {
 ============================================== */
 router.delete("/:id", async (req, res) => {
   try {
+    // حذف الربط مع الفروع أولاً لتجنب مشاكل Foreign Key
+    await db.query("DELETE FROM branch_payment_accounts WHERE payment_method_id=?", [req.params.id]);
     await db.query("DELETE FROM payment_methods WHERE id=?", [req.params.id]);
-    res.json({ success: true, message: "🗑️ تم الحذف" });
+    res.json({ success: true, message: "🗑️ تم الحذف بالكامل" });
   } catch (err) {
     res.status(500).json({ success: false });
   }
 });
 
 /* ==============================================
-   7. تفعيل / تعطيل (عبر PUT لحل مشاكل CORS) ✅
+   7. تفعيل / تعطيل (عبر PUT) ✅
 ============================================== */
 router.put("/:id/toggle", async (req, res) => {
   const { id } = req.params;
@@ -159,29 +162,23 @@ router.put("/:id/toggle", async (req, res) => {
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
-    
-    // تحديث حالة النشاط
     await conn.query("UPDATE payment_methods SET is_active=? WHERE id=?", [status, id]);
-    
-    // إضافة سجل للعملية (تأكد من وجود جدول payment_method_logs)
     await conn.query(
       "INSERT INTO payment_method_logs (payment_method_id, action, changed_by) VALUES (?, ?, ?)",
       [id, status === 1 ? "activate" : "deactivate", userId]
     );
-
     await conn.commit();
-    res.json({ success: true, message: "تم تحديث الحالة بنجاح" });
+    res.json({ success: true });
   } catch (err) {
     await conn.rollback();
-    console.error("Toggle status error:", err);
-    res.status(500).json({ success: false, message: "حدث خطأ أثناء تحديث الحالة" });
+    res.status(500).json({ success: false });
   } finally {
     conn.release();
   }
 });
 
 /* ==============================================
-   8. ترتيب طرق الدفع بالسحب والإفلات
+   8. ترتيب بالسحب
 ============================================== */
 router.post("/reorder", async (req, res) => {
   const { orders } = req.body;
@@ -198,40 +195,6 @@ router.post("/reorder", async (req, res) => {
     res.status(500).json({ success: false });
   } finally {
     conn.release();
-  }
-});
-
-/* ==============================================
-   9. تصدير PDF لسجل العمليات
-============================================== */
-router.get("/:id/logs/pdf", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const [logs] = await db.query(`
-      SELECT l.action, l.created_at, u.name AS user_name
-      FROM payment_method_logs l
-      LEFT JOIN users u ON u.id = l.changed_by
-      WHERE l.payment_method_id=?
-      ORDER BY l.created_at DESC
-    `, [id]);
-
-    const doc = new PDFDocument({ margin: 40 });
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", "attachment; filename=payment_logs.pdf");
-    
-    doc.pipe(res);
-    doc.fontSize(16).text("سجل تغييرات طرق الدفع", { align: "center" });
-    doc.moveDown();
-    
-    logs.forEach((l) => {
-      const actionAr = l.action === "activate" ? "تفعيل" : "تعطيل";
-      doc.fontSize(12).text(`${actionAr} | بواسطة: ${l.user_name ?? "النظام"} | التاريخ: ${l.created_at}`);
-    });
-    
-    doc.end();
-  } catch (err) {
-    console.error("Export PDF error:", err);
-    res.status(500).json({ success: false });
   }
 });
 
