@@ -3,7 +3,9 @@ import db from "../db.js";
 import auth from "../middlewares/auth.js";
 
 const router = express.Router();
-router.use(auth);
+
+
+
 /* ==============================================
    🟢 GET /customer-guarantees/:customerId/balance
    جلب رصيد عميل واحد
@@ -50,6 +52,10 @@ router.get("/:customerId/balance", async (req, res) => {
     });
   }
 });
+
+///////////////////////////////
+router.use(auth);
+
 
 /* ==============================================
     🟢 GET /customer-guarantees
