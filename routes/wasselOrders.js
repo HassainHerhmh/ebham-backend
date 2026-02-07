@@ -7,29 +7,30 @@ const router = express.Router();
 /* حماية جميع المسارات */
 router.use(auth);
 
-/* ==============================================
-   1. جلب كل طلبات وصل لي (مع الربط لجلب الأسماء)
-============================================== */
+/* =========================
+   جلب طلبات وصل لي مع أسماء المستخدمين
+========================= */
 router.get("/", async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT 
         w.*,
         c.name AS customer_name,
-        cap.name AS captain_name
+        cap.name AS captain_name,
+        u_creator.name AS creator_name, -- المستخدم الذي أضاف الطلب
+        u_updater.name AS updater_name  -- المستخدم الذي حدث الحالة
       FROM wassel_orders w
       LEFT JOIN customers c ON c.id = w.customer_id
       LEFT JOIN captains cap ON cap.id = w.captain_id
+      LEFT JOIN users u_creator ON u_creator.id = w.user_id     -- ربط المنشئ
+      LEFT JOIN users u_updater ON u_updater.id = w.updated_by -- ربط المحدث
       ORDER BY w.id DESC
     `);
-
     res.json({ success: true, orders: rows });
   } catch (err) {
-    console.error("GET WASSEL ORDERS ERROR:", err);
-    res.status(500).json({ success: false, message: "خطأ في جلب البيانات" });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
-
 /* ==============================================
    2. إضافة طلب جديد
 ============================================== */
@@ -125,16 +126,15 @@ router.post("/assign", async (req, res) => {
    5. تحديث الحالة فقط
 ============================================== */
 router.put("/status/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
+  const { id } = req.params;
+  const { status } = req.body;
+  const updated_by = req.user.id; // مأخوذ من التوكن (auth middleware)
 
-    await db.query(`UPDATE wassel_orders SET status=? WHERE id=?`, [status, id]);
-    res.json({ success: true });
-  } catch (err) {
-    console.error("UPDATE STATUS ERROR:", err);
-    res.status(500).json({ success: false, message: "خطأ في تحديث الحالة" });
-  }
+  await db.query(
+    `UPDATE wassel_orders SET status=?, updated_by=? WHERE id=?`, 
+    [status, updated_by, id]
+  );
+  res.json({ success: true });
 });
 
 /* ==============================================
