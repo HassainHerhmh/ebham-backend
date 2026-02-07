@@ -149,4 +149,17 @@ async function insertEntry(conn, acc, deb, cre, n, ref, req) {
   );
 }
 
+// ✅ أضف هذا الكود في السيرفر لحل مشكلة الـ 404
+router.get("/:customerId/balance", async (req, res) => {
+  try {
+    const [[row]] = await db.query(`
+      SELECT 
+        cg.credit_limit,
+        IFNULL((SELECT SUM(amount_base) FROM customer_guarantee_moves WHERE guarantee_id = cg.id), 0) AS balance
+      FROM customer_guarantees cg
+      WHERE cg.customer_id = ?`, [req.params.customerId]);
+    
+    res.json({ success: true, balance: row?.balance || 0, credit_limit: row?.credit_limit || 0 });
+  } catch (err) { res.status(500).json({ success: false }); }
+});
 export default router;
