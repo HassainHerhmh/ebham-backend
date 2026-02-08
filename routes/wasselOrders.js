@@ -317,71 +317,65 @@ const note = `طلب #${orderId} - ${o.customer_name}`;
 
 } else {
 
-  const sourceAcc =
-    o.payment_method === "bank"
-      ? o.bank_acc
-      : settings.customer_guarantee_account;
-
-  if (!sourceAcc) {
-    throw new Error("حساب التأمين غير مربوط");
+  if (!settings.customer_guarantee_account) {
+    throw new Error("حساب وسيط التأمين غير مربوط");
   }
 
-  // ✅ خصم من محفظة العميل
+  /* =========================
+     من التأمين → للكابتن
+  ========================= */
+
+  // التأمين: مدين (عليه)
   await insertEntry(
     conn,
     settings.customer_guarantee_account,
+    totalCharge, // مدين
     0,
-    totalCharge,
-    `خصم من تأمين العميل - ${note}`,
+    `سداد من تأمين العميل - ${note}`,
     orderId,
     req
   );
 
+  // الكابتن: دائن (له)
   await insertEntry(
     conn,
-    sourceAcc,
-    totalCharge,
+    o.cap_acc_id,
     0,
-    `سداد ${note}`,
+    totalCharge, // دائن
+    `استلام من تأمين العميل - ${note}`,
     orderId,
     req
   );
 
 
+  /* =========================
+        العمولة
+  ========================= */
 
-        await insertEntry(
-          conn,
-          o.cap_acc_id,
-          0,
-          totalCharge,
-          `إيداع للكابتن ${note}`,
-          orderId,
-          req
-        );
+  // خصم عمولة من الكابتن
+  await insertEntry(
+    conn,
+    o.cap_acc_id,
+    commission,
+    0,
+    `خصم عمولة ${note}`,
+    orderId,
+    req
+  );
 
+  // إيراد عمولة
+  await insertEntry(
+    conn,
+    settings.courier_commission_account,
+    0,
+    commission,
+    `إيراد عمولة ${note}`,
+    orderId,
+    req
+  );
+}
 
-        await insertEntry(
-          conn,
-          o.cap_acc_id,
-          commission,
-          0,
-          `خصم عمولة ${note}`,
-          orderId,
-          req
-        );
-
-
-        await insertEntry(
-          conn,
-          settings.courier_commission_account,
-          0,
-          commission,
-          `إيراد عمولة ${note}`,
-          orderId,
-          req
-        );
-      }
-    }
+   
 
 
     await conn.commit();
