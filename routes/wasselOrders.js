@@ -53,10 +53,7 @@ router.get("/:customerId/balance", async (req, res) => {
 
   } catch (err) {
     console.error("Balance Error:", err);
-    res.status(500).json({
-      success: false,
-      message: err.message
-    });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -71,22 +68,14 @@ router.use(auth);
 router.get("/banks", async (req, res) => {
   try {
     const branchId = req.headers["x-branch-id"] || req.user.branch_id;
-
     const [banks] = await db.query(`
-      SELECT 
-        pm.id,
-        pm.company AS name
+      SELECT pm.id, pm.company AS name
       FROM payment_methods pm
-      LEFT JOIN branch_payment_accounts bpa
-        ON bpa.payment_method_id = pm.id
-        AND bpa.branch_id = ?
-      WHERE pm.is_active = 1
-        AND (pm.branch_id IS NULL OR pm.branch_id = ?)
+      LEFT JOIN branch_payment_accounts bpa ON bpa.payment_method_id = pm.id AND bpa.branch_id = ?
+      WHERE pm.is_active = 1 AND (pm.branch_id IS NULL OR pm.branch_id = ?)
     `, [branchId, branchId]);
-
     res.json({ success: true, banks });
   } catch (err) {
-    console.error("Banks Error:", err);
     res.status(500).json({ success: false });
   }
 });
@@ -97,12 +86,7 @@ router.get("/banks", async (req, res) => {
 router.get("/", async (req, res) => {
   try {
     const [rows] = await db.query(`
-      SELECT 
-        w.*,
-        c.name AS customer_name,
-        cap.name AS captain_name,
-        u1.name AS creator_name,
-        u2.name AS updater_name
+      SELECT w.*, c.name AS customer_name, cap.name AS captain_name, u1.name AS creator_name, u2.name AS updater_name
       FROM wassel_orders w
       LEFT JOIN customers c ON c.id = w.customer_id
       LEFT JOIN captains cap ON cap.id = w.captain_id
@@ -112,7 +96,6 @@ router.get("/", async (req, res) => {
     `);
     res.json({ success: true, orders: rows });
   } catch (err) {
-    console.error("Orders Error:", err);
     res.status(500).json({ success: false });
   }
 });
@@ -122,99 +105,51 @@ router.get("/", async (req, res) => {
 ============================================== */
 router.post("/", async (req, res) => {
   try {
-    const {
-      customer_id,
-      order_type,
-      from_address,
-      to_address,
-      delivery_fee,
-      extra_fee,
-      notes,
-      payment_method,
-      bank_id
-    } = req.body;
-
+    const { customer_id, order_type, from_address, to_address, delivery_fee, extra_fee, notes, payment_method, bank_id } = req.body;
     const totalAmount = Number(delivery_fee || 0) + Number(extra_fee || 0);
 
-    /* فحص الرصيد */
     if (payment_method === "wallet" && customer_id) {
       const [[wallet]] = await db.query(`
-        SELECT 
-          cg.id,
-          cg.type,
-          cg.credit_limit,
+        SELECT cg.type, cg.credit_limit,
           CASE 
-            WHEN cg.type = 'account' THEN
-              IFNULL((SELECT SUM(debit - credit) FROM journal_entries WHERE account_id = cg.account_id), 0)
-            ELSE
-              IFNULL((SELECT SUM(amount_base) FROM customer_guarantee_moves WHERE guarantee_id = cg.id), 0)
+            WHEN cg.type = 'account' THEN IFNULL((SELECT SUM(debit - credit) FROM journal_entries WHERE account_id = cg.account_id), 0)
+            ELSE IFNULL((SELECT SUM(amount_base) FROM customer_guarantee_moves WHERE guarantee_id = cg.id), 0)
           END AS balance
-        FROM customer_guarantees cg
-        WHERE cg.customer_id = ?
+        FROM customer_guarantees cg WHERE cg.customer_id = ?
       `, [customer_id]);
 
-      const availableFunds = wallet
-        ? Number(wallet.balance) + Number(wallet.credit_limit)
-        : 0;
-
-      if (availableFunds < totalAmount) {
-        return res.status(400).json({
-          success: false,
-          message: `الرصيد غير كافٍ. المتاح: ${availableFunds}`
-        });
-      }
+      const availableFunds = wallet ? Number(wallet.balance) + Number(wallet.credit_limit) : 0;
+      if (availableFunds < totalAmount) return res.status(400).json({ success: false, message: "الرصيد غير كافٍ" });
     }
 
-    /* إضافة الطلب */
     const [result] = await db.query(`
-      INSERT INTO wassel_orders (
-        customer_id, order_type, from_address, to_address,
-        delivery_fee, extra_fee, notes, status,
-        payment_method, bank_id, user_id, created_at
-      )
+      INSERT INTO wassel_orders (customer_id, order_type, from_address, to_address, delivery_fee, extra_fee, notes, status, payment_method, bank_id, user_id, created_at)
       VALUES (?,?,?,?,?,?,?, 'pending', ?,?,?, NOW())
-    `, [
-      customer_id || null, order_type, from_address, to_address,
-      delivery_fee || 0, extra_fee || 0, notes || "",
-      payment_method, bank_id || null, req.user.id
-    ]);
+    `, [customer_id || null, order_type, from_address, to_address, delivery_fee || 0, extra_fee || 0, notes || "", payment_method, bank_id || null, req.user.id]);
 
     res.json({ success: true, order_id: result.insertId });
   } catch (err) {
-    console.error("Create Order Error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
 /* ==============================================
-    5️⃣ تحديث حالة الطلب وتوليد القيود
+    5️⃣ تحديث حالة الطلب وتوليد القيود (المنطق المدمج)
 ============================================== */
 router.put("/status/:id", async (req, res) => {
   const conn = await db.getConnection();
   try {
     const { status } = req.body;
     const orderId = req.params.id;
-
     await conn.beginTransaction();
 
-    await conn.query(
-      `UPDATE wassel_orders SET status = ?, updated_by = ? WHERE id = ?`,
-      [status, req.user.id, orderId]
-    );
+    await conn.query(`UPDATE wassel_orders SET status = ?, updated_by = ? WHERE id = ?`, [status, req.user.id, orderId]);
 
     if (status === "delivering") {
       const [[settings]] = await conn.query("SELECT * FROM settings LIMIT 1");
-
       const [orderRows] = await conn.query(`
-        SELECT
-          w.*,
-          cg.id AS guarantee_id,
-          cg.type AS guarantee_type,
-          cg.account_id AS customer_acc_id,
-          c.name AS customer_name,
-          cap.account_id AS cap_acc_id,
-          comm.commission_value,
-          comm.commission_type
+        SELECT w.*, cg.id AS guarantee_id, cg.type AS guarantee_type, cg.account_id AS customer_acc_id,
+               c.name AS customer_name, cap.account_id AS cap_acc_id, comm.commission_value, comm.commission_type
         FROM wassel_orders w
         LEFT JOIN customer_guarantees cg ON cg.customer_id = w.customer_id
         LEFT JOIN customers c ON c.id = w.customer_id
@@ -226,45 +161,46 @@ router.put("/status/:id", async (req, res) => {
       const o = orderRows[0];
       if (!o) throw new Error("الطلب غير موجود");
       if (!o.cap_acc_id) throw new Error("الكابتن غير مرتبط بحساب محاسبي");
-      if (!o.guarantee_id && o.payment_method === "wallet") throw new Error("العميل لا يملك محفظة تأمين");
 
       const totalCharge = Number(o.delivery_fee) + Number(o.extra_fee);
-      const commission = o.commission_type === "percent" 
-        ? (totalCharge * o.commission_value) / 100 
-        : Number(o.commission_value || 0);
-
+      const commission = o.commission_type === "percent" ? (totalCharge * o.commission_value) / 100 : Number(o.commission_value || 0);
       const note = `طلب #${orderId} - ${o.customer_name}`;
 
+      // 1. معالجة الدفع (حسب وسيلة الدفع ونوع الحساب)
       if (o.payment_method === "cod") {
-        await insertEntry(conn, o.cap_acc_id, commission, 0, `خصم عمولة ${note}`, orderId, req);
-        await insertEntry(conn, settings.courier_commission_account, 0, commission, `إيراد عمولة ${note}`, orderId, req);
-      } 
-      else {
-        // تحديد الحساب المدين (إما حساب وسيط أو حساب العميل المباشر)
-        const debitAccount = o.guarantee_type === 'account' ? o.customer_acc_id : settings.customer_guarantee_account;
-        if (!debitAccount) throw new Error("حساب السداد غير معرف");
+        // دفع عند الاستلام: لا قيود سداد، فقط عمولة
+      } else {
+        // دفع من المحفظة أو الحساب
+        if (!o.guarantee_id && o.payment_method === "wallet") throw new Error("العميل لا يملك محفظة تأمين");
 
+        // الفكرة: إذا كان الحساب مرتبط بشجرة الحسابات (type = 'account')، القيد من حساب العميل مباشرة
+        // وإذا لم يكن مرتبطاً، القيد من الحساب الوسيط (المنطق القديم)
+        const debitAccount = (o.guarantee_type === 'account' && o.customer_acc_id) 
+                             ? o.customer_acc_id 
+                             : settings.customer_guarantee_account;
+
+        if (!debitAccount) throw new Error("حساب السداد/الوسيط غير معرف");
+
+        // القيد من (العميل أو الوسيط) إلى الكابتن
         await insertEntry(conn, debitAccount, totalCharge, 0, `سداد من تأمين العميل - ${note}`, orderId, req);
         await insertEntry(conn, o.cap_acc_id, 0, totalCharge, `استلام من تأمين العميل - ${note}`, orderId, req);
 
-        // إذا كانت محفظة نقدية، نسجل حركة في جدول moves
+        // إذا كان المنطق قديم (محفظة نقدية)، سجل الحركة فيmoves
         if (o.guarantee_type !== 'account') {
-          await conn.query(
-            `INSERT INTO customer_guarantee_moves (guarantee_id, currency_id, rate, amount, amount_base) VALUES (?, 1, 1, ?, ?)`,
-            [o.guarantee_id, -totalCharge, -totalCharge]
-          );
+          await conn.query(`INSERT INTO customer_guarantee_moves (guarantee_id, currency_id, rate, amount, amount_base) VALUES (?, 1, 1, ?, ?)`,
+            [o.guarantee_id, -totalCharge, -totalCharge]);
         }
-
-        await insertEntry(conn, o.cap_acc_id, commission, 0, `خصم عمولة ${note}`, orderId, req);
-        await insertEntry(conn, settings.courier_commission_account, 0, commission, `إيراد عمولة ${note}`, orderId, req);
       }
+
+      // 2. معالجة العمولة (تتم في كل الحالات)
+      await insertEntry(conn, o.cap_acc_id, commission, 0, `خصم عمولة ${note}`, orderId, req);
+      await insertEntry(conn, settings.courier_commission_account, 0, commission, `إيراد عمولة ${note}`, orderId, req);
     }
 
     await conn.commit();
     res.json({ success: true });
   } catch (err) {
     await conn.rollback();
-    console.error("Status Error:", err);
     res.status(500).json({ success: false, message: err.message });
   } finally {
     conn.release();
@@ -285,14 +221,11 @@ router.post("/assign", async (req, res) => {
 });
 
 /* ==============================================
-    دالة إدراج قيد محاسبي
+    دالة إدراج قيد محاسبي (ثابتة)
 ============================================== */
 async function insertEntry(conn, acc, deb, cre, notes, ref, req) {
   return conn.query(`
-    INSERT INTO journal_entries (
-      journal_type_id, account_id, debit, credit, notes, 
-      reference_type, reference_id, journal_date, currency_id, created_by, branch_id
-    )
+    INSERT INTO journal_entries (journal_type_id, account_id, debit, credit, notes, reference_type, reference_id, journal_date, currency_id, created_by, branch_id)
     VALUES (1, ?, ?, ?, ?, 'wassel_order', ?, CURDATE(), 1, ?, ?)
   `, [acc, deb || 0, cre || 0, notes, ref, req.user.id, req.user.branch_id]);
 }
