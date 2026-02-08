@@ -367,6 +367,13 @@ import wasselOrders from "./routes/wasselOrders.js";
 
 app.use("/api/wassel-orders", wasselOrders);
 
+/*======================
+الطلبات اليدوية
+====================*/
+
+import manualOrdersRouter from "./routes/manual_orders.js";
+// ...
+app.use("/api/wassel-orders/manual", manualOrdersRouter);
 /* =========================
    Start Server + Socket.IO
 ========================= */
