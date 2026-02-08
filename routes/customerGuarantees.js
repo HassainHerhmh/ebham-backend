@@ -6,7 +6,7 @@ const router = express.Router();
 
 /* ==============================================
    🟢 GET /customer-guarantees/:customerId/balance
-   جلب رصيد عميل واحد (يأخذ بالاعتبار نوع الضمان)
+   جلب رصيد عميل واحد (يستخدم في صفحة وصل لي لإظهار الرصيد الفعلي)
 ============================================== */
 router.get("/:customerId/balance", async (req, res) => {
   try {
@@ -31,7 +31,7 @@ router.get("/:customerId/balance", async (req, res) => {
               FROM customer_guarantee_moves m
               WHERE m.guarantee_id = cg.id
             ), 0)
-        END AS used_balance
+        END AS balance
       FROM customer_guarantees cg
       WHERE cg.customer_id = ?
       LIMIT 1
@@ -40,22 +40,23 @@ router.get("/:customerId/balance", async (req, res) => {
     if (!row) {
       return res.json({
         success: true,
-        used: 0,
-        limit: 0,
+        balance: 0,
+        credit_limit: 0,
         remaining: 0,
         exists: false
       });
     }
 
-    const usedBalance = Number(row.used_balance || 0);
+    const currentBalance = Number(row.balance || 0);
     const limit = Number(row.credit_limit || 0);
-    const remaining = limit - usedBalance;
+    // المتاح = الرصيد الحالي + سقف الاعتماد
+    const available = currentBalance + limit;
 
     res.json({
       success: true,
-      used: usedBalance,
-      limit: limit,
-      remaining: remaining,
+      balance: currentBalance, // تم التعديل ليتوافق مع الواجهة (fetchCustomerWallet)
+      credit_limit: limit,
+      remaining: available,
       exists: true
     });
 
@@ -72,7 +73,7 @@ router.use(auth);
 
 /* ==============================================
     🟢 GET /customer-guarantees
-    جلب المحافظ مع الرصيد (مفلترة حسب الفرع)
+    جلب المحافظ مع الرصيد المباشر (لجدول محفظة التأمينات)
 ============================================== */
 router.get("/", async (req, res) => {
   try {
@@ -133,7 +134,7 @@ router.get("/", async (req, res) => {
 
 /* ==============================================
     ➕ POST /customer-guarantees
-    إنشاء محفظة أو إضافة مبلغ مع ربطها بالفرع
+    إنشاء محفظة أو إضافة مبلغ
 ============================================== */
 router.post("/", async (req, res) => {
   const {
@@ -173,14 +174,12 @@ router.post("/", async (req, res) => {
       guaranteeId = r.insertId;
     } else {
       guaranteeId = existing.id;
-      // تحديث نوع الحساب والحساب المرتبط في حال تغيروا
       await conn.query(
         `UPDATE customer_guarantees SET type=?, account_id=? WHERE id=?`,
         [type, type === "account" ? account_id : null, guaranteeId]
       );
     }
 
-    // إذا كان النوع حساب أو لم يتم إرسال مبلغ، نكتفي بإنشاء/تحديث السجل
     if (type === "account" || !amount) {
       await conn.commit();
       return res.json({ success: true });
