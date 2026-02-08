@@ -142,47 +142,53 @@ router.post("/", async (req, res) => {
 ========================= */
 router.put("/:id", async (req, res) => {
   try {
-    const { name_ar, name_en, code } = req.body;
+    const { name_ar, name_en } = req.body;
 
-    if (!name_ar || !code) {
+    // تحقق من البيانات
+    if (!name_ar) {
       return res.status(400).json({
         success: false,
-        message: "الاسم والرقم مطلوبان",
+        message: "اسم المجموعة مطلوب",
       });
     }
 
-    await db.query(
+    // تحديث بدون تعديل الرقم
+    const [result] = await db.query(
       `
       UPDATE bank_groups
       SET
         name_ar = ?,
-        name_en = ?,
-        code = ?
+        name_en = ?
       WHERE id = ?
       `,
-      [name_ar, name_en || null, code, req.params.id]
+      [name_ar, name_en || null, req.params.id]
     );
+
+    // لو ما تم تعديل أي صف
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "المجموعة غير موجودة",
+      });
+    }
 
     res.json({
       success: true,
-      message: "تم تعديل مجموعة البنك",
+      message: "تم تعديل مجموعة البنك بنجاح",
     });
-  } catch (err) {
-    console.error("❌ Update bank group error:", err);
 
-    if (err.code === "ER_DUP_ENTRY") {
-      return res.status(400).json({
-        success: false,
-        message: "رقم المجموعة مستخدم مسبقًا",
-      });
-    }
+  } catch (err) {
+
+    console.error("❌ Update bank group error:", err);
 
     res.status(500).json({
       success: false,
       message: "خطأ في تعديل مجموعة البنك",
     });
+
   }
 });
+
 
 /* =========================
    🗑️ حذف مجموعة بنك
