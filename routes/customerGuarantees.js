@@ -6,7 +6,8 @@ const router = express.Router();
 
 /* ==============================================
    🟢 GET /customer-guarantees/:customerId/balance
-   جلب رصيد عميل واحد (يستخدم في صفحة وصل لي لإظهار الرصيد الفعلي)
+   جلب رصيد عميل واحد (يستخدم في صفحة إضافة طلب)
+   المنطق المحاسبي: (الدائن - المدين) ليظهر الرصيد موجباً إذا كان "له"
 ============================================== */
 router.get("/:customerId/balance", async (req, res) => {
   try {
@@ -21,7 +22,7 @@ router.get("/:customerId/balance", async (req, res) => {
         CASE 
           WHEN cg.type = 'account' THEN
             IFNULL((
-              SELECT SUM(je.debit) - SUM(je.credit)
+              SELECT SUM(je.credit) - SUM(je.debit) -- ✅ منطق الدائن - المدين
               FROM journal_entries je
               WHERE je.account_id = cg.account_id
             ), 0)
@@ -49,12 +50,12 @@ router.get("/:customerId/balance", async (req, res) => {
 
     const currentBalance = Number(row.balance || 0);
     const limit = Number(row.credit_limit || 0);
-    // المتاح = الرصيد الحالي + سقف الاعتماد
+    // المتاح الكلي = الرصيد الحالي (الدائن) + سقف الائتمان المسموح به
     const available = currentBalance + limit;
 
     res.json({
       success: true,
-      balance: currentBalance, // تم التعديل ليتوافق مع الواجهة (fetchCustomerWallet)
+      balance: currentBalance, 
       credit_limit: limit,
       remaining: available,
       exists: true
@@ -103,7 +104,7 @@ router.get("/", async (req, res) => {
         CASE 
           WHEN cg.type = 'account' THEN
             IFNULL((
-              SELECT SUM(je.debit) - SUM(je.credit)
+              SELECT SUM(je.credit) - SUM(je.debit) -- ✅ منطق الدائن - المدين
               FROM journal_entries je
               WHERE je.account_id = cg.account_id
             ), 0)
@@ -139,9 +140,9 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   const {
     customer_id,
-    type,            // cash | bank | account
-    account_id,      // عند type=account
-    source_id,       // صندوق أو بنك
+    type,            
+    account_id,      
+    source_id,       
     currency_id,
     rate,
     amount,
