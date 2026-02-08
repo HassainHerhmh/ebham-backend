@@ -145,22 +145,22 @@ router.post("/", async (req, res) => {
     const note = `فتح سقف اعتماد للحساب #${account_id}`;
 
     // الطرف المدين: حساب وسيط الاعتماد
-    await conn.query(
-      `
-      INSERT INTO journal_entries
-      (journal_type_id, journal_date, currency_id,
-       account_id, debit, notes, created_by, branch_id)
-      VALUES (7, NOW(), ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        baseCur.id,
-        transitAccount,
-        ceiling_amount,
-        note,
-        user_id,
-        branch_id,
-      ]
-    );
+await conn.query(
+  `
+  INSERT INTO journal_entries
+  (journal_type_id, journal_date, currency_id, account_id, debit, notes, created_by, branch_id, reference_type, reference_id)
+  VALUES (7, NOW(), ?, ?, ?, ?, ?, ?, 'ceiling', ?) 
+  `,
+  [
+    baseCur.id,
+    transitAccount,
+    ceiling_amount,
+    note,
+    user_id,
+    branch_id,
+    r.insertId // رقم المرجع هو معرف السجل الجديد في جدول account_ceilings
+  ]
+);
 
     // الطرف الدائن: حساب العميل
     await conn.query(
