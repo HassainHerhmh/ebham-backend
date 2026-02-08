@@ -4,11 +4,9 @@ import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 
-
-
 /* ==============================================
    🟢 GET /customer-guarantees/:customerId/balance
-   جلب رصيد عميل واحد
+   جلب رصيد عميل واحد (يأخذ بالاعتبار نوع الضمان)
 ============================================== */
 router.get("/:customerId/balance", async (req, res) => {
   try {
@@ -17,18 +15,27 @@ router.get("/:customerId/balance", async (req, res) => {
     const [[row]] = await db.query(`
       SELECT 
         cg.id,
+        cg.type,
+        cg.account_id,
         cg.credit_limit,
-
-        IFNULL((
-          SELECT SUM(m.amount_base)
-          FROM customer_guarantee_moves m
-          WHERE m.guarantee_id = cg.id
-        ),0) AS used_balance
-
+        CASE 
+          WHEN cg.type = 'account' THEN
+            IFNULL((
+              SELECT SUM(je.debit) - SUM(je.credit)
+              FROM journal_entries je
+              WHERE je.account_id = cg.account_id
+            ), 0)
+          ELSE
+            IFNULL((
+              SELECT SUM(m.amount_base)
+              FROM customer_guarantee_moves m
+              WHERE m.guarantee_id = cg.id
+            ), 0)
+        END AS used_balance
       FROM customer_guarantees cg
       WHERE cg.customer_id = ?
       LIMIT 1
-    `,[customerId]);
+    `, [customerId]);
 
     if (!row) {
       return res.json({
@@ -40,29 +47,28 @@ router.get("/:customerId/balance", async (req, res) => {
       });
     }
 
-    const remaining =
-      Number(row.credit_limit || 0) - Number(row.used_balance);
+    const usedBalance = Number(row.used_balance || 0);
+    const limit = Number(row.credit_limit || 0);
+    const remaining = limit - usedBalance;
 
     res.json({
       success: true,
-      used: Number(row.used_balance),
-      limit: Number(row.credit_limit || 0),
-      remaining,
+      used: usedBalance,
+      limit: limit,
+      remaining: remaining,
       exists: true
     });
 
   } catch (e) {
     res.status(500).json({
-      success:false,
-      message:e.message
+      success: false,
+      message: e.message
     });
   }
 });
 
-
 ///////////////////////////////
 router.use(auth);
-
 
 /* ==============================================
     🟢 GET /customer-guarantees
@@ -76,7 +82,6 @@ router.get("/", async (req, res) => {
     let whereClause = "WHERE 1=1 ";
     const params = [];
 
-    // نظام عزل الفروع: الإدارة ترى الكل، الموظف يرى فرعه فقط
     if (is_admin_branch) {
       if (headerBranch) {
         whereClause += " AND cg.branch_id = ? ";
@@ -150,9 +155,8 @@ router.post("/", async (req, res) => {
     await conn.beginTransaction();
 
     const userId = req.user.id;
-    const branchId = req.user.branch_id; // ✅ التثبيت التلقائي لفرع الموظف
+    const branchId = req.user.branch_id;
 
-    // فحص وجود محفظة سابقة
     const [[existing]] = await conn.query(
       `SELECT id FROM customer_guarantees WHERE customer_id=? LIMIT 1`,
       [customer_id]
@@ -169,14 +173,19 @@ router.post("/", async (req, res) => {
       guaranteeId = r.insertId;
     } else {
       guaranteeId = existing.id;
+      // تحديث نوع الحساب والحساب المرتبط في حال تغيروا
+      await conn.query(
+        `UPDATE customer_guarantees SET type=?, account_id=? WHERE id=?`,
+        [type, type === "account" ? account_id : null, guaranteeId]
+      );
     }
 
+    // إذا كان النوع حساب أو لم يتم إرسال مبلغ، نكتفي بإنشاء/تحديث السجل
     if (type === "account" || !amount) {
       await conn.commit();
       return res.json({ success: true });
     }
 
-    // منطق الإضافة المالية (نقدي/بنكي)
     if (!source_id || !currency_id) throw new Error("بيانات الإضافة المالية ناقصة");
 
     const [[settings]] = await conn.query(`SELECT customer_guarantee_account FROM settings LIMIT 1`);
@@ -185,7 +194,6 @@ router.post("/", async (req, res) => {
     const baseAmount = Number(amount) * Number(rate || 1);
     const [[baseCur]] = await conn.query(`SELECT id FROM currencies WHERE is_local=1 LIMIT 1`);
 
-    // جلب حساب الصندوق أو البنك التابع للفرع
     let sourceAccountId = null;
     const table = type === "cash" ? "cash_boxes" : "banks";
     const [[row]] = await conn.query(`SELECT parent_account_id FROM ${table} WHERE id=?`, [source_id]);
@@ -193,7 +201,6 @@ router.post("/", async (req, res) => {
 
     if (!sourceAccountId) throw new Error("الحساب المصدر غير موجود أو غير مرتبط بشجرة الحسابات");
 
-    // القيد الأول: مدين (الصندوق/البنك)
     await conn.query(
       `INSERT INTO journal_entries
        (journal_type_id, journal_date, currency_id, account_id, debit, notes, created_by, branch_id)
@@ -201,7 +208,6 @@ router.post("/", async (req, res) => {
       [baseCur.id, sourceAccountId, baseAmount, `تأمين عميل #${customer_id}`, userId, branchId]
     );
 
-    // القيد الثاني: دائن (حساب وسيط التأمين)
     await conn.query(
       `INSERT INTO journal_entries
        (journal_type_id, journal_date, currency_id, account_id, credit, notes, created_by, branch_id)
@@ -209,7 +215,6 @@ router.post("/", async (req, res) => {
       [baseCur.id, settings.customer_guarantee_account, baseAmount, `تأمين عميل #${customer_id}`, userId, branchId]
     );
 
-    // تسجيل الحركة في كشف حساب المحفظة
     await conn.query(
       `INSERT INTO customer_guarantee_moves
        (guarantee_id, currency_id, rate, amount, amount_base)
