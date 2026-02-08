@@ -16,42 +16,49 @@ router.get("/:customerId/balance", async (req, res) => {
 
     const [[row]] = await db.query(`
       SELECT 
+        cg.id,
         cg.credit_limit,
+
         IFNULL((
           SELECT SUM(m.amount_base)
           FROM customer_guarantee_moves m
           WHERE m.guarantee_id = cg.id
-        ), 0) AS balance
+        ),0) AS used_balance
+
       FROM customer_guarantees cg
       WHERE cg.customer_id = ?
       LIMIT 1
-    `, [customerId]);
+    `,[customerId]);
 
     if (!row) {
       return res.json({
         success: true,
-        balance: 0,
-        credit_limit: 0,
+        used: 0,
+        limit: 0,
+        remaining: 0,
         exists: false
       });
     }
 
+    const remaining =
+      Number(row.credit_limit || 0) - Number(row.used_balance);
+
     res.json({
       success: true,
-      balance: Number(row.balance),
-      credit_limit: Number(row.credit_limit || 0),
+      used: Number(row.used_balance),
+      limit: Number(row.credit_limit || 0),
+      remaining,
       exists: true
     });
 
   } catch (e) {
-    console.error("BALANCE ERROR:", e);
-
     res.status(500).json({
-      success: false,
-      message: e.message
+      success:false,
+      message:e.message
     });
   }
 });
+
 
 ///////////////////////////////
 router.use(auth);
