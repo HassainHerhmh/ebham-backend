@@ -73,47 +73,67 @@ router.get("/", async (req, res) => {
 });
 
 /* =========================
-   ➕ إضافة مجموعة بنك (تُربط بالفرع الحالي)
+   ➕ إضافة مجموعة بنك (ترقيم تلقائي لكل فرع)
 ========================= */
 router.post("/", async (req, res) => {
+  const conn = await db.getConnection();
+
   try {
-    const { name_ar, name_en, code } = req.body;
+    const { name_ar, name_en } = req.body;
     const { id: user_id, branch_id } = req.user;
 
-    if (!name_ar || !code) {
+    if (!name_ar) {
       return res.status(400).json({
         success: false,
-        message: "الاسم والرقم مطلوبان",
+        message: "اسم المجموعة مطلوب",
       });
     }
 
-    await db.query(
+    await conn.beginTransaction();
+
+    // ✅ جلب آخر رقم في نفس الفرع (مع قفل)
+    const [[last]] = await conn.query(
+      `
+      SELECT MAX(code) AS maxCode
+      FROM bank_groups
+      WHERE branch_id = ?
+      FOR UPDATE
+      `,
+      [branch_id]
+    );
+
+    const newCode = (last?.maxCode || 0) + 1;
+
+    // ✅ إدخال مع الرقم الجديد
+    await conn.query(
       `
       INSERT INTO bank_groups
       (code, name_ar, name_en, branch_id, created_by, created_at)
       VALUES (?, ?, ?, ?, ?, NOW())
       `,
-      [code, name_ar, name_en || null, branch_id, user_id]
+      [newCode, name_ar, name_en || null, branch_id, user_id]
     );
+
+    await conn.commit();
 
     res.json({
       success: true,
       message: "تمت إضافة مجموعة البنك",
+      code: newCode, // مفيد للواجهة
     });
-  } catch (err) {
-    console.error("❌ Add bank group error:", err);
 
-    if (err.code === "ER_DUP_ENTRY") {
-      return res.status(400).json({
-        success: false,
-        message: "رقم المجموعة مستخدم مسبقًا",
-      });
-    }
+  } catch (err) {
+    await conn.rollback();
+
+    console.error("❌ Add bank group error:", err);
 
     res.status(500).json({
       success: false,
       message: "خطأ في إضافة مجموعة البنك",
     });
+
+  } finally {
+    conn.release();
   }
 });
 
