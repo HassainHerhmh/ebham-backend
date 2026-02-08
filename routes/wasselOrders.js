@@ -239,47 +239,70 @@ router.put("/status/:id", async (req, res) => {
 
     await conn.beginTransaction();
 
-
-    await conn.query(`
+    // تحديث الحالة
+    await conn.query(
+      `
       UPDATE wassel_orders
       SET status = ?, updated_by = ?
       WHERE id = ?
-    `, [status, req.user.id, orderId]);
-
+    `,
+      [status, req.user.id, orderId]
+    );
 
     if (status === "delivering") {
+      // الإعدادات
+      const [[settings]] = await conn.query(
+        "SELECT * FROM settings LIMIT 1"
+      );
 
-      const [[settings]] =
-        await conn.query("SELECT * FROM settings LIMIT 1");
+      // بيانات الطلب + المحفظة
+      const [orderRows] = await conn.query(
+        `
+        SELECT
+          w.*,
+          cg.id AS guarantee_id,
+          c.name AS customer_name,
+          cap.account_id AS cap_acc_id,
+          pm.account_id AS bank_acc,
+          comm.commission_value,
+          comm.commission_type
+        FROM wassel_orders w
 
+        LEFT JOIN customer_guarantees cg
+          ON cg.customer_id = w.customer_id
 
-const [orderRows] = await conn.query(`
-  SELECT
-    w.*,
-    c.name AS customer_name,
-    cap.account_id AS cap_acc_id,
-    pm.account_id AS bank_acc,
-    comm.commission_value,
-    comm.commission_type
-  FROM wassel_orders w
-  LEFT JOIN customers c ON c.id = w.customer_id
-  LEFT JOIN captains cap ON cap.id = w.captain_id
-  LEFT JOIN payment_methods pm ON pm.id = w.bank_id
-  LEFT JOIN commissions comm
-    ON comm.account_id = cap.id
-    AND comm.account_type = 'captain'
-    AND comm.is_active = 1
-  WHERE w.id = ?
-`, [orderId]);
+        LEFT JOIN customers c
+          ON c.id = w.customer_id
 
+        LEFT JOIN captains cap
+          ON cap.id = w.captain_id
 
+        LEFT JOIN payment_methods pm
+          ON pm.id = w.bank_id
+
+        LEFT JOIN commissions comm
+          ON comm.account_id = cap.id
+          AND comm.account_type = 'captain'
+          AND comm.is_active = 1
+
+        WHERE w.id = ?
+      `,
+        [orderId]
+      );
 
       const o = orderRows[0];
 
-      if (!o || !o.cap_acc_id) {
-        throw new Error("الكابتن غير مرتبط بحساب");
+      if (!o) {
+        throw new Error("الطلب غير موجود");
       }
 
+      if (!o.cap_acc_id) {
+        throw new Error("الكابتن غير مرتبط بحساب محاسبي");
+      }
+
+      if (!o.guarantee_id && o.payment_method === "wallet") {
+        throw new Error("العميل لا يملك محفظة تأمين");
+      }
 
       const totalCharge =
         Number(o.delivery_fee) + Number(o.extra_fee);
@@ -289,12 +312,12 @@ const [orderRows] = await conn.query(`
           ? (totalCharge * o.commission_value) / 100
           : Number(o.commission_value || 0);
 
+      const note = `طلب #${orderId} - ${o.customer_name}`;
 
-const note = `طلب #${orderId} - ${o.customer_name}`;
-
-
+      /* =========================
+         الدفع عند الاستلام
+      ========================= */
       if (o.payment_method === "cod") {
-
         await insertEntry(
           conn,
           o.cap_acc_id,
@@ -314,12 +337,101 @@ const note = `طلب #${orderId} - ${o.customer_name}`;
           orderId,
           req
         );
+      }
 
-} else {
+      /* =========================
+         الدفع من التأمين
+      ========================= */
+      else {
+        if (!settings.customer_guarantee_account) {
+          throw new Error("حساب وسيط التأمين غير مربوط في الإعدادات");
+        }
 
-  if (!settings.customer_guarantee_account) {
-    throw new Error("حساب وسيط التأمين غير مربوط");
+        /* ===== القيد المحاسبي ===== */
+
+        // التأمين: مدين
+        await insertEntry(
+          conn,
+          settings.customer_guarantee_account,
+          totalCharge,
+          0,
+          `سداد من تأمين العميل - ${note}`,
+          orderId,
+          req
+        );
+
+        // الكابتن: دائن
+        await insertEntry(
+          conn,
+          o.cap_acc_id,
+          0,
+          totalCharge,
+          `استلام من تأمين العميل - ${note}`,
+          orderId,
+          req
+        );
+
+        /* ===== حركة المحفظة (خصم) ===== */
+
+        await conn.query(
+          `
+          INSERT INTO customer_guarantee_moves
+          (guarantee_id, currency_id, rate, amount, amount_base)
+          VALUES (?, ?, ?, ?, ?)
+        `,
+          [
+            o.guarantee_id,
+            1, // العملة المحلية
+            1,
+            -totalCharge,
+            -totalCharge,
+          ]
+        );
+
+        /* ===== العمولة ===== */
+
+        // خصم عمولة من الكابتن
+        await insertEntry(
+          conn,
+          o.cap_acc_id,
+          commission,
+          0,
+          `خصم عمولة ${note}`,
+          orderId,
+          req
+        );
+
+        // إيراد عمولة
+        await insertEntry(
+          conn,
+          settings.courier_commission_account,
+          0,
+          commission,
+          `إيراد عمولة ${note}`,
+          orderId,
+          req
+        );
+      }
+    }
+
+    await conn.commit();
+
+    res.json({
+      success: true,
+    });
+  } catch (err) {
+    await conn.rollback();
+
+    console.error("Status Error:", err);
+
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  } finally {
+    conn.release();
   }
+});
 
   /* =========================
      من التأمين → للكابتن
