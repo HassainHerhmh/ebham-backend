@@ -13,7 +13,7 @@ router.get("/manual-list", async (req, res) => {
     const [rows] = await db.query(`
       SELECT 
         w.*, 
-        IFNULL(c.name, 'عميل يدوي') AS customer_name, -- لضمان عدم بقاء الخانة فارغة
+        IFNULL(c.name, 'عميل عام') AS customer_name,
         cap.name AS captain_name,
         a.name_ar AS agent_name,
         u.name AS user_name
@@ -22,8 +22,8 @@ router.get("/manual-list", async (req, res) => {
       LEFT JOIN captains cap ON cap.id = w.captain_id
       LEFT JOIN accounts a ON a.id = w.agent_id
       LEFT JOIN users u ON u.id = w.user_id
-      -- تعديل الشرط ليشمل الرقم 1 أو النص 'manual' حسب ما يظهر في صور قاعدة البيانات
-      WHERE w.is_manual = 1 OR w.display_type = 'manual' 
+      -- التأكد من جلب الطلبات اليدوية حسب العمود الفعلي في قاعدة بياناتك
+      WHERE w.is_manual = 1 OR w.display_type = 'manual'
       ORDER BY w.id DESC
     `);
     res.json({ success: true, orders: rows });
