@@ -71,6 +71,37 @@ router.get("/", async (req, res) => {
     });
   }
 });
+/* =========================
+   🔢 جلب الرقم التالي للمجموعة
+========================= */
+router.get("/next-code", async (req, res) => {
+  try {
+    const { branch_id } = req.user;
+
+    const [[row]] = await db.query(
+      `
+      SELECT IFNULL(MAX(code), 0) + 1 AS nextCode
+      FROM bank_groups
+      WHERE branch_id = ?
+      `,
+      [branch_id]
+    );
+
+    res.json({
+      success: true,
+      nextCode: row.nextCode,
+    });
+
+  } catch (err) {
+    console.error("Next code error:", err);
+
+    res.status(500).json({
+      success: false,
+      message: "فشل توليد الرقم",
+    });
+  }
+});
+
 
 /* =========================
    ➕ إضافة مجموعة بنك (ترقيم تلقائي لكل فرع)
