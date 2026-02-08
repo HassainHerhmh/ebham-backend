@@ -6,14 +6,14 @@ const router = express.Router();
 router.use(auth);
 
 /* ==============================================
-   1️⃣ جلب قائمة الطلبات اليدوية
+   1️⃣ جلب قائمة الطلبات اليدوية (نسخة معدلة)
 ============================================== */
 router.get("/manual-list", async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT 
         w.*, 
-        c.name AS customer_name,
+        IFNULL(c.name, 'عميل يدوي') AS customer_name, -- لضمان عدم بقاء الخانة فارغة
         cap.name AS captain_name,
         a.name_ar AS agent_name,
         u.name AS user_name
@@ -22,7 +22,8 @@ router.get("/manual-list", async (req, res) => {
       LEFT JOIN captains cap ON cap.id = w.captain_id
       LEFT JOIN accounts a ON a.id = w.agent_id
       LEFT JOIN users u ON u.id = w.user_id
-      WHERE w.is_manual = 1
+      -- تعديل الشرط ليشمل الرقم 1 أو النص 'manual' حسب ما يظهر في صور قاعدة البيانات
+      WHERE w.is_manual = 1 OR w.display_type = 'manual' 
       ORDER BY w.id DESC
     `);
     res.json({ success: true, orders: rows });
@@ -30,7 +31,6 @@ router.get("/manual-list", async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
-
 /* ==============================================
    2️⃣ حفظ طلب يدوي جديد مع القيود المحاسبية
 ============================================== */
