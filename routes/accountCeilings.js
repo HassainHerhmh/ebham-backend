@@ -59,10 +59,9 @@ router.get("/", async (req, res) => {
   }
 });
 
-/* =========================
-   POST /account-ceilings
-========================= */
 router.post("/", async (req, res) => {
+  const conn = await db.getConnection();
+
   try {
     const {
       scope,
@@ -76,22 +75,28 @@ router.post("/", async (req, res) => {
 
     const { id: user_id, branch_id } = req.user;
 
-    if (!currency_id || !ceiling_amount) {
+    if (!currency_id || !ceiling_amount || !account_id) {
       return res.status(400).json({
         success: false,
-        message: "العملة ومبلغ السقف مطلوبان",
+        message: "الحساب والعملة والسقف مطلوبة",
       });
     }
 
-    await db.query(
+    await conn.beginTransaction();
+
+    /* ============================
+       1️⃣ حفظ السقف
+    ============================ */
+    const [r] = await conn.query(
       `
       INSERT INTO account_ceilings
-      (scope, account_id, account_group_id, currency_id, ceiling_amount, account_nature, exceed_action, branch_id, created_by)
+      (scope, account_id, account_group_id, currency_id, ceiling_amount,
+       account_nature, exceed_action, branch_id, created_by)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         scope,
-        account_id || null,
+        account_id,
         account_group_id || null,
         currency_id,
         ceiling_amount,
@@ -102,15 +107,97 @@ router.post("/", async (req, res) => {
       ]
     );
 
-    res.json({ success: true });
-  } catch (err) {
-    console.error("ADD ACCOUNT CEILING ERROR:", err);
-    res.status(500).json({
-      success: false,
-      message: "خطأ في الإضافة",
+    /* ============================
+       2️⃣ جلب حساب وسيط الاعتماد
+    ============================ */
+    const [[settings]] = await conn.query(`
+      SELECT customer_credit_account
+      FROM settings
+      LIMIT 1
+    `);
+
+    if (!settings?.customer_credit_account) {
+      throw new Error("حساب وسيط الاعتماد غير محدد في الإعدادات");
+    }
+
+    const transitAccount = settings.customer_credit_account;
+
+    /* ============================
+       3️⃣ جلب العملة المحلية
+    ============================ */
+    const [[baseCur]] = await conn.query(`
+      SELECT id FROM currencies
+      WHERE is_local = 1
+      LIMIT 1
+    `);
+
+    if (!baseCur) throw new Error("لا توجد عملة محلية");
+
+    /* ============================
+       4️⃣ إنشاء القيد المحاسبي
+       فتح اعتماد للعميل
+    ============================ */
+
+    const note = `فتح سقف اعتماد للحساب ${account_id}`;
+
+    // مدين: حساب العميل
+    await conn.query(
+      `
+      INSERT INTO journal_entries
+      (journal_type_id, journal_date, currency_id,
+       account_id, debit, notes, created_by, branch_id)
+      VALUES (7, NOW(), ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        baseCur.id,
+        account_id,
+        ceiling_amount,
+        note,
+        user_id,
+        branch_id,
+      ]
+    );
+
+    // دائن: حساب وسيط الاعتماد
+    await conn.query(
+      `
+      INSERT INTO journal_entries
+      (journal_type_id, journal_date, currency_id,
+       account_id, credit, notes, created_by, branch_id)
+      VALUES (7, NOW(), ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        baseCur.id,
+        transitAccount,
+        ceiling_amount,
+        note,
+        user_id,
+        branch_id,
+      ]
+    );
+
+    await conn.commit();
+
+    res.json({
+      success: true,
+      message: "تم فتح السقف وربطه محاسبيًا",
     });
+
+  } catch (err) {
+    await conn.rollback();
+
+    console.error("ADD ACCOUNT CEILING ERROR:", err);
+
+    res.status(400).json({
+      success: false,
+      message: err.message,
+    });
+
+  } finally {
+    conn.release();
   }
 });
+
 
 /* =========================
    PUT /account-ceilings/:id
