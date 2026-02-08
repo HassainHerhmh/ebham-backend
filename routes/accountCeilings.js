@@ -5,9 +5,10 @@ import auth from "../middlewares/auth.js";
 const router = express.Router();
 router.use(auth);
 
-/* =========================
-   GET /account-ceilings
-========================= */
+/* ==============================================
+   🟢 GET /account-ceilings
+   جلب قائمة سقوف الحسابات مفلترة حسب الفرع
+============================================== */
 router.get("/", async (req, res) => {
   try {
     const { is_admin_branch, branch_id } = req.user;
@@ -59,6 +60,10 @@ router.get("/", async (req, res) => {
   }
 });
 
+/* ==============================================
+   🟢 POST /account-ceilings
+   إنشاء سقف جديد وتوليد القيد المحاسبي الصحيح
+============================================== */
 router.post("/", async (req, res) => {
   const conn = await db.getConnection();
 
@@ -84,9 +89,9 @@ router.post("/", async (req, res) => {
 
     await conn.beginTransaction();
 
-    /* ============================
-       1️⃣ حفظ السقف
-    ============================ */
+    /* ----------------------------
+       1️⃣ حفظ بيانات السقف
+    ---------------------------- */
     const [r] = await conn.query(
       `
       INSERT INTO account_ceilings
@@ -107,9 +112,9 @@ router.post("/", async (req, res) => {
       ]
     );
 
-    /* ============================
-       2️⃣ جلب حساب وسيط الاعتماد
-    ============================ */
+    /* ----------------------------
+       2️⃣ جلب حساب وسيط الاعتماد من الإعدادات
+    ---------------------------- */
     const [[settings]] = await conn.query(`
       SELECT customer_credit_account
       FROM settings
@@ -122,48 +127,29 @@ router.post("/", async (req, res) => {
 
     const transitAccount = settings.customer_credit_account;
 
-    /* ============================
+    /* ----------------------------
        3️⃣ جلب العملة المحلية
-    ============================ */
+    ---------------------------- */
     const [[baseCur]] = await conn.query(`
       SELECT id FROM currencies
       WHERE is_local = 1
       LIMIT 1
     `);
 
-    if (!baseCur) throw new Error("لا توجد عملة محلية");
+    if (!baseCur) throw new Error("لا توجد عملة محلية معرفة");
 
-    /* ============================
-       4️⃣ إنشاء القيد المحاسبي
-       فتح اعتماد للعميل
-    ============================ */
+    /* ----------------------------
+       4️⃣ إنشاء القيد المحاسبي (تصحيح الأطراف)
+       الهدف: جعل العميل دائن بالسقف الممنوح له
+    ---------------------------- */
+    const note = `فتح سقف اعتماد للحساب #${account_id}`;
 
-    const note = `فتح سقف اعتماد للحساب ${account_id}`;
-
-    // مدين: حساب العميل
+    // الطرف المدين: حساب وسيط الاعتماد
     await conn.query(
       `
       INSERT INTO journal_entries
       (journal_type_id, journal_date, currency_id,
        account_id, debit, notes, created_by, branch_id)
-      VALUES (7, NOW(), ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        baseCur.id,
-        account_id,
-        ceiling_amount,
-        note,
-        user_id,
-        branch_id,
-      ]
-    );
-
-    // دائن: حساب وسيط الاعتماد
-    await conn.query(
-      `
-      INSERT INTO journal_entries
-      (journal_type_id, journal_date, currency_id,
-       account_id, credit, notes, created_by, branch_id)
       VALUES (7, NOW(), ?, ?, ?, ?, ?, ?)
       `,
       [
@@ -176,32 +162,47 @@ router.post("/", async (req, res) => {
       ]
     );
 
+    // الطرف الدائن: حساب العميل
+    await conn.query(
+      `
+      INSERT INTO journal_entries
+      (journal_type_id, journal_date, currency_id,
+       account_id, credit, notes, created_by, branch_id)
+      VALUES (7, NOW(), ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        baseCur.id,
+        account_id,
+        ceiling_amount,
+        note,
+        user_id,
+        branch_id,
+      ]
+    );
+
     await conn.commit();
 
     res.json({
       success: true,
-      message: "تم فتح السقف وربطه محاسبيًا",
+      message: "تم فتح السقف وتوليد القيد المحاسبي بنجاح",
     });
 
   } catch (err) {
     await conn.rollback();
-
     console.error("ADD ACCOUNT CEILING ERROR:", err);
-
     res.status(400).json({
       success: false,
       message: err.message,
     });
-
   } finally {
     conn.release();
   }
 });
 
-
-/* =========================
-   PUT /account-ceilings/:id
-========================= */
+/* ==============================================
+   🟢 PUT /account-ceilings/:id
+   تحديث بيانات السقف
+============================================== */
 router.put("/:id", async (req, res) => {
   try {
     const { currency_id, ceiling_amount, account_nature, exceed_action } =
@@ -229,9 +230,10 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-/* =========================
-   DELETE /account-ceilings/:id
-========================= */
+/* ==============================================
+   🟢 DELETE /account-ceilings/:id
+   حذف السقف
+============================================== */
 router.delete("/:id", async (req, res) => {
   try {
     await db.query("DELETE FROM account_ceilings WHERE id = ?", [
