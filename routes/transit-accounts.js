@@ -19,6 +19,8 @@ router.get("/", async (req, res) => {
         transfer_guarantee_account,
         currency_exchange_account,
         customer_guarantee_account   -- 🆕
+            customer_credit_account     -- 🆕
+
       FROM settings
       WHERE id = 1
       LIMIT 1
@@ -33,6 +35,8 @@ router.get("/", async (req, res) => {
         transfer_guarantee_account: null,
         currency_exchange_account: null,
         customer_guarantee_account: null, // 🆕
+            customer_credit_account: null, // 🆕
+
       },
     });
   } catch (err) {
@@ -53,6 +57,8 @@ router.post("/", async (req, res) => {
       transfer_guarantee_account,
       currency_exchange_account,
       customer_guarantee_account, // 🆕
+        customer_credit_account, // 🆕
+
     } = req.body;
 
     // نتأكد هل السجل موجود
@@ -72,8 +78,10 @@ router.post("/", async (req, res) => {
           transfer_guarantee_account,
           currency_exchange_account,
           customer_guarantee_account
+            customer_credit_account
+
         )
-        VALUES (1, ?, ?, ?, ?, ?)
+        VALUES (1, ?, ?, ?,?, ?, ?)
         `,
         [
           commission_income_account || null,
@@ -81,6 +89,8 @@ router.post("/", async (req, res) => {
           transfer_guarantee_account || null,
           currency_exchange_account || null,
           customer_guarantee_account || null,
+            customer_credit_account || null, // 🆕
+
         ]
       );
     } else {
@@ -93,6 +103,8 @@ router.post("/", async (req, res) => {
           transfer_guarantee_account = ?,
           currency_exchange_account = ?,
           customer_guarantee_account = ?
+            customer_credit_account = ?
+
         WHERE id = 1
         `,
         [
@@ -101,6 +113,8 @@ router.post("/", async (req, res) => {
           transfer_guarantee_account || null,
           currency_exchange_account || null,
           customer_guarantee_account || null,
+            customer_credit_account || null, // 🆕
+
         ]
       );
     }
