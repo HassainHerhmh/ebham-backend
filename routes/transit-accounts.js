@@ -102,7 +102,7 @@ router.post("/", async (req, res) => {
           courier_commission_account = ?,
           transfer_guarantee_account = ?,
           currency_exchange_account = ?,
-          customer_guarantee_account = ?
+          customer_guarantee_account = ?,
             customer_credit_account = ?
 
         WHERE id = 1
