@@ -4,6 +4,59 @@ import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 router.use(auth);
+/* ==============================================
+   0️⃣ جلب الطلبات اليدوية
+============================================== */
+router.get("/manual-list", async (req, res) => {
+  try {
+
+    const [rows] = await db.query(`
+      SELECT 
+        w.id,
+        w.customer_id,
+        w.restaurant_id,
+        w.captain_id,
+
+        w.total_amount,
+        w.delivery_fee,
+        w.payment_method,
+        w.status,
+        w.notes,
+        w.created_at,
+
+        IFNULL(c.name, 'عميل غير معروف') AS customer_name,
+        IFNULL(r.name, 'شراء مباشر') AS restaurant_name,
+        IFNULL(cap.name, '—') AS captain_name,
+        IFNULL(u.name, 'Admin') AS user_name
+
+      FROM wassel_orders w
+
+      LEFT JOIN customers c ON c.id = w.customer_id
+      LEFT JOIN restaurants r ON r.id = w.restaurant_id
+      LEFT JOIN captains cap ON cap.id = w.captain_id
+      LEFT JOIN users u ON u.id = w.user_id
+
+      WHERE w.display_type = 'manual'
+
+      ORDER BY w.id DESC
+    `);
+
+    res.json({
+      success: true,
+      orders: rows
+    });
+
+  } catch (err) {
+
+    console.error("❌ Manual Orders Error:", err);
+
+    res.status(500).json({
+      success: false,
+      message: "فشل في جلب الطلبات",
+      error: err.message
+    });
+  }
+});
 
 /* ==============================================
    1️⃣ حفظ طلب يدوي جديد (بدون قيود محاسبية)
