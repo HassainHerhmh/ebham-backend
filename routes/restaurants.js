@@ -168,6 +168,8 @@ router.get("/", async (req, res) => {
       SELECT 
         r.id,
         r.name,
+            r.display_type,   -- ✅ أضف هذا
+
         r.address,
         r.phone,
         r.image_url,
