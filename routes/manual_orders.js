@@ -27,35 +27,24 @@ router.get("/manual-list", async (req, res) => {
         w.notes,
         w.created_at,
 
-        IFNULL(c.name, 'عميل غير معروف')   AS customer_name,
-        IFNULL(a.name_ar, 'شراء مباشر')   AS agent_name,
-        IFNULL(cap.name, '—')             AS captain_name,
-        IFNULL(u.name, 'Admin')           AS user_name
+        IFNULL(c.name, 'عميل غير معروف') AS customer_name,
+        IFNULL(a.name_ar, 'شراء مباشر') AS agent_name,
+        IFNULL(cap.name, '—') AS captain_name,
+        IFNULL(u.name, 'Admin') AS user_name
 
       FROM wassel_orders w
 
-      LEFT JOIN customers c 
-        ON c.id = w.customer_id
+      LEFT JOIN customers c ON c.id = w.customer_id
+      LEFT JOIN accounts a ON a.id = w.agent_id
+      LEFT JOIN captains cap ON cap.id = w.captain_id
+      LEFT JOIN users u ON u.id = w.user_id
 
-      LEFT JOIN accounts a 
-        ON a.id = w.agent_id
-
-      LEFT JOIN captains cap 
-        ON cap.id = w.captain_id
-
-      LEFT JOIN users u 
-        ON u.id = w.user_id
-
-      WHERE w.is_manual = 1
-         OR w.display_type = 'manual'
+      WHERE w.order_type = 'manual'
 
       ORDER BY w.id DESC
     `);
 
-    res.json({
-      success: true,
-      orders: rows
-    });
+    res.json({ success: true, orders: rows });
 
   } catch (err) {
 
@@ -63,11 +52,11 @@ router.get("/manual-list", async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: "فشل في جلب الطلبات اليدوية",
       error: err.message
     });
   }
 });
+
 
 /* ==============================================
    2️⃣ حفظ طلب يدوي جديد
