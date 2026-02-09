@@ -8,7 +8,7 @@ const router = express.Router();
 router.use(auth);
 
 /* ==============================================
-   1️⃣ جلب قائمة الطلبات اليدوية
+   1️⃣ جلب قائمة الطلبات اليدوية (مع المحل)
 ============================================== */
 router.get("/manual-list", async (req, res) => {
   try {
@@ -17,7 +17,7 @@ router.get("/manual-list", async (req, res) => {
       SELECT 
         w.id,
         w.customer_id,
-        w.agent_id,
+        w.restaurant_id,
         w.captain_id,
 
         w.total_amount,
@@ -29,16 +29,16 @@ router.get("/manual-list", async (req, res) => {
         w.display_type,
 
         IFNULL(c.name, 'عميل غير معروف') AS customer_name,
-        IFNULL(a.name_ar, 'شراء مباشر') AS agent_name,
+        IFNULL(r.name, 'شراء مباشر') AS restaurant_name,
         IFNULL(cap.name, '—') AS captain_name,
         IFNULL(u.name, 'Admin') AS user_name
 
       FROM wassel_orders w
 
-      LEFT JOIN customers c ON c.id = w.customer_id
-      LEFT JOIN accounts a ON a.id = w.agent_id
-      LEFT JOIN captains cap ON cap.id = w.captain_id
-      LEFT JOIN users u ON u.id = w.user_id
+      LEFT JOIN customers c   ON c.id = w.customer_id
+      LEFT JOIN restaurants r ON r.id = w.restaurant_id
+      LEFT JOIN captains cap  ON cap.id = w.captain_id
+      LEFT JOIN users u       ON u.id = w.user_id
 
       WHERE w.display_type = 'manual'
 
@@ -64,7 +64,7 @@ router.get("/manual-list", async (req, res) => {
 
 
 /* ==============================================
-   2️⃣ حفظ طلب يدوي جديد
+   2️⃣ حفظ طلب يدوي جديد (مرتبط بمحل)
 ============================================== */
 router.post("/", async (req, res) => {
   const conn = await db.getConnection();
@@ -73,7 +73,7 @@ router.post("/", async (req, res) => {
 
     const {
       customer_id,
-      agent_id,
+      restaurant_id,
       to_address,
       delivery_fee,
       notes,
@@ -96,7 +96,7 @@ router.post("/", async (req, res) => {
     const [orderResult] = await conn.query(`
       INSERT INTO wassel_orders (
         customer_id,
-        agent_id,
+        restaurant_id,
         to_address,
         delivery_fee,
         total_amount,
@@ -110,7 +110,7 @@ router.post("/", async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 'manual', ?, NOW())
     `, [
       customer_id,
-      agent_id || null,
+      restaurant_id || null,
       to_address,
       delivery_fee,
       total_amount,
