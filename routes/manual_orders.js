@@ -26,6 +26,7 @@ router.get("/manual-list", async (req, res) => {
         w.status,
         w.notes,
         w.created_at,
+        w.display_type,
 
         IFNULL(c.name, 'عميل غير معروف') AS customer_name,
         IFNULL(a.name_ar, 'شراء مباشر') AS agent_name,
@@ -39,12 +40,15 @@ router.get("/manual-list", async (req, res) => {
       LEFT JOIN captains cap ON cap.id = w.captain_id
       LEFT JOIN users u ON u.id = w.user_id
 
-      WHERE w.order_type = 'manual'
+      WHERE w.display_type = 'manual'
 
       ORDER BY w.id DESC
     `);
 
-    res.json({ success: true, orders: rows });
+    res.json({
+      success: true,
+      orders: rows
+    });
 
   } catch (err) {
 
@@ -52,6 +56,7 @@ router.get("/manual-list", async (req, res) => {
 
     res.status(500).json({
       success: false,
+      message: "فشل في جلب الطلبات",
       error: err.message
     });
   }
@@ -77,11 +82,11 @@ router.post("/", async (req, res) => {
       total_amount
     } = req.body;
 
-    // تحقق بسيط
+    // تحقق أساسي
     if (!customer_id || !items?.length) {
       return res.status(400).json({
         success: false,
-        message: "بيانات الطلب غير مكتملة"
+        message: "يرجى إدخال العميل والمنتجات"
       });
     }
 
@@ -98,12 +103,11 @@ router.post("/", async (req, res) => {
         payment_method,
         notes,
         status,
-        is_manual,
         display_type,
         user_id,
         created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 1, 'manual', ?, NOW())
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 'manual', ?, NOW())
     `, [
       customer_id,
       agent_id || null,
