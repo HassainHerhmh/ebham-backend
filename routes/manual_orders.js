@@ -26,11 +26,12 @@ SELECT
 
   w.to_address,
 
-  /* الموقع من العناوين */
-  ca.area        AS neighborhood_name,
-  ca.address     AS customer_address,
-  ca.latitude    AS latitude,
-  ca.longitude   AS longitude,
+  /* العنوان من جدول customer_addresses */
+  ca.district   AS neighborhood_name,
+  ca.address    AS customer_address,
+  ca.latitude   AS latitude,
+  ca.longitude  AS longitude,
+  ca.gps_link   AS map_url,
 
   w.created_at,
 
@@ -62,7 +63,7 @@ FROM wassel_orders w
 
 LEFT JOIN customers c ON c.id = w.customer_id
 
-/* الربط مع جدول العناوين */
+/* الربط مع العناوين */
 LEFT JOIN customer_addresses ca 
   ON ca.customer_id = w.customer_id
  AND ca.address = w.to_address
@@ -77,7 +78,6 @@ WHERE w.display_type = 'manual'
 GROUP BY w.id
 ORDER BY w.id DESC
 `);
-
 
 
 
