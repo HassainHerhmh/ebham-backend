@@ -14,40 +14,41 @@ router.get("/manual-list", async (req, res) => {
 const [rows] = await db.query(`
 SELECT 
   w.id,
-  w.customer_id,
-  w.restaurant_id,
-  w.captain_id,
 
-  w.total_amount,
-  w.delivery_fee,
-  w.payment_method,
-  w.status,
-  w.notes,
+  ANY_VALUE(w.customer_id) AS customer_id,
+  ANY_VALUE(w.restaurant_id) AS restaurant_id,
+  ANY_VALUE(w.captain_id) AS captain_id,
 
-  w.to_address,
+  ANY_VALUE(w.total_amount) AS total_amount,
+  ANY_VALUE(w.delivery_fee) AS delivery_fee,
+  ANY_VALUE(w.payment_method) AS payment_method,
+  ANY_VALUE(w.status) AS status,
+  ANY_VALUE(w.notes) AS notes,
 
-  /* العنوان من customer_addresses */
-  n.name        AS neighborhood_name,
-  ca.address    AS customer_address,
-  ca.latitude   AS latitude,
-  ca.longitude  AS longitude,
-  ca.gps_link   AS map_url,
+  ANY_VALUE(w.to_address) AS to_address,
 
-  w.created_at,
+  /* العنوان */
+  ANY_VALUE(n.name)      AS neighborhood_name,
+  ANY_VALUE(ca.address) AS customer_address,
+  ANY_VALUE(ca.latitude) AS latitude,
+  ANY_VALUE(ca.longitude) AS longitude,
+  ANY_VALUE(ca.gps_link) AS map_url,
+
+  ANY_VALUE(w.created_at) AS created_at,
 
   /* العميل */
-  IFNULL(c.name, 'عميل غير معروف') AS customer_name,
-  c.phone AS customer_phone,
+  ANY_VALUE(c.name)  AS customer_name,
+  ANY_VALUE(c.phone) AS customer_phone,
 
   /* المحل */
-  IFNULL(r.name, 'شراء مباشر') AS restaurant_name,
-  r.phone AS restaurant_phone,
-  r.address AS restaurant_address,
-  r.map_url AS restaurant_map,
+  ANY_VALUE(r.name)    AS restaurant_name,
+  ANY_VALUE(r.phone)   AS restaurant_phone,
+  ANY_VALUE(r.address) AS restaurant_address,
+  ANY_VALUE(r.map_url) AS restaurant_map,
 
   /* الكابتن + المستخدم */
-  IFNULL(cap.name, '—') AS captain_name,
-  IFNULL(u.name, 'Admin') AS user_name,
+  ANY_VALUE(cap.name) AS captain_name,
+  ANY_VALUE(u.name)   AS user_name,
 
   /* المنتجات */
   JSON_ARRAYAGG(
@@ -68,7 +69,6 @@ LEFT JOIN customer_addresses ca
   ON ca.customer_id = w.customer_id
  AND ca.address = w.to_address
 
-/* ربط جدول الأحياء */
 LEFT JOIN neighborhoods n 
   ON n.id = ca.district
 
@@ -89,6 +89,7 @@ WHERE w.display_type = 'manual'
 GROUP BY w.id
 ORDER BY w.id DESC
 `);
+
 
 
     res.json({
