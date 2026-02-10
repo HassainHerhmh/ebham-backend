@@ -210,7 +210,7 @@ router.put("/status/:id", async (req, res) => {
         cg.type AS guarantee_type,
         cg.account_id AS customer_acc_id,
 
-        r.account_id AS restaurant_acc_id,
+ag.account_id AS restaurant_acc_id,
 
         comA.commission_type  AS agent_comm_type,
         comA.commission_value AS agent_comm_value,
