@@ -382,10 +382,10 @@ router.put("/status/:id", async (req, res) => {
         itemsTotal > 0
       ) {
 
-        /* من حساب المورد الوسيط */
+        /* من حساب ذمم الموردين */
         await insertJournal(
           conn,
-          settings.default_vendor_account,
+          settings.customer_credit_account, // ✅ التعديل هنا
           itemsTotal,
           0,
           `مستحق مورد - ${note}`,
@@ -513,6 +513,7 @@ async function insertJournal(
 
   ]);
 }
+
 
 
 export default router;
