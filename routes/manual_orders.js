@@ -158,11 +158,9 @@ router.post("/", async (req, res) => {
 
 
 /* ==============================================
-   تحديث الحالة + القيود
+   تحديث الحالة + القيود (النسخة الصحيحة)
 ============================================== */
-router.put("/status/:id", async (req, res)=>{
-
-  console.log("🔥 MANUAL STATUS HIT:", req.params.id, req.body.status);
+router.put("/status/:id", async (req, res) => {
 
   const orderId = req.params.id;
   const { status } = req.body;
@@ -179,307 +177,305 @@ router.put("/status/:id", async (req, res)=>{
       [status, orderId]
     );
 
+    if (status !== "delivering") {
+      await conn.commit();
+      return res.json({ success: true });
+    }
 
-    /* فقط عند التوصيل */
- if (status === "delivering") {
+    /* منع التكرار */
+    const [[old]] = await conn.query(`
+      SELECT id FROM journal_entries
+      WHERE reference_type='manual_order'
+      AND reference_id=?
+      LIMIT 1
+    `,[orderId]);
 
-  /* منع التكرار */
-  const [[old]] = await conn.query(`
-    SELECT id FROM journal_entries
-    WHERE reference_type='manual_order'
-    AND reference_id=?
-    LIMIT 1
-  `,[orderId]);
+    if (old) throw new Error("تم الترحيل سابقاً");
 
-  if (old) throw new Error("تم الترحيل سابقاً");
 
+    /* الإعدادات */
+    const [[settings]] = await conn.query(`
+      SELECT * FROM settings LIMIT 1
+    `);
 
-  /* الإعدادات */
-  const [[settings]] = await conn.query(`
-    SELECT * FROM settings LIMIT 1
-  `);
 
+    /* بيانات الطلب */
+    const [[o]] = await conn.query(`
+      SELECT 
+        w.*,
+        c.name AS customer_name,
 
-  /* بيانات الطلب */
-  const [rows] = await conn.query(`
-    SELECT 
-      w.*,
-      c.name AS customer_name,
+        cap.account_id AS cap_acc_id,
 
-      cap.account_id AS cap_acc_id,
+        cg.type AS guarantee_type,
+        cg.account_id AS customer_acc_id,
 
-      cg.type AS guarantee_type,
-      cg.account_id AS customer_acc_id,
+        r.account_id AS restaurant_acc_id,
 
-comA.agent_account_id AS restaurant_acc_id,
+        comA.commission_type  AS agent_comm_type,
+        comA.commission_value AS agent_comm_value,
 
-      comA.commission_type  AS agent_comm_type,
-      comA.commission_value AS agent_comm_value,
+        comm.commission_type,
+        comm.commission_value
 
-      comm.commission_type,
-      comm.commission_value
+      FROM wassel_orders w
 
-    FROM wassel_orders w
+      LEFT JOIN customers c ON c.id=w.customer_id
+      LEFT JOIN captains cap ON cap.id=w.captain_id
+      LEFT JOIN customer_guarantees cg ON cg.customer_id=w.customer_id
+      LEFT JOIN restaurants r ON r.id=w.restaurant_id
+      LEFT JOIN agents ag ON ag.id=r.agent_id
 
-    LEFT JOIN customers c ON c.id = w.customer_id
-    LEFT JOIN captains cap ON cap.id = w.captain_id
-    LEFT JOIN customer_guarantees cg ON cg.customer_id = w.customer_id
-    LEFT JOIN restaurants r ON r.id = w.restaurant_id
-    LEFT JOIN agents ag ON ag.id = r.agent_id
+      LEFT JOIN commissions comA
+        ON comA.account_type='agent'
+       AND comA.account_id=ag.id
+       AND comA.is_active=1
 
-    LEFT JOIN commissions comA
-      ON comA.account_type='agent'
-     AND comA.account_id=ag.id
-     AND comA.is_active=1
+      LEFT JOIN commissions comm
+        ON comm.account_type='captain'
+       AND comm.account_id=cap.id
+       AND comm.is_active=1
 
-    LEFT JOIN commissions comm
-      ON comm.account_type='captain'
-     AND comm.account_id=cap.id
-     AND comm.is_active=1
-
-    WHERE w.id=?
-  `,[orderId]);
-
-
-  const o = rows[0];
-
-  if (!o) throw new Error("الطلب غير موجود");
-  if (!o.cap_acc_id) throw new Error("الكابتن بلا حساب");
-  if (!o.restaurant_acc_id) throw new Error("المورد بلا حساب");
-
-
-  const total = Number(o.total_amount);
-
-  const captainCommission =
-    o.commission_type === "percent"
-      ? (total * o.commission_value) / 100
-      : Number(o.commission_value || 0);
-
-
-  const agentCommission =
-    o.agent_comm_type === "percent"
-      ? (total * o.agent_comm_value) / 100
-      : Number(o.agent_comm_value || 0);
-
-
-  const note = `طلب يدوي #${orderId} - ${o.customer_name}`;
-
-
-
-  /* =====================================================
-     1️⃣ COD
-  ===================================================== */
-  if (o.payment_method === "cod") {
-
-    /* كابتن → مورد */
-    await insertJournal(
-      conn,
-      o.cap_acc_id,
-      total,
-      0,
-      `تحصيل نقدي - ${note}`,
-      orderId,
-      req
-    );
-
-    await insertJournal(
-      conn,
-      o.restaurant_acc_id,
-      0,
-      total,
-      `توريد نقدي - ${note}`,
-      orderId,
-      req
-    );
-
-  }
-
-
-
-/* =====================================================
-   الدفع من الرصيد (Wallet / Account)
-===================================================== */
-else if (o.payment_method === "wallet") {
-
-  /* لازم يكون حساب محاسبي */
-  if (o.guarantee_type !== "account" || !o.customer_acc_id) {
-    throw new Error("محفظة العميل غير مرتبطة بحساب");
-  }
-
-  /* ==================================
-     1) خصم من حساب العميل
-  ================================== */
-
-  await insertJournal(
-    conn,
-    o.customer_acc_id,   // العميل
-    total,               // Debit
-    0,
-    `خصم من رصيد العميل - ${note}`,
-    orderId,
-    req
-  );
-
-
-  await insertJournal(
-    conn,
-    o.cap_acc_id,        // الكابتن
-    0,
-    total,               // Credit
-    `استلام من رصيد العميل - ${note}`,
-    orderId,
-    req
-  );
-
-
-  /* ==================================
-     2) تحويل للمورد
-  ================================== */
-
-  await insertJournal(
-    conn,
-    o.cap_acc_id,
-    total,
-    0,
-    `توريد للمورد - ${note}`,
-    orderId,
-    req
-  );
-
-
-  await insertJournal(
-    conn,
-    o.restaurant_acc_id,
-    0,
-    total,
-    `استلام من الكابتن - ${note}`,
-    orderId,
-    req
-  );
-
-}
-
-
-  /* =====================================================
-     3️⃣ Bank
-  ===================================================== */
-  else if (o.payment_method === "bank") {
-
-    if (!settings.bank_account_id)
-      throw new Error("حساب البنك غير معرف");
-
-
-    /* بنك → كابتن */
-    await insertJournal(
-      conn,
-      settings.bank_account_id,
-      total,
-      0,
-      `تحويل بنكي - ${note}`,
-      orderId,
-      req
-    );
-
-    await insertJournal(
-      conn,
-      o.cap_acc_id,
-      0,
-      total,
-      `استلام بنكي - ${note}`,
-      orderId,
-      req
-    );
-
-
-    /* كابتن → مورد */
-    await insertJournal(
-      conn,
-      o.cap_acc_id,
-      total,
-      0,
-      `توريد للمورد - ${note}`,
-      orderId,
-      req
-    );
-
-    await insertJournal(
-      conn,
-      o.restaurant_acc_id,
-      0,
-      total,
-      `استلام من كابتن - ${note}`,
-      orderId,
-      req
-    );
-
-  }
-
-
-
-  /* =====================================================
-     عمولة الكابتن
-  ===================================================== */
-  if (captainCommission > 0){
-
-    await insertJournal(
-      conn,
-      o.cap_acc_id,
-      captainCommission,
-      0,
-      `خصم عمولة كابتن - ${note}`,
-      orderId,
-      req
-    );
-
-
-    await insertJournal(
-      conn,
-      settings.courier_commission_account,
-      0,
-      captainCommission,
-      `إيراد عمولة كابتن - ${note}`,
-      orderId,
-      req
-    );
-  }
-
-
-
-  /* =====================================================
-     عمولة الوكيل
-  ===================================================== */
-  if (agentCommission > 0){
-
-    await insertJournal(
-      conn,
-      o.restaurant_acc_id,
-      agentCommission,
-      0,
-      `خصم عمولة وكيل - ${note}`,
-      orderId,
-      req
-    );
-
-
-    await insertJournal(
-      conn,
-      settings.commission_income_account,
-      0,
-      agentCommission,
-      `إيراد عمولة وكيل - ${note}`,
-      orderId,
-      req
-    );
-  }
-
-}
-
+      WHERE w.id=?
+    `,[orderId]);
+
+
+    if (!o) throw new Error("الطلب غير موجود");
+    if (!o.cap_acc_id) throw new Error("الكابتن بلا حساب");
+    if (!o.restaurant_acc_id) throw new Error("المورد بلا حساب");
+
+
+    const total = Number(o.total_amount);
+
+    const captainCommission =
+      o.commission_type === "percent"
+        ? (total * o.commission_value) / 100
+        : Number(o.commission_value || 0);
+
+
+    const agentCommission =
+      o.agent_comm_type === "percent"
+        ? (total * o.agent_comm_value) / 100
+        : Number(o.agent_comm_value || 0);
+
+
+    const note = `طلب يدوي #${orderId} - ${o.customer_name}`;
+
+
+    /* =====================================================
+        تحديد حساب السداد الأساسي
+    ===================================================== */
+
+    let payFromAccount = null;
+
+    // عميل عنده حساب
+    if (
+      o.payment_method === "wallet" &&
+      o.guarantee_type === "account" &&
+      o.customer_acc_id
+    ){
+      payFromAccount = o.customer_acc_id;
+    }
+
+    // غير كذا → وسيط التأمين
+    else if (o.payment_method === "wallet") {
+      payFromAccount = settings.customer_guarantee_account;
+    }
+
+
+    /* =====================================================
+        COD
+    ===================================================== */
+    if (o.payment_method === "cod") {
+
+      // كابتن → مورد
+      await insertJournal(
+        conn,
+        o.cap_acc_id,
+        total,
+        0,
+        `تحصيل نقدي - ${note}`,
+        orderId,
+        req
+      );
+
+      await insertJournal(
+        conn,
+        o.restaurant_acc_id,
+        0,
+        total,
+        `توريد نقدي - ${note}`,
+        orderId,
+        req
+      );
+
+    }
+
+
+    /* =====================================================
+        Wallet
+    ===================================================== */
+    else if (o.payment_method === "wallet") {
+
+      if (!payFromAccount)
+        throw new Error("حساب السداد غير معرف");
+
+      // عميل/وسيط → كابتن
+      await insertJournal(
+        conn,
+        payFromAccount,
+        total,
+        0,
+        `سداد من الرصيد - ${note}`,
+        orderId,
+        req
+      );
+
+      await insertJournal(
+        conn,
+        o.cap_acc_id,
+        0,
+        total,
+        `استلام من الرصيد - ${note}`,
+        orderId,
+        req
+      );
+
+      // كابتن → مورد
+      await insertJournal(
+        conn,
+        o.cap_acc_id,
+        total,
+        0,
+        `توريد للمورد - ${note}`,
+        orderId,
+        req
+      );
+
+      await insertJournal(
+        conn,
+        o.restaurant_acc_id,
+        0,
+        total,
+        `استلام من كابتن - ${note}`,
+        orderId,
+        req
+      );
+
+    }
+
+
+    /* =====================================================
+        Bank
+    ===================================================== */
+    else if (o.payment_method === "bank") {
+
+      if (!settings.bank_account_id)
+        throw new Error("حساب البنك غير معرف");
+
+      // بنك → كابتن
+      await insertJournal(
+        conn,
+        settings.bank_account_id,
+        total,
+        0,
+        `تحويل بنكي - ${note}`,
+        orderId,
+        req
+      );
+
+      await insertJournal(
+        conn,
+        o.cap_acc_id,
+        0,
+        total,
+        `استلام بنكي - ${note}`,
+        orderId,
+        req
+      );
+
+      // كابتن → مورد
+      await insertJournal(
+        conn,
+        o.cap_acc_id,
+        total,
+        0,
+        `توريد للمورد - ${note}`,
+        orderId,
+        req
+      );
+
+      await insertJournal(
+        conn,
+        o.restaurant_acc_id,
+        0,
+        total,
+        `استلام من كابتن - ${note}`,
+        orderId,
+        req
+      );
+
+    }
+
+
+
+    /* =====================================================
+        عمولة كابتن
+    ===================================================== */
+    if (captainCommission > 0){
+
+      await insertJournal(
+        conn,
+        o.cap_acc_id,
+        captainCommission,
+        0,
+        `خصم عمولة كابتن - ${note}`,
+        orderId,
+        req
+      );
+
+      await insertJournal(
+        conn,
+        settings.courier_commission_account,
+        0,
+        captainCommission,
+        `إيراد عمولة كابتن - ${note}`,
+        orderId,
+        req
+      );
+    }
+
+
+    /* =====================================================
+        عمولة وكيل
+    ===================================================== */
+    if (agentCommission > 0){
+
+      await insertJournal(
+        conn,
+        o.restaurant_acc_id,
+        agentCommission,
+        0,
+        `خصم عمولة وكيل - ${note}`,
+        orderId,
+        req
+      );
+
+      await insertJournal(
+        conn,
+        settings.commission_income_account,
+        0,
+        agentCommission,
+        `إيراد عمولة وكيل - ${note}`,
+        orderId,
+        req
+      );
+    }
 
 
     await conn.commit();
 
     res.json({ success:true });
-
 
   } catch(err){
 
@@ -498,6 +494,7 @@ else if (o.payment_method === "wallet") {
 
   }
 });
+
 
 
 /* ==============================================
