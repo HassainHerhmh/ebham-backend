@@ -211,7 +211,8 @@ router.put("/status/:id", async (req, res)=>{
           comA.agent_account_id AS restaurant_acc_id,
 
           /* حساب عمولة الوكيل */
-          comA.commission_account_id AS agent_comm_acc,
+/* حساب عمولة الوكيل من الإعدادات */
+settings.agent_commission_account AS agent_comm_acc,
           comA.commission_type AS agent_comm_type,
           comA.commission_value AS agent_comm_value,
 
@@ -219,7 +220,8 @@ router.put("/status/:id", async (req, res)=>{
           comm.commission_value,
           comm.commission_type
 
-        FROM wassel_orders w
+FROM wassel_orders w
+LEFT JOIN settings settings ON settings.id = 1
 
         LEFT JOIN customers c 
           ON c.id = w.customer_id
