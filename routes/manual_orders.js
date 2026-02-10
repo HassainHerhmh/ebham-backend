@@ -200,24 +200,33 @@ if (status === "delivering"){
       `);
 
 
-      const [rows] = await conn.query(`
-        SELECT 
-          w.*,
-          c.name AS customer_name,
-          cap.account_id AS cap_acc_id,
-          r.account_id AS restaurant_acc_id,
-          comm.commission_value,
-          comm.commission_type
-        FROM wassel_orders w
-        LEFT JOIN customers c ON c.id=w.customer_id
-        LEFT JOIN captains cap ON cap.id=w.captain_id
-        LEFT JOIN restaurants r ON r.id=w.restaurant_id
-        LEFT JOIN commissions comm 
-          ON comm.account_id=cap.id
-         AND comm.account_type='captain'
-         AND comm.is_active=1
-        WHERE w.id=?
-      `,[orderId]);
+     const [rows] = await conn.query(`
+  SELECT 
+    w.*,
+    c.name AS customer_name,
+
+    cap.account_id AS cap_acc_id,
+
+    ag.account_id AS restaurant_acc_id, -- ✅ من الوكيل
+
+    comm.commission_value,
+    comm.commission_type
+
+  FROM wassel_orders w
+
+  LEFT JOIN customers c ON c.id = w.customer_id
+  LEFT JOIN captains cap ON cap.id = w.captain_id
+
+  LEFT JOIN restaurants r ON r.id = w.restaurant_id
+  LEFT JOIN agents ag ON ag.id = r.agent_id -- ✅ ربط الوكيل
+
+  LEFT JOIN commissions comm 
+    ON comm.account_id = cap.id
+   AND comm.account_type = 'captain'
+   AND comm.is_active = 1
+
+  WHERE w.id = ?
+`, [orderId]);
 
 
       const o = rows[0];
