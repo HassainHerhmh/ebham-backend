@@ -34,7 +34,8 @@ router.get("/manual-list", async (req, res) => {
     /* العميل */
     IFNULL(c.name, 'عميل غير معروف') AS customer_name,
     c.phone AS customer_phone,
-    c.neighborhood AS neighborhood_name,
+   w.area AS neighborhood_name,
+
     c.address AS customer_address,
 
     /* المحل */
