@@ -316,61 +316,121 @@ router.put("/status/:id", async (req, res) => {
         `طلب يدوي #${orderId} - ${o.customer_name}`;
 
 
-      /* ===============================
-         1️⃣ تحصيل من العميل
-      =============================== */
+    /* ===============================
+   1️⃣ التحصيل حسب نوع الدفع
+=============================== */
 
-      if (o.payment_method !== "cod") {
+/* ===== 💵 عند الاستلام (COD) ===== */
+if (o.payment_method === "cod") {
 
-        if (!o.guarantee_id && o.payment_method === "wallet") {
-          throw new Error("العميل لا يملك محفظة");
-        }
+  /* من حساب الكابتن */
+  const captainAcc = o.cap_acc_id;
 
-        const debitAccount =
-          (o.guarantee_type === "account" && o.customer_acc_id)
-            ? o.customer_acc_id
-            : settings.customer_guarantee_account;
+  if (!captainAcc)
+    throw new Error("حساب الكابتن غير معرف");
 
-        if (!debitAccount)
-          throw new Error("حساب السداد غير معرف");
+  /* ===== مستحقات المورد ===== */
+  if (o.restaurant_id && o.restaurant_acc_id && itemsTotal > 0) {
 
-        /* من العميل */
-        await insertJournal(
-          conn,
-          debitAccount,
-          o.total_amount,
-          0,
-          `سداد عميل - ${note}`,
-          orderId,
-          req
-        );
+    await insertJournal(
+      conn,
+      captainAcc,
+      itemsTotal,
+      0,
+      `تحصيل نقدي للمورد - ${note}`,
+      orderId,
+      req
+    );
 
-        /* إلى الكابتن */
-        await insertJournal(
-          conn,
-          o.cap_acc_id,
-          0,
-          o.total_amount,
-          `تحصيل من العميل - ${note}`,
-          orderId,
-          req
-        );
+    await insertJournal(
+      conn,
+      o.restaurant_acc_id,
+      0,
+      itemsTotal,
+      `فاتورة مورد نقدي - ${note}`,
+      orderId,
+      req
+    );
+  }
 
-        /* محفظة قديمة */
-        if (o.guarantee_type !== "account") {
+  /* ===== عمولة الشركة ===== */
+  if (commission > 0) {
 
-          await conn.query(`
-            INSERT INTO customer_guarantee_moves
-            (guarantee_id, currency_id, rate, amount, amount_base)
-            VALUES (?, 1, 1, ?, ?)
-          `, [
-            o.guarantee_id,
-            -o.total_amount,
-            -o.total_amount
-          ]);
-        }
-      }
+    await insertJournal(
+      conn,
+      captainAcc,
+      commission,
+      0,
+      `عمولة توصيل نقدي - ${note}`,
+      orderId,
+      req
+    );
 
+    await insertJournal(
+      conn,
+      settings.courier_commission_account,
+      0,
+      commission,
+      `إيراد عمولة نقدي - ${note}`,
+      orderId,
+      req
+    );
+  }
+
+}
+
+
+/* ===== 💳 محفظة / تحويل / إلكتروني ===== */
+else {
+
+  if (!o.guarantee_id && o.payment_method === "wallet") {
+    throw new Error("العميل لا يملك محفظة");
+  }
+
+  const debitAccount =
+    (o.guarantee_type === "account" && o.customer_acc_id)
+      ? o.customer_acc_id
+      : settings.customer_guarantee_account;
+
+  if (!debitAccount)
+    throw new Error("حساب السداد غير معرف");
+
+  /* من العميل */
+  await insertJournal(
+    conn,
+    debitAccount,
+    o.total_amount,
+    0,
+    `سداد عميل - ${note}`,
+    orderId,
+    req
+  );
+
+  /* إلى الكابتن */
+  await insertJournal(
+    conn,
+    o.cap_acc_id,
+    0,
+    o.total_amount,
+    `تحصيل من العميل - ${note}`,
+    orderId,
+    req
+  );
+
+  /* محفظة قديمة */
+  if (o.guarantee_type !== "account") {
+
+    await conn.query(`
+      INSERT INTO customer_guarantee_moves
+      (guarantee_id, currency_id, rate, amount, amount_base)
+      VALUES (?, 1, 1, ?, ?)
+    `, [
+      o.guarantee_id,
+      -o.total_amount,
+      -o.total_amount
+    ]);
+  }
+}
 
       /* ===============================
          2️⃣ مستحقات المورد
