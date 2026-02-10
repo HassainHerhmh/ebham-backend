@@ -158,7 +158,7 @@ router.post("/", async (req, res) => {
 
 
 /* ==============================================
-   تحديث الحالة + القيود (النسخة الصحيحة)
+   تحديث الحالة + القيود (نسخة نهائية صحيحة)
 ============================================== */
 router.put("/status/:id", async (req, res) => {
 
@@ -182,6 +182,7 @@ router.put("/status/:id", async (req, res) => {
       return res.json({ success: true });
     }
 
+
     /* منع التكرار */
     const [[old]] = await conn.query(`
       SELECT id FROM journal_entries
@@ -201,43 +202,45 @@ router.put("/status/:id", async (req, res) => {
 
     /* بيانات الطلب */
     const [[o]] = await conn.query(`
-  SELECT 
-  w.*,
-  c.name AS customer_name,
 
-  cap.account_id AS cap_acc_id,
+      SELECT 
+        w.*,
+        c.name AS customer_name,
 
-  cg.type AS guarantee_type,
-  cg.account_id AS customer_acc_id,
+        cap.account_id AS cap_acc_id,
 
-  /* حساب المورد من عقد الوكيل */
-  comA.agent_account_id AS restaurant_acc_id,
+        cg.id   AS guarantee_id,
+        cg.type AS guarantee_type,
+        cg.account_id AS customer_acc_id,
 
-  comA.commission_type  AS agent_comm_type,
-  comA.commission_value AS agent_comm_value,
+        comA.agent_account_id AS restaurant_acc_id,
 
-  comm.commission_type,
-  comm.commission_value
+        comA.commission_type  AS agent_comm_type,
+        comA.commission_value AS agent_comm_value,
 
-FROM wassel_orders w
+        comm.commission_type,
+        comm.commission_value
 
-LEFT JOIN customers c ON c.id = w.customer_id
-LEFT JOIN captains cap ON cap.id = w.captain_id
-LEFT JOIN customer_guarantees cg ON cg.customer_id = w.customer_id
-LEFT JOIN restaurants r ON r.id = w.restaurant_id
-LEFT JOIN agents ag ON ag.id = r.agent_id
+      FROM wassel_orders w
 
-LEFT JOIN commissions comA
-  ON comA.account_type='agent'
- AND comA.account_id=ag.id
- AND comA.is_active=1
+      LEFT JOIN customers c ON c.id = w.customer_id
+      LEFT JOIN captains cap ON cap.id = w.captain_id
+      LEFT JOIN customer_guarantees cg ON cg.customer_id = w.customer_id
 
-LEFT JOIN commissions comm
-  ON comm.account_type='captain'
- AND comm.account_id=cap.id
- AND comm.is_active=1
+      LEFT JOIN restaurants r ON r.id = w.restaurant_id
+      LEFT JOIN agents ag ON ag.id = r.agent_id
 
-WHERE w.id=?
+      LEFT JOIN commissions comA
+        ON comA.account_type='agent'
+       AND comA.account_id=ag.id
+       AND comA.is_active=1
+
+      LEFT JOIN commissions comm
+        ON comm.account_type='captain'
+       AND comm.account_id=cap.id
+       AND comm.is_active=1
+
+      WHERE w.id=?
 
     `,[orderId]);
 
@@ -247,42 +250,33 @@ WHERE w.id=?
     if (!o.restaurant_acc_id) throw new Error("المورد بلا حساب");
 
 
-    const total = Number(o.total_amount);
+    /* ========================
+       المبالغ
+    ======================== */
+
+    const itemsAmount  = Number(o.total_amount) - Number(o.delivery_fee);
+    const deliveryFee  = Number(o.delivery_fee);
+    const totalAmount  = Number(o.total_amount);
+
+
+    /* ========================
+       عمولات
+    ======================== */
 
     const captainCommission =
       o.commission_type === "percent"
-        ? (total * o.commission_value) / 100
+        ? (deliveryFee * o.commission_value) / 100
         : Number(o.commission_value || 0);
 
 
     const agentCommission =
       o.agent_comm_type === "percent"
-        ? (total * o.agent_comm_value) / 100
+        ? (itemsAmount * o.agent_comm_value) / 100
         : Number(o.agent_comm_value || 0);
 
 
     const note = `طلب يدوي #${orderId} - ${o.customer_name}`;
 
-
-    /* =====================================================
-        تحديد حساب السداد الأساسي
-    ===================================================== */
-
-    let payFromAccount = null;
-
-    // عميل عنده حساب
-    if (
-      o.payment_method === "wallet" &&
-      o.guarantee_type === "account" &&
-      o.customer_acc_id
-    ){
-      payFromAccount = o.customer_acc_id;
-    }
-
-    // غير كذا → وسيط التأمين
-    else if (o.payment_method === "wallet") {
-      payFromAccount = settings.customer_guarantee_account;
-    }
 
 
     /* =====================================================
@@ -290,13 +284,13 @@ WHERE w.id=?
     ===================================================== */
     if (o.payment_method === "cod") {
 
-      // كابتن → مورد
+      /* كابتن → مورد (المشتريات فقط) */
       await insertJournal(
         conn,
         o.cap_acc_id,
-        total,
+        itemsAmount,
         0,
-        `تحصيل نقدي - ${note}`,
+        `توريد نقدي للمورد - ${note}`,
         orderId,
         req
       );
@@ -305,13 +299,13 @@ WHERE w.id=?
         conn,
         o.restaurant_acc_id,
         0,
-        total,
-        `توريد نقدي - ${note}`,
+        itemsAmount,
+        `استلام نقدي من كابتن - ${note}`,
         orderId,
         req
       );
-
     }
+
 
 
     /* =====================================================
@@ -319,14 +313,27 @@ WHERE w.id=?
     ===================================================== */
     else if (o.payment_method === "wallet") {
 
-      if (!payFromAccount)
-        throw new Error("حساب السداد غير معرف");
+      let payFrom = null;
 
-      // عميل/وسيط → كابتن
+      /* عنده حساب */
+      if (o.guarantee_type === "account" && o.customer_acc_id){
+        payFrom = o.customer_acc_id;
+      }
+
+      /* وسيط */
+      else {
+        payFrom = settings.customer_guarantee_account;
+      }
+
+      if (!payFrom)
+        throw new Error("حساب محفظة العميل غير معرف");
+
+
+      /* عميل/وسيط → كابتن */
       await insertJournal(
         conn,
-        payFromAccount,
-        total,
+        payFrom,
+        totalAmount,
         0,
         `سداد من الرصيد - ${note}`,
         orderId,
@@ -337,17 +344,18 @@ WHERE w.id=?
         conn,
         o.cap_acc_id,
         0,
-        total,
+        totalAmount,
         `استلام من الرصيد - ${note}`,
         orderId,
         req
       );
 
-      // كابتن → مورد
+
+      /* كابتن → مورد */
       await insertJournal(
         conn,
         o.cap_acc_id,
-        total,
+        itemsAmount,
         0,
         `توريد للمورد - ${note}`,
         orderId,
@@ -358,13 +366,29 @@ WHERE w.id=?
         conn,
         o.restaurant_acc_id,
         0,
-        total,
+        itemsAmount,
         `استلام من كابتن - ${note}`,
         orderId,
         req
       );
 
+
+      /* لو Cash Wallet → سجل حركة */
+      if (o.guarantee_type !== "account" && o.guarantee_id){
+
+        await conn.query(`
+          INSERT INTO customer_guarantee_moves
+          (guarantee_id,currency_id,rate,amount,amount_base)
+          VALUES (?,1,1,?,?)
+        `,[
+          o.guarantee_id,
+          -totalAmount,
+          -totalAmount
+        ]);
+      }
+
     }
+
 
 
     /* =====================================================
@@ -375,11 +399,12 @@ WHERE w.id=?
       if (!settings.bank_account_id)
         throw new Error("حساب البنك غير معرف");
 
-      // بنك → كابتن
+
+      /* بنك → كابتن */
       await insertJournal(
         conn,
         settings.bank_account_id,
-        total,
+        totalAmount,
         0,
         `تحويل بنكي - ${note}`,
         orderId,
@@ -390,17 +415,18 @@ WHERE w.id=?
         conn,
         o.cap_acc_id,
         0,
-        total,
+        totalAmount,
         `استلام بنكي - ${note}`,
         orderId,
         req
       );
 
-      // كابتن → مورد
+
+      /* كابتن → مورد */
       await insertJournal(
         conn,
         o.cap_acc_id,
-        total,
+        itemsAmount,
         0,
         `توريد للمورد - ${note}`,
         orderId,
@@ -411,12 +437,11 @@ WHERE w.id=?
         conn,
         o.restaurant_acc_id,
         0,
-        total,
+        itemsAmount,
         `استلام من كابتن - ${note}`,
         orderId,
         req
       );
-
     }
 
 
@@ -446,6 +471,7 @@ WHERE w.id=?
         req
       );
     }
+
 
 
     /* =====================================================
@@ -496,7 +522,6 @@ WHERE w.id=?
 
   }
 });
-
 
 
 /* ==============================================
