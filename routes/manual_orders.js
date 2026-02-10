@@ -180,7 +180,7 @@ router.put("/manual/status/:id", async (req, res)=>{
 
 
     /* فقط عند التوصيل */
-if (status === "shipping"){
+if (status === "delivering"){
 
       /* منع التكرار */
       const [[old]] = await conn.query(`
