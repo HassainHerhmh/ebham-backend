@@ -12,64 +12,66 @@ router.get("/manual-list", async (req, res) => {
   try {
 
   const [rows] = await db.query(`
-  SELECT 
-    w.id,
-    w.customer_id,
-    w.restaurant_id,
-    w.captain_id,
+SELECT 
+  w.id,
+  w.customer_id,
+  w.restaurant_id,
+  w.captain_id,
 
-    w.total_amount,
-    w.delivery_fee,
-    w.payment_method,
-    w.status,
-    w.notes,
+  w.total_amount,
+  w.delivery_fee,
+  w.payment_method,
+  w.status,
+  w.notes,
 
-    w.to_address,
-    w.area,
-    w.latitude,
-    w.longitude,
+  w.to_address,
+  w.area,
+  w.latitude,
+  w.longitude,
 
-    w.created_at,
+  w.created_at,
 
-    /* العميل */
-    IFNULL(c.name, 'عميل غير معروف') AS customer_name,
-    c.phone AS customer_phone,
-   w.area AS neighborhood_name,
+  /* العميل */
+  IFNULL(c.name, 'عميل غير معروف') AS customer_name,
+  c.phone AS customer_phone,
 
-    c.address AS customer_address,
+  /* الحي */
+  w.area AS neighborhood_name,
 
-    /* المحل */
-    IFNULL(r.name, 'شراء مباشر') AS restaurant_name,
-    r.phone AS restaurant_phone,
-    r.address AS restaurant_address,
+  /* المحل */
+  IFNULL(r.name, 'شراء مباشر') AS restaurant_name,
+  r.phone AS restaurant_phone,
+  r.address AS restaurant_address,
+  r.map_url AS restaurant_map,
 
-    /* الكابتن + المستخدم */
-    IFNULL(cap.name, '—') AS captain_name,
-    IFNULL(u.name, 'Admin') AS user_name,
+  /* الكابتن + المستخدم */
+  IFNULL(cap.name, '—') AS captain_name,
+  IFNULL(u.name, 'Admin') AS user_name,
 
-    /* المنتجات */
-    JSON_ARRAYAGG(
-      JSON_OBJECT(
-        'name', i.product_name,
-        'qty', i.qty,
-        'price', i.price,
-        'total', i.total
-      )
-    ) AS items
+  /* المنتجات */
+  JSON_ARRAYAGG(
+    JSON_OBJECT(
+      'name', i.product_name,
+      'qty', i.qty,
+      'price', i.price,
+      'total', i.total
+    )
+  ) AS items
 
-  FROM wassel_orders w
+FROM wassel_orders w
 
-  LEFT JOIN customers c ON c.id = w.customer_id
-  LEFT JOIN restaurants r ON r.id = w.restaurant_id
-  LEFT JOIN captains cap ON cap.id = w.captain_id
-  LEFT JOIN users u ON u.id = w.user_id
-  LEFT JOIN wassel_order_items i ON i.order_id = w.id
+LEFT JOIN customers c ON c.id = w.customer_id
+LEFT JOIN restaurants r ON r.id = w.restaurant_id
+LEFT JOIN captains cap ON cap.id = w.captain_id
+LEFT JOIN users u ON u.id = w.user_id
+LEFT JOIN wassel_order_items i ON i.order_id = w.id
 
-  WHERE w.display_type = 'manual'
+WHERE w.display_type = 'manual'
 
-  GROUP BY w.id
-  ORDER BY w.id DESC
+GROUP BY w.id
+ORDER BY w.id DESC
 `);
+
 
 
     res.json({
