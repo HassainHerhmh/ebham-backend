@@ -161,8 +161,8 @@ router.post("/", async (req, res) => {
    تحديث الحالة + القيود
 ============================================== */
 router.put("/status/:id", async (req, res)=>{
-   console.log("🔥 MANUAL STATUS HIT:", req.params.id, req.body.status);
 
+  console.log("🔥 MANUAL STATUS HIT:", req.params.id, req.body.status);
 
   const orderId = req.params.id;
   const { status } = req.body;
@@ -173,6 +173,7 @@ router.put("/status/:id", async (req, res)=>{
 
     await conn.beginTransaction();
 
+    /* تحديث الحالة */
     await conn.query(`
       UPDATE wassel_orders SET status=?
       WHERE id=?
@@ -180,7 +181,7 @@ router.put("/status/:id", async (req, res)=>{
 
 
     /* فقط عند التوصيل */
-if (status === "delivering"){
+    if (status === "delivering"){
 
       /* منع التكرار */
       const [[old]] = await conn.query(`
@@ -195,53 +196,61 @@ if (status === "delivering"){
       }
 
 
+      /* الإعدادات */
       const [[settings]] = await conn.query(`
         SELECT * FROM settings LIMIT 1
       `);
 
 
-   const [rows] = await conn.query(`
-  SELECT 
-    w.*,
-    c.name AS customer_name,
+      /* جلب بيانات الطلب + العقود */
+      const [rows] = await conn.query(`
+        SELECT 
+          w.*,
+          c.name AS customer_name,
 
-    cap.account_id AS cap_acc_id,
+          cap.account_id AS cap_acc_id,
 
-    comA.agent_account_id AS restaurant_acc_id, -- ✅ من commissions
+          /* حساب المورد من عقد الوكيل */
+          comA.agent_account_id AS restaurant_acc_id,
 
-    comm.commission_value,
-    comm.commission_type
+          /* حساب عمولة الوكيل */
+          comA.commission_account_id AS agent_comm_acc,
+          comA.commission_type AS agent_comm_type,
+          comA.commission_value AS agent_comm_value,
 
-  FROM wassel_orders w
+          /* عمولة الكابتن */
+          comm.commission_value,
+          comm.commission_type
 
-  LEFT JOIN customers c 
-    ON c.id = w.customer_id
+        FROM wassel_orders w
 
-  LEFT JOIN captains cap 
-    ON cap.id = w.captain_id
+        LEFT JOIN customers c 
+          ON c.id = w.customer_id
 
-  /* ربط الوكيل */
-  LEFT JOIN restaurants r 
-    ON r.id = w.restaurant_id
+        LEFT JOIN captains cap 
+          ON cap.id = w.captain_id
 
-  LEFT JOIN agents ag 
-    ON ag.id = r.agent_id
+        /* ربط المطعم بالوكيل */
+        LEFT JOIN restaurants r 
+          ON r.id = w.restaurant_id
 
-  /* عقد الوكيل */
-  LEFT JOIN commissions comA
-    ON comA.account_type = 'agent'
-   AND comA.account_id = ag.id
-   AND comA.is_active = 1
+        LEFT JOIN agents ag 
+          ON ag.id = r.agent_id
 
-  /* عقد الكابتن */
-  LEFT JOIN commissions comm 
-    ON comm.account_type = 'captain'
-   AND comm.account_id = cap.id
-   AND comm.is_active = 1
+        /* عقد الوكيل */
+        LEFT JOIN commissions comA
+          ON comA.account_type = 'agent'
+         AND comA.account_id = ag.id
+         AND comA.is_active = 1
 
-  WHERE w.id = ?
-`, [orderId]);
+        /* عقد الكابتن */
+        LEFT JOIN commissions comm 
+          ON comm.account_type = 'captain'
+         AND comm.account_id = cap.id
+         AND comm.is_active = 1
 
+        WHERE w.id = ?
+      `,[orderId]);
 
 
       const o = rows[0];
@@ -250,45 +259,113 @@ if (status === "delivering"){
       if(!o.cap_acc_id) throw new Error("لا يوجد حساب للكابتن");
 
 
+      /* إجمالي المشتريات */
       const itemsTotal =
-        Number(o.total_amount)-Number(o.delivery_fee);
+        Number(o.total_amount) - Number(o.delivery_fee);
 
-      const commission =
-        o.commission_type==="percent"
-        ? (o.delivery_fee*o.commission_value)/100
-        : Number(o.commission_value||0);
+
+      /* عمولة الكابتن */
+      const captainCommission =
+        o.commission_type === "percent"
+          ? (o.delivery_fee * o.commission_value) / 100
+          : Number(o.commission_value || 0);
+
+
+      /* عمولة الوكيل */
+      const agentCommission =
+        o.agent_comm_type === "percent"
+          ? (itemsTotal * o.agent_comm_value) / 100
+          : Number(o.agent_comm_value || 0);
+
 
       const note =
         `طلب يدوي #${orderId} - ${o.customer_name}`;
 
 
-      /* ===== COD ===== */
-      if (o.payment_method==="cod"){
+      /* ===== عند الدفع عند الاستلام ===== */
+      if (o.payment_method === "cod"){
 
-        if(itemsTotal>0 && o.restaurant_acc_id){
 
-          await insertJournal(
-            conn,o.cap_acc_id,itemsTotal,0,
-            `تحصيل مورد - ${note}`,orderId,req);
+        /* مستحق المورد */
+        if(itemsTotal > 0 && o.restaurant_acc_id){
 
           await insertJournal(
-            conn,o.restaurant_acc_id,0,itemsTotal,
-            `فاتورة مورد - ${note}`,orderId,req);
+            conn,
+            o.cap_acc_id,
+            itemsTotal,
+            0,
+            `تحصيل مورد - ${note}`,
+            orderId,
+            req
+          );
+
+          await insertJournal(
+            conn,
+            o.restaurant_acc_id,
+            0,
+            itemsTotal,
+            `فاتورة مورد - ${note}`,
+            orderId,
+            req
+          );
         }
 
-        if(commission>0){
+
+        /* عمولة الكابتن */
+        if(captainCommission > 0){
 
           await insertJournal(
-            conn,o.cap_acc_id,commission,0,
-            `عمولة - ${note}`,orderId,req);
+            conn,
+            o.cap_acc_id,
+            captainCommission,
+            0,
+            `عمولة كابتن - ${note}`,
+            orderId,
+            req
+          );
 
           await insertJournal(
-            conn,settings.courier_commission_account,0,commission,
-            `إيراد عمولة - ${note}`,orderId,req);
+            conn,
+            settings.courier_commission_account,
+            0,
+            captainCommission,
+            `إيراد عمولة كابتن - ${note}`,
+            orderId,
+            req
+          );
         }
+
+
+        /* عمولة الوكيل */
+        if(agentCommission > 0 && o.agent_comm_acc){
+
+          /* خصم من المورد */
+          await insertJournal(
+            conn,
+            o.restaurant_acc_id,
+            agentCommission,
+            0,
+            `خصم عمولة وكيل - ${note}`,
+            orderId,
+            req
+          );
+
+          /* إلى حساب الوسيط */
+          await insertJournal(
+            conn,
+            o.agent_comm_acc,
+            0,
+            agentCommission,
+            `عمولة وكيل - ${note}`,
+            orderId,
+            req
+          );
+        }
+
       }
 
     }
+
 
     await conn.commit();
 
@@ -298,7 +375,7 @@ if (status === "delivering"){
 
     await conn.rollback();
 
-    console.error(err);
+    console.error("❌ MANUAL STATUS ERROR:", err);
 
     res.status(500).json({
       success:false,
@@ -309,6 +386,7 @@ if (status === "delivering"){
     conn.release();
   }
 });
+
 
 
 /* ==============================================
