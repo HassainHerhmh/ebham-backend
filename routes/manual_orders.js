@@ -227,7 +227,7 @@ router.post("/", async (req, res) => {
 });
 
 /* ==============================================
-   2️⃣ تحديث الحالة + القيود المحاسبية
+   2️⃣ تحديث الحالة + القيود المحاسبية (يدوي)
 ============================================== */
 router.put("/status/:id", async (req, res) => {
 
@@ -246,66 +246,190 @@ router.put("/status/:id", async (req, res) => {
       [status, orderId]
     );
 
-    /* عند قيد التوصيل */
+    /* ===============================
+       عند قيد التوصيل
+    =============================== */
     if (status === "shipping") {
 
-      const [[order]] = await conn.query(
-        "SELECT * FROM wassel_orders WHERE id = ?",
-        [orderId]
-      );
-
+      /* جلب الإعدادات */
       const [[settings]] = await conn.query(
         "SELECT * FROM settings LIMIT 1"
       );
 
-      if (order && settings) {
+      /* جلب الطلب كامل */
+      const [orderRows] = await conn.query(`
+        SELECT 
+          w.*,
 
-        const journalNote =
-          `قيد محاسبي آلي لطلب يدوي رقم #${orderId}`;
+          cg.id   AS guarantee_id,
+          cg.type AS guarantee_type,
+          cg.account_id AS customer_acc_id,
 
-        const itemsTotal =
-          order.total_amount - order.delivery_fee;
+          c.name AS customer_name,
 
-        /* حساب العميل */
-        let customerAcc =
-          order.payment_method === "wallet"
-            ? settings.customer_guarantee_account
-            : settings.cash_account;
+          cap.account_id AS cap_acc_id,
 
+          r.account_id AS restaurant_acc_id,
+
+          comm.commission_value,
+          comm.commission_type
+
+        FROM wassel_orders w
+
+        LEFT JOIN customer_guarantees cg
+          ON cg.customer_id = w.customer_id
+
+        LEFT JOIN customers c
+          ON c.id = w.customer_id
+
+        LEFT JOIN captains cap
+          ON cap.id = w.captain_id
+
+        LEFT JOIN restaurants r
+          ON r.id = w.restaurant_id
+
+        LEFT JOIN commissions comm
+          ON comm.account_id = cap.id
+         AND comm.account_type = 'captain'
+         AND comm.is_active = 1
+
+        WHERE w.id = ?
+      `, [orderId]);
+
+      const o = orderRows[0];
+
+      if (!o) throw new Error("الطلب غير موجود");
+      if (!o.cap_acc_id) throw new Error("الكابتن غير مرتبط بحساب محاسبي");
+
+      const itemsTotal =
+        Number(o.total_amount) - Number(o.delivery_fee);
+
+      const delivery =
+        Number(o.delivery_fee);
+
+      const commission =
+        o.commission_type === "percent"
+          ? (delivery * o.commission_value) / 100
+          : Number(o.commission_value || 0);
+
+      const note =
+        `طلب يدوي #${orderId} - ${o.customer_name}`;
+
+
+      /* ===============================
+         1️⃣ تحصيل من العميل
+      =============================== */
+
+      if (o.payment_method !== "cod") {
+
+        if (!o.guarantee_id && o.payment_method === "wallet") {
+          throw new Error("العميل لا يملك محفظة");
+        }
+
+        const debitAccount =
+          (o.guarantee_type === "account" && o.customer_acc_id)
+            ? o.customer_acc_id
+            : settings.customer_guarantee_account;
+
+        if (!debitAccount)
+          throw new Error("حساب السداد غير معرف");
+
+        /* من العميل */
         await insertJournal(
           conn,
-          customerAcc,
-          order.total_amount,
+          debitAccount,
+          o.total_amount,
           0,
-          journalNote,
+          `سداد عميل - ${note}`,
           orderId,
           req
         );
 
-        /* حساب المطعم */
-        if (order.restaurant_id) {
+        /* إلى الكابتن */
+        await insertJournal(
+          conn,
+          o.cap_acc_id,
+          0,
+          o.total_amount,
+          `تحصيل من العميل - ${note}`,
+          orderId,
+          req
+        );
 
-          const restAcc =
-            settings.default_vendor_account || 15;
+        /* محفظة قديمة */
+        if (o.guarantee_type !== "account") {
 
-          await insertJournal(
-            conn,
-            restAcc,
-            0,
-            itemsTotal,
-            `مستحقات مطعم - طلب #${orderId}`,
-            orderId,
-            req
-          );
+          await conn.query(`
+            INSERT INTO customer_guarantee_moves
+            (guarantee_id, currency_id, rate, amount, amount_base)
+            VALUES (?, 1, 1, ?, ?)
+          `, [
+            o.guarantee_id,
+            -o.total_amount,
+            -o.total_amount
+          ]);
         }
+      }
 
-        /* عمولة التوصيل */
+
+      /* ===============================
+         2️⃣ مستحقات المورد
+      =============================== */
+
+      if (
+        o.restaurant_id &&
+        o.restaurant_acc_id &&
+        itemsTotal > 0
+      ) {
+
+        /* من حساب المورد الوسيط */
+        await insertJournal(
+          conn,
+          settings.default_vendor_account,
+          itemsTotal,
+          0,
+          `مستحق مورد - ${note}`,
+          orderId,
+          req
+        );
+
+        /* إلى حساب المورد */
+        await insertJournal(
+          conn,
+          o.restaurant_acc_id,
+          0,
+          itemsTotal,
+          `فاتورة مورد - ${note}`,
+          orderId,
+          req
+        );
+      }
+
+
+      /* ===============================
+         3️⃣ العمولة (دائمًا)
+      =============================== */
+
+      if (commission > 0) {
+
+        /* خصم من الكابتن */
+        await insertJournal(
+          conn,
+          o.cap_acc_id,
+          commission,
+          0,
+          `خصم عمولة - ${note}`,
+          orderId,
+          req
+        );
+
+        /* إيراد للشركة */
         await insertJournal(
           conn,
           settings.courier_commission_account,
           0,
-          order.delivery_fee,
-          `عمولة توصيل - طلب #${orderId}`,
+          commission,
+          `إيراد عمولة - ${note}`,
           orderId,
           req
         );
@@ -316,7 +440,7 @@ router.put("/status/:id", async (req, res) => {
 
     res.json({
       success: true,
-      message: "تم تحديث الحالة والقيود بنجاح"
+      message: "تم تحديث الحالة وترحيل القيود بنجاح"
     });
 
   } catch (err) {
@@ -334,6 +458,7 @@ router.put("/status/:id", async (req, res) => {
     conn.release();
   }
 });
+
 
 /* ==============================================
    دالة إدخال القيد
@@ -379,8 +504,8 @@ async function insertJournal(
   `, [
 
     accId,
-    debit,
-    credit,
+    debit || 0,
+    credit || 0,
     notes,
     refId,
     req.user.id,
@@ -388,5 +513,6 @@ async function insertJournal(
 
   ]);
 }
+
 
 export default router;
