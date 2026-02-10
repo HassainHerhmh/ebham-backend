@@ -26,8 +26,8 @@ SELECT
 
   w.to_address,
 
-  /* العنوان من جدول customer_addresses */
-  ca.district   AS neighborhood_name,
+  /* العنوان من customer_addresses */
+  n.name        AS neighborhood_name,
   ca.address    AS customer_address,
   ca.latitude   AS latitude,
   ca.longitude  AS longitude,
@@ -61,24 +61,34 @@ SELECT
 
 FROM wassel_orders w
 
-LEFT JOIN customers c ON c.id = w.customer_id
+LEFT JOIN customers c 
+  ON c.id = w.customer_id
 
-/* الربط مع العناوين */
 LEFT JOIN customer_addresses ca 
   ON ca.customer_id = w.customer_id
  AND ca.address = w.to_address
 
-LEFT JOIN restaurants r ON r.id = w.restaurant_id
-LEFT JOIN captains cap ON cap.id = w.captain_id
-LEFT JOIN users u ON u.id = w.user_id
-LEFT JOIN wassel_order_items i ON i.order_id = w.id
+/* ربط جدول الأحياء */
+LEFT JOIN neighborhoods n 
+  ON n.id = ca.district
+
+LEFT JOIN restaurants r 
+  ON r.id = w.restaurant_id
+
+LEFT JOIN captains cap 
+  ON cap.id = w.captain_id
+
+LEFT JOIN users u 
+  ON u.id = w.user_id
+
+LEFT JOIN wassel_order_items i 
+  ON i.order_id = w.id
 
 WHERE w.display_type = 'manual'
 
 GROUP BY w.id
 ORDER BY w.id DESC
 `);
-
 
 
     res.json({
