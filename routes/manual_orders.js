@@ -289,27 +289,57 @@ router.put("/manual/status/:id", async (req, res)=>{
    إدخال قيد
 ============================================== */
 async function insertJournal(
-  conn,acc,debit,credit,notes,ref,req
-){
+  conn,
+  accId,
+  debit,
+  credit,
+  notes,
+  refId,
+  req
+) {
 
-  if(!acc) return;
+  if (!accId) {
+    throw new Error("❌ حساب غير مرتبط: " + notes);
+  }
 
   return conn.query(`
-    INSERT INTO journal_entries
-    (journal_type_id,account_id,debit,credit,notes,
-     reference_type,reference_id,journal_date,
-     currency_id,created_by,branch_id)
+    INSERT INTO journal_entries 
+    (
+      journal_type_id,
+      account_id,
+      debit,
+      credit,
+      notes,
+      reference_type,
+      reference_id,
+      journal_date,
+      currency_id,
+      created_by,
+      branch_id
+    )
     VALUES
-    (1,?,?,?,?,'manual_order',?,CURDATE(),1,?,?)
-  `,[
-    acc,
-    debit||0,
-    credit||0,
+    (
+      1,
+      ?, ?, ?, ?,
+      'manual_order',
+      ?,
+      CURDATE(),
+      1,
+      ?,
+      ?
+    )
+  `, [
+
+    accId,
+    debit || 0,
+    credit || 0,
     notes,
-    ref,
+    refId,
     req.user.id,
-    req.user.branch_id||1
+    req.user.branch_id || 1
+
   ]);
 }
+
 
 export default router;
