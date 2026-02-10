@@ -169,16 +169,13 @@ router.put("/status/:id", async (req, res)=>{
 
   const conn = await db.getConnection();
 
-  try{
+ try {
 
-    await conn.beginTransaction();
-
-    /* تحديث الحالة */
-    await conn.query(`
-      UPDATE wassel_orders SET status=?
-      WHERE id=?
-    `,[status,orderId]);
-
+    /* تحديث الحالة أولاً بدون ترانزاكشن */
+    await conn.query(
+      "UPDATE wassel_orders SET status=? WHERE id=?",
+      [status, orderId]
+    );
 
     /* فقط عند التوصيل */
     if (status === "delivering"){
