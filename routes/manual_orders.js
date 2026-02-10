@@ -169,18 +169,19 @@ router.put("/status/:id", async (req, res)=>{
 
   const conn = await db.getConnection();
 
- try {
+  try {
 
     await conn.beginTransaction();
 
-    /* تحديث الحالة أولاً بدون ترانزاكشن */
+    /* تحديث الحالة */
     await conn.query(
       "UPDATE wassel_orders SET status=? WHERE id=?",
       [status, orderId]
     );
 
+
     /* فقط عند التوصيل */
-    if (status === "delivering"){
+    if (status === "delivering") {
 
       /* منع التكرار */
       const [[old]] = await conn.query(`
@@ -201,35 +202,38 @@ router.put("/status/:id", async (req, res)=>{
       `);
 
 
-      /* جلب بيانات الطلب + العقود */
+      /* جلب بيانات الطلب */
       const [rows] = await conn.query(`
         SELECT 
           w.*,
+
           c.name AS customer_name,
 
           cap.account_id AS cap_acc_id,
 
-          /* حساب المورد من عقد الوكيل */
-          comA.agent_account_id AS restaurant_acc_id,
+          cg.id   AS guarantee_id,
+          cg.type AS guarantee_type,
+          cg.account_id AS customer_acc_id,
 
-          /* حساب عمولة الوكيل */
-/* حساب عمولة الوكيل من الإعدادات */
-settings.commission_income_account AS agent_comm_acc,
-          comA.commission_type AS agent_comm_type,
+          comA.commission_type  AS agent_comm_type,
           comA.commission_value AS agent_comm_value,
 
-          /* عمولة الكابتن */
-          comm.commission_value,
-          comm.commission_type
+          comm.commission_type,
+          comm.commission_value
 
-FROM wassel_orders w
-LEFT JOIN settings settings ON settings.id = 1
+        FROM wassel_orders w
 
         LEFT JOIN customers c 
           ON c.id = w.customer_id
 
         LEFT JOIN captains cap 
           ON cap.id = w.captain_id
+
+
+        /* محفظة العميل */
+        LEFT JOIN customer_guarantees cg
+          ON cg.customer_id = w.customer_id
+
 
         /* ربط المطعم بالوكيل */
         LEFT JOIN restaurants r 
@@ -238,11 +242,13 @@ LEFT JOIN settings settings ON settings.id = 1
         LEFT JOIN agents ag 
           ON ag.id = r.agent_id
 
+
         /* عقد الوكيل */
         LEFT JOIN commissions comA
           ON comA.account_type = 'agent'
          AND comA.account_id = ag.id
          AND comA.is_active = 1
+
 
         /* عقد الكابتن */
         LEFT JOIN commissions comm 
@@ -256,113 +262,142 @@ LEFT JOIN settings settings ON settings.id = 1
 
       const o = rows[0];
 
-      if(!o) throw new Error("الطلب غير موجود");
-      if(!o.cap_acc_id) throw new Error("لا يوجد حساب للكابتن");
+      if (!o) throw new Error("الطلب غير موجود");
+      if (!o.cap_acc_id) throw new Error("الكابتن بدون حساب محاسبي");
 
 
-      /* إجمالي المشتريات */
-      const itemsTotal =
-        Number(o.total_amount) - Number(o.delivery_fee);
+      /* مبلغ العملية */
+      const totalAmount = Number(o.total_amount);
 
 
       /* عمولة الكابتن */
       const captainCommission =
         o.commission_type === "percent"
-          ? (o.delivery_fee * o.commission_value) / 100
+          ? (totalAmount * o.commission_value) / 100
           : Number(o.commission_value || 0);
 
 
       /* عمولة الوكيل */
       const agentCommission =
         o.agent_comm_type === "percent"
-          ? (itemsTotal * o.agent_comm_value) / 100
+          ? (totalAmount * o.agent_comm_value) / 100
           : Number(o.agent_comm_value || 0);
 
 
-      const note =
-        `طلب يدوي #${orderId} - ${o.customer_name}`;
+      const note = `طلب يدوي #${orderId} - ${o.customer_name}`;
 
 
-      /* ===== عند الدفع عند الاستلام ===== */
-      if (o.payment_method === "cod"){
+
+      /* ============================
+         1) حساب السداد
+      ============================ */
+
+      let fromAccount = null;
 
 
-        /* مستحق المورد */
-        if(itemsTotal > 0 && o.restaurant_acc_id){
+      /* من حساب العميل */
+      if (
+        o.payment_method === "wallet" &&
+        o.guarantee_type === "account" &&
+        o.customer_acc_id
+      ){
+        fromAccount = o.customer_acc_id;
+      }
 
-          await insertJournal(
-            conn,
-            o.cap_acc_id,
-            itemsTotal,
-            0,
-            `تحصيل مورد - ${note}`,
-            orderId,
-            req
-          );
-
-          await insertJournal(
-            conn,
-            o.restaurant_acc_id,
-            0,
-            itemsTotal,
-            `فاتورة مورد - ${note}`,
-            orderId,
-            req
-          );
-        }
+      /* من الوسيط */
+      else {
+        fromAccount = settings.customer_guarantee_account;
+      }
 
 
-        /* عمولة الكابتن */
-        if(captainCommission > 0){
-
-          await insertJournal(
-            conn,
-            o.cap_acc_id,
-            captainCommission,
-            0,
-            `عمولة كابتن - ${note}`,
-            orderId,
-            req
-          );
-
-          await insertJournal(
-            conn,
-            settings.courier_commission_account,
-            0,
-            captainCommission,
-            `إيراد عمولة كابتن - ${note}`,
-            orderId,
-            req
-          );
-        }
+      if (!fromAccount)
+        throw new Error("حساب السداد غير معرف");
 
 
-        /* عمولة الوكيل */
-        if(agentCommission > 0 && o.agent_comm_acc){
 
-          /* خصم من المورد */
-          await insertJournal(
-            conn,
-            o.restaurant_acc_id,
-            agentCommission,
-            0,
-            `خصم عمولة وكيل - ${note}`,
-            orderId,
-            req
-          );
+      /* ============================
+         2) السداد إلى الكابتن
+      ============================ */
 
-          /* إلى حساب الوسيط */
-          await insertJournal(
-            conn,
-            o.agent_comm_acc,
-            0,
-            agentCommission,
-            `عمولة وكيل - ${note}`,
-            orderId,
-            req
-          );
-        }
+      await insertJournal(
+        conn,
+        fromAccount,
+        totalAmount,
+        0,
+        `سداد طلب - ${note}`,
+        orderId,
+        req
+      );
 
+
+      await insertJournal(
+        conn,
+        o.cap_acc_id,
+        0,
+        totalAmount,
+        `استلام طلب - ${note}`,
+        orderId,
+        req
+      );
+
+
+
+      /* ============================
+         3) عمولة الكابتن
+      ============================ */
+
+      if (captainCommission > 0){
+
+        await insertJournal(
+          conn,
+          o.cap_acc_id,
+          captainCommission,
+          0,
+          `خصم عمولة كابتن - ${note}`,
+          orderId,
+          req
+        );
+
+
+        await insertJournal(
+          conn,
+          settings.courier_commission_account,
+          0,
+          captainCommission,
+          `إيراد عمولة كابتن - ${note}`,
+          orderId,
+          req
+        );
+      }
+
+
+
+      /* ============================
+         4) عمولة الوكيل
+      ============================ */
+
+      if (agentCommission > 0 && settings.commission_income_account){
+
+        await insertJournal(
+          conn,
+          o.cap_acc_id,
+          agentCommission,
+          0,
+          `خصم عمولة وكيل - ${note}`,
+          orderId,
+          req
+        );
+
+
+        await insertJournal(
+          conn,
+          settings.commission_income_account,
+          0,
+          agentCommission,
+          `إيراد عمولة وكيل - ${note}`,
+          orderId,
+          req
+        );
       }
 
     }
@@ -372,7 +407,8 @@ LEFT JOIN settings settings ON settings.id = 1
 
     res.json({ success:true });
 
-  }catch(err){
+
+  } catch(err){
 
     await conn.rollback();
 
@@ -380,14 +416,15 @@ LEFT JOIN settings settings ON settings.id = 1
 
     res.status(500).json({
       success:false,
-      error:err.message
+      error: err.message
     });
 
-  }finally{
+  } finally {
+
     conn.release();
+
   }
 });
-
 
 
 /* ==============================================
