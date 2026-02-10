@@ -171,6 +171,8 @@ router.put("/status/:id", async (req, res)=>{
 
  try {
 
+    await conn.beginTransaction();
+
     /* تحديث الحالة أولاً بدون ترانزاكشن */
     await conn.query(
       "UPDATE wassel_orders SET status=? WHERE id=?",
@@ -212,7 +214,7 @@ router.put("/status/:id", async (req, res)=>{
 
           /* حساب عمولة الوكيل */
 /* حساب عمولة الوكيل من الإعدادات */
-settings.agent_commission_account AS agent_comm_acc,
+settings.commission_income_account AS agent_comm_acc,
           comA.commission_type AS agent_comm_type,
           comA.commission_value AS agent_comm_value,
 
