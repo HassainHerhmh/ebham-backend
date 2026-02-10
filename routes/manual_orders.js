@@ -11,7 +11,7 @@ router.use(auth);
 router.get("/manual-list", async (req, res) => {
   try {
 
-  const [rows] = await db.query(`
+const [rows] = await db.query(`
 SELECT 
   w.id,
   w.customer_id,
@@ -25,18 +25,18 @@ SELECT
   w.notes,
 
   w.to_address,
-  w.area,
-  w.latitude,
-  w.longitude,
+
+  /* الموقع من العناوين */
+  ca.area        AS neighborhood_name,
+  ca.address     AS customer_address,
+  ca.latitude    AS latitude,
+  ca.longitude   AS longitude,
 
   w.created_at,
 
   /* العميل */
   IFNULL(c.name, 'عميل غير معروف') AS customer_name,
   c.phone AS customer_phone,
-
-  /* الحي */
-  w.area AS neighborhood_name,
 
   /* المحل */
   IFNULL(r.name, 'شراء مباشر') AS restaurant_name,
@@ -61,6 +61,12 @@ SELECT
 FROM wassel_orders w
 
 LEFT JOIN customers c ON c.id = w.customer_id
+
+/* الربط مع جدول العناوين */
+LEFT JOIN customer_addresses ca 
+  ON ca.customer_id = w.customer_id
+ AND ca.address = w.to_address
+
 LEFT JOIN restaurants r ON r.id = w.restaurant_id
 LEFT JOIN captains cap ON cap.id = w.captain_id
 LEFT JOIN users u ON u.id = w.user_id
@@ -71,6 +77,7 @@ WHERE w.display_type = 'manual'
 GROUP BY w.id
 ORDER BY w.id DESC
 `);
+
 
 
 
