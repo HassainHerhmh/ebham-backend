@@ -201,42 +201,44 @@ router.put("/status/:id", async (req, res) => {
 
     /* بيانات الطلب */
     const [[o]] = await conn.query(`
-      SELECT 
-        w.*,
-        c.name AS customer_name,
+  SELECT 
+  w.*,
+  c.name AS customer_name,
 
-        cap.account_id AS cap_acc_id,
+  cap.account_id AS cap_acc_id,
 
-        cg.type AS guarantee_type,
-        cg.account_id AS customer_acc_id,
+  cg.type AS guarantee_type,
+  cg.account_id AS customer_acc_id,
 
-ag.account_id AS restaurant_acc_id,
+  /* حساب المورد من عقد الوكيل */
+  comA.agent_account_id AS restaurant_acc_id,
 
-        comA.commission_type  AS agent_comm_type,
-        comA.commission_value AS agent_comm_value,
+  comA.commission_type  AS agent_comm_type,
+  comA.commission_value AS agent_comm_value,
 
-        comm.commission_type,
-        comm.commission_value
+  comm.commission_type,
+  comm.commission_value
 
-      FROM wassel_orders w
+FROM wassel_orders w
 
-      LEFT JOIN customers c ON c.id=w.customer_id
-      LEFT JOIN captains cap ON cap.id=w.captain_id
-      LEFT JOIN customer_guarantees cg ON cg.customer_id=w.customer_id
-      LEFT JOIN restaurants r ON r.id=w.restaurant_id
-      LEFT JOIN agents ag ON ag.id=r.agent_id
+LEFT JOIN customers c ON c.id = w.customer_id
+LEFT JOIN captains cap ON cap.id = w.captain_id
+LEFT JOIN customer_guarantees cg ON cg.customer_id = w.customer_id
+LEFT JOIN restaurants r ON r.id = w.restaurant_id
+LEFT JOIN agents ag ON ag.id = r.agent_id
 
-      LEFT JOIN commissions comA
-        ON comA.account_type='agent'
-       AND comA.account_id=ag.id
-       AND comA.is_active=1
+LEFT JOIN commissions comA
+  ON comA.account_type='agent'
+ AND comA.account_id=ag.id
+ AND comA.is_active=1
 
-      LEFT JOIN commissions comm
-        ON comm.account_type='captain'
-       AND comm.account_id=cap.id
-       AND comm.is_active=1
+LEFT JOIN commissions comm
+  ON comm.account_type='captain'
+ AND comm.account_id=cap.id
+ AND comm.is_active=1
 
-      WHERE w.id=?
+WHERE w.id=?
+
     `,[orderId]);
 
 
