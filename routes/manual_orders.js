@@ -160,7 +160,7 @@ router.post("/", async (req, res) => {
 /* ==============================================
    تحديث الحالة + القيود
 ============================================== */
-router.put("/manual/status/:id", async (req, res)=>{
+router.put("/status/:id", async (req, res)=>{
    console.log("🔥 MANUAL STATUS HIT:", req.params.id, req.body.status);
 
 
