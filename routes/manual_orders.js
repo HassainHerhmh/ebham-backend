@@ -394,56 +394,72 @@ router.put("/status/:id", async (req, res) => {
     /* =====================================================
         Bank
     ===================================================== */
-    else if (o.payment_method === "bank") {
+  else if (o.payment_method === "bank") {
 
-      if (!settings.bank_account_id)
-        throw new Error("حساب البنك غير معرف");
+  /* جلب حساب البنك حسب الفرع */
+  const [[bankRow]] = await conn.query(`
+    SELECT 
+      COALESCE(bpa.account_id, pm.account_id) AS bank_account_id
+    FROM payment_methods pm
+    LEFT JOIN branch_payment_accounts bpa
+      ON bpa.payment_method_id = pm.id
+      AND bpa.branch_id = ?
+    WHERE pm.company = 'bank'
+      AND pm.is_active = 1
+    LIMIT 1
+  `, [req.user.branch_id]);
 
+  if (!bankRow?.bank_account_id) {
+    throw new Error("حساب البنك غير مربوط لهذا الفرع");
+  }
 
-      /* بنك → كابتن */
-      await insertJournal(
-        conn,
-        settings.bank_account_id,
-        totalAmount,
-        0,
-        `تحويل بنكي - ${note}`,
-        orderId,
-        req
-      );
-
-      await insertJournal(
-        conn,
-        o.cap_acc_id,
-        0,
-        totalAmount,
-        `استلام بنكي - ${note}`,
-        orderId,
-        req
-      );
+  const bankAccountId = bankRow.bank_account_id;
 
 
-      /* كابتن → مورد */
-      await insertJournal(
-        conn,
-        o.cap_acc_id,
-        itemsAmount,
-        0,
-        `توريد للمورد - ${note}`,
-        orderId,
-        req
-      );
+  /* بنك → كابتن */
+  await insertJournal(
+    conn,
+    bankAccountId,
+    totalAmount,
+    0,
+    `تحويل بنكي - ${note}`,
+    orderId,
+    req
+  );
 
-      await insertJournal(
-        conn,
-        o.restaurant_acc_id,
-        0,
-        itemsAmount,
-        `استلام من كابتن - ${note}`,
-        orderId,
-        req
-      );
-    }
 
+  await insertJournal(
+    conn,
+    o.cap_acc_id,
+    0,
+    totalAmount,
+    `استلام بنكي - ${note}`,
+    orderId,
+    req
+  );
+
+
+  /* كابتن → مورد */
+  await insertJournal(
+    conn,
+    o.cap_acc_id,
+    itemsAmount,
+    0,
+    `توريد للمورد - ${note}`,
+    orderId,
+    req
+  );
+
+  await insertJournal(
+    conn,
+    o.restaurant_acc_id,
+    0,
+    itemsAmount,
+    `استلام من كابتن - ${note}`,
+    orderId,
+    req
+  );
+}
 
 
     /* =====================================================
