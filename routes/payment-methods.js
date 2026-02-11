@@ -1,8 +1,12 @@
 import express from "express";
 import db from "../db.js";
 import PDFDocument from "pdfkit";
+import auth from "../middlewares/auth.js";
 
 const router = express.Router();
+
+
+router.use(auth);
 
 /* ==============================================
    1. جلب جميع طرق الدفع (للإدارة)
