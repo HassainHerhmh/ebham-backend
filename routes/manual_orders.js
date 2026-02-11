@@ -682,7 +682,11 @@ router.get("/available-slots", async (req, res) => {
       const slotEnd   = new Date(start);
       slotEnd.setMinutes(slotEnd.getMinutes() + 30);
 
-      if (slotEnd > now){
+// نخلي أقل شيء بعد الآن بـ 30 دقيقة
+const minTime = new Date(now);
+minTime.setMinutes(minTime.getMinutes() + 30);
+
+if (slotStart >= minTime){
 
         slots.push({
           start: slotStart.toISOString(),
