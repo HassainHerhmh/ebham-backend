@@ -612,16 +612,17 @@ async function insertJournal(
 router.get("/available-slots", async (req, res) => {
   try {
 
-    const branchId = req.user.branch_id;
+    const branchId =
+      req.headers["x-branch-id"] ||
+      req.user?.branch_id;
 
-    if (!branchId) {
+    if (!branchId || branchId === "null") {
       return res.status(400).json({
         success: false,
         message: "الفرع غير محدد"
       });
     }
 
-    /* جلب دوام الفرع */
     const [rows] = await db.query(`
       SELECT *
       FROM branch_work_times
@@ -639,7 +640,6 @@ router.get("/available-slots", async (req, res) => {
 
     const slots = [];
 
-    /* توليد الفترات */
     for (const r of rows){
 
       for (let d=0; d<=1; d++){
@@ -647,32 +647,27 @@ router.get("/available-slots", async (req, res) => {
         const day = new Date(today);
         day.setDate(today.getDate()+d);
 
-        /* توافق اليوم مع day_of_week */
         if (day.getDay() !== r.day_of_week) continue;
 
-        /* بداية الدوام */
         let start = new Date(day);
         const [sh,sm] = r.open_time.split(":");
         start.setHours(sh,sm,0,0);
 
-        /* نهاية الدوام */
         let end = new Date(day);
         const [eh,em] = r.close_time.split(":");
         end.setHours(eh,em,0,0);
 
-        /* تقسيم كل 30 دقيقة */
         while (start < end){
 
           const slotStart = new Date(start);
           const slotEnd   = new Date(start);
           slotEnd.setMinutes(slotEnd.getMinutes()+30);
 
-          /* تجاهل الماضي */
           if (slotEnd > now){
 
             slots.push({
-              start: slotStart,
-              end: slotEnd
+              start: slotStart.toISOString(),
+              end: slotEnd.toISOString()
             });
           }
 
@@ -688,7 +683,7 @@ router.get("/available-slots", async (req, res) => {
 
   } catch(err){
 
-    console.error("Slots Error:", err);
+    console.error("❌ Slots Error:", err);
 
     res.status(500).json({
       success:false,
