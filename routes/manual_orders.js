@@ -84,6 +84,7 @@ router.post("/", async (req, res) => {
       notes,
       payment_method,
          payment_method_id, // ✅ جديد
+  scheduled_at,   // ✅ جديد
 
       items,
       total_amount
@@ -107,6 +108,7 @@ router.post("/", async (req, res) => {
         total_amount,
         payment_method,
           payment_method_id,   -- ✅
+  scheduled_at,      -- ✅
 
         notes,
         status,
@@ -114,7 +116,7 @@ router.post("/", async (req, res) => {
         user_id,
         created_at
       )
-VALUES (?,?,?,?,?,?,?, ?, 'pending','manual',?,NOW())
+VALUES (?,?,?,?,?,?,?, ?, ?, 'pending','manual',?,NOW())
     `,[
       customer_id,
       restaurant_id||null,
@@ -123,6 +125,7 @@ VALUES (?,?,?,?,?,?,?, ?, 'pending','manual',?,NOW())
       total_amount,
       payment_method,
          payment_method_id, // ✅
+  scheduled_at,   // ✅
 
       notes,
       req.user.id
