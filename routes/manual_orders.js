@@ -25,6 +25,8 @@ router.get("/manual-list", async (req, res) => {
         ANY_VALUE(w.notes) AS notes,
         ANY_VALUE(w.to_address) AS to_address,
         ANY_VALUE(w.created_at) AS created_at,
+        ANY_VALUE(w.scheduled_at) AS scheduled_time,
+
 
         ANY_VALUE(c.name) AS customer_name,
         ANY_VALUE(r.name) AS restaurant_name,
@@ -85,7 +87,7 @@ router.post("/", async (req, res) => {
       notes,
       payment_method,
          payment_method_id, // ✅ جديد
-  scheduled_at,   // ✅ جديد
+scheduled_time,
 
       items,
       total_amount
@@ -109,7 +111,7 @@ router.post("/", async (req, res) => {
         total_amount,
         payment_method,
           payment_method_id,   -- ✅
-  scheduled_at,      -- ✅
+          scheduled_at,
 
         notes,
         status,
@@ -126,7 +128,7 @@ VALUES (?,?,?,?,?,?,?, ?, ?, 'pending','manual',?,NOW())
       total_amount,
       payment_method,
          payment_method_id, // ✅
-  scheduled_at,   // ✅
+scheduled_time || null,
 
       notes,
       req.user.id
