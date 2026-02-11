@@ -10,7 +10,6 @@ router.use(auth);
 ============================================== */
 router.get("/manual-list", async (req, res) => {
   try {
-console.log("🟡 Branch:", branchId);
 
     const [rows] = await db.query(`
 
@@ -73,10 +72,8 @@ console.log("🟡 Branch:", branchId);
    حفظ طلب يدوي
 ============================================== */
 router.post("/", async (req, res) => {
-console.log("🟡 Branch:", branchId);
 
   const conn = await db.getConnection();
-console.log("🟢 Result:", rows);
 
   try {
 
