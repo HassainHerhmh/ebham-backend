@@ -394,9 +394,9 @@ router.put("/status/:id", async (req, res) => {
     /* =====================================================
         Bank
     ===================================================== */
-  else if (o.payment_method === "bank") {
+else if (o.payment_method === "bank") {
 
-  /* جلب حساب البنك حسب الفرع */
+  /* جلب حساب البنك المرتبط فعلياً بالطلب */
   const [[bankRow]] = await conn.query(`
     SELECT 
       COALESCE(bpa.account_id, pm.account_id) AS bank_account_id
@@ -404,10 +404,12 @@ router.put("/status/:id", async (req, res) => {
     LEFT JOIN branch_payment_accounts bpa
       ON bpa.payment_method_id = pm.id
       AND bpa.branch_id = ?
-    WHERE pm.company = 'bank'
-      AND pm.is_active = 1
+    WHERE pm.id = ?
     LIMIT 1
-  `, [req.user.branch_id]);
+  `, [
+    req.user.branch_id,
+    o.payment_method_id
+  ]);
 
   if (!bankRow?.bank_account_id) {
     throw new Error("حساب البنك غير مربوط لهذا الفرع");
@@ -426,7 +428,6 @@ router.put("/status/:id", async (req, res) => {
     orderId,
     req
   );
-
 
   await insertJournal(
     conn,
@@ -460,6 +461,7 @@ router.put("/status/:id", async (req, res) => {
     req
   );
 }
+
 
 
     /* =====================================================
