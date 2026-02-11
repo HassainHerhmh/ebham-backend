@@ -606,6 +606,96 @@ async function insertJournal(
 
   ]);
 }
+/* ==============================================
+   جلب أوقات التوصيل المتاحة
+============================================== */
+router.get("/available-slots", async (req, res) => {
+  try {
+
+    const branchId = req.user.branch_id;
+
+    if (!branchId) {
+      return res.status(400).json({
+        success: false,
+        message: "الفرع غير محدد"
+      });
+    }
+
+    /* جلب دوام الفرع */
+    const [rows] = await db.query(`
+      SELECT *
+      FROM branch_work_times
+      WHERE branch_id=?
+      AND is_closed=0
+    `,[branchId]);
+
+    if (!rows.length){
+      return res.json({ success:true, slots:[] });
+    }
+
+    const now = new Date();
+    const today = new Date();
+    today.setHours(0,0,0,0);
+
+    const slots = [];
+
+    /* توليد الفترات */
+    for (const r of rows){
+
+      for (let d=0; d<=1; d++){
+
+        const day = new Date(today);
+        day.setDate(today.getDate()+d);
+
+        /* توافق اليوم مع day_of_week */
+        if (day.getDay() !== r.day_of_week) continue;
+
+        /* بداية الدوام */
+        let start = new Date(day);
+        const [sh,sm] = r.open_time.split(":");
+        start.setHours(sh,sm,0,0);
+
+        /* نهاية الدوام */
+        let end = new Date(day);
+        const [eh,em] = r.close_time.split(":");
+        end.setHours(eh,em,0,0);
+
+        /* تقسيم كل 30 دقيقة */
+        while (start < end){
+
+          const slotStart = new Date(start);
+          const slotEnd   = new Date(start);
+          slotEnd.setMinutes(slotEnd.getMinutes()+30);
+
+          /* تجاهل الماضي */
+          if (slotEnd > now){
+
+            slots.push({
+              start: slotStart,
+              end: slotEnd
+            });
+          }
+
+          start.setMinutes(start.getMinutes()+30);
+        }
+      }
+    }
+
+    res.json({
+      success:true,
+      slots
+    });
+
+  } catch(err){
+
+    console.error("Slots Error:", err);
+
+    res.status(500).json({
+      success:false,
+      message:"فشل جلب الأوقات"
+    });
+  }
+});
 
 
 export default router;
