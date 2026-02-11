@@ -6,20 +6,15 @@ const router = express.Router();
 
 /* ==============================================
    1. جلب جميع طرق الدفع (للإدارة)
-   تعديل: جلب الحساب الافتراضي دون التأثير على تخصيص الفروع
+   بدون حسابات (لأنها حسب الفرع)
 ============================================== */
 router.get("/", async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT 
         pm.*,
-        b.name AS branch_name,
-        a.name_ar AS account_name,
-        a.code AS account_code,
         CAST(pm.is_active AS UNSIGNED) AS is_active
       FROM payment_methods pm
-      LEFT JOIN branches b ON b.id = pm.branch_id
-      LEFT JOIN accounts a ON a.id = pm.account_id
       ORDER BY pm.sort_order ASC
     `);
 
@@ -30,170 +25,291 @@ router.get("/", async (req, res) => {
   }
 });
 
+
 /* ==============================================
-   2. جلب الطرق المفعّلة (الحل الجذري لمشكلة التصفير) ✅
-   المنطق: نستخدم LEFT JOIN مع جدول الربط بناءً على الفرع الحالي فقط
+   2. جلب الطرق المفعّلة حسب الفرع
 ============================================== */
 router.get("/active", async (req, res) => {
   try {
-    // جلب رقم الفرع من الهيدر (x-branch-id)
-    const branchId = req.headers["x-branch-id"] || req.user?.branch_id;
+
+    const branchId =
+      req.headers["x-branch-id"] || req.user?.branch_id;
 
     if (!branchId) {
-      return res.status(400).json({ success: false, message: "رقم الفرع غير محدد" });
+      return res.status(400).json({
+        success: false,
+        message: "رقم الفرع غير محدد"
+      });
     }
 
-    // الاستعلام المصلح:
-    // نختار account_id من جدول الربط (bpa) إذا وجد، وإلا نأخذه من الجدول الرئيسي (pm)
-    // هذا يضمن أن ربط فرع "عتق" لا يصفر حساب فرع "عدن"
     const [rows] = await db.query(`
       SELECT 
-        pm.id, 
-        pm.company, 
-        pm.account_number, 
-        pm.owner_name, 
+        pm.id,
+        pm.company,
+        pm.account_number,
+        pm.owner_name,
         pm.address,
-        COALESCE(bpa.account_id, pm.account_id) AS account_id
+        bpa.account_id
       FROM payment_methods pm
-      LEFT JOIN branch_payment_accounts bpa 
-        ON bpa.payment_method_id = pm.id 
-        AND bpa.branch_id = ?
-      WHERE pm.is_active = 1 
-      AND (pm.branch_id IS NULL OR pm.branch_id = ?)
+      LEFT JOIN branch_payment_accounts bpa
+        ON bpa.payment_method_id = pm.id
+       AND bpa.branch_id = ?
+      WHERE pm.is_active = 1
       ORDER BY pm.sort_order ASC
-    `, [branchId, branchId]);
+    `, [branchId]);
 
     res.json({ success: true, methods: rows });
+
   } catch (err) {
-    console.error("❌ خطأ في جلب الحسابات النشطة للفروع:", err);
+
+    console.error("Active methods error:", err);
+
     res.status(500).json({ success: false });
   }
 });
 
+
 /* ==============================================
-   3. ربط بنك بحساب محاسبي لفرع معين ✅
-   استخدام REPLACE INTO أو ON DUPLICATE KEY لضمان عدم التكرار أو التصفير
+   3. ربط بنك بحساب فرع (الأساس)
 ============================================== */
 router.post("/assign-branch-account", async (req, res) => {
   try {
-    const { payment_method_id, branch_id, account_id } = req.body;
+
+    const {
+      payment_method_id,
+      branch_id,
+      account_id
+    } = req.body;
 
     if (!payment_method_id || !branch_id || !account_id) {
-      return res.status(400).json({ success: false, message: "بيانات الربط غير مكتملة" });
+      return res.status(400).json({
+        success: false,
+        message: "بيانات الربط غير مكتملة"
+      });
     }
 
-    // التحديث في جدول الربط فقط، مما يحافظ على استقلالية كل فرع
     await db.query(`
-      INSERT INTO branch_payment_accounts (payment_method_id, branch_id, account_id)
+      INSERT INTO branch_payment_accounts
+      (payment_method_id, branch_id, account_id)
       VALUES (?, ?, ?)
-      ON DUPLICATE KEY UPDATE account_id = VALUES(account_id)
-    `, [payment_method_id, branch_id, account_id]);
+      ON DUPLICATE KEY UPDATE
+        account_id = VALUES(account_id)
+    `, [
+      payment_method_id,
+      branch_id,
+      account_id
+    ]);
 
-    res.json({ success: true, message: "✅ تم حفظ تخصيص الحساب للفرع بنجاح" });
+    res.json({
+      success: true,
+      message: "✅ تم حفظ ربط الحساب للفرع"
+    });
+
   } catch (err) {
+
     console.error("Assign error:", err);
-    res.status(500).json({ success: false, error: err.message });
+
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
   }
 });
 
+
 /* ==============================================
-   4. إضافة طريقة دفع جديدة
+   4. إضافة بنك جديد (تعريف فقط)
 ============================================== */
 router.post("/", async (req, res) => {
   try {
-    const { company, account_number, owner_name, address, account_id, branch_id } = req.body;
 
-    const [result] = await db.query(
-      `INSERT INTO payment_methods
-        (company, account_number, owner_name, address, account_id, branch_id, sort_order, is_active)
-        VALUES (?, ?, ?, ?, ?, ?, 9999, 1)`,
-      [company, account_number, owner_name, address, account_id || null, branch_id || null]
-    );
+    const {
+      company,
+      account_number,
+      owner_name,
+      address
+    } = req.body;
 
-    res.json({ success: true, message: "✅ تم إضافة البنك بنجاح", id: result.insertId });
+    const [result] = await db.query(`
+      INSERT INTO payment_methods
+      (company, account_number, owner_name, address, sort_order, is_active)
+      VALUES (?, ?, ?, ?, 9999, 1)
+    `, [
+      company,
+      account_number,
+      owner_name,
+      address
+    ]);
+
+    res.json({
+      success: true,
+      message: "✅ تم إضافة البنك",
+      id: result.insertId
+    });
+
   } catch (err) {
+
+    console.error("Add payment method error:", err);
+
     res.status(500).json({ success: false });
   }
 });
 
+
 /* ==============================================
-   5. تعديل طريقة دفع
+   5. تعديل بيانات البنك
 ============================================== */
 router.put("/:id", async (req, res) => {
   try {
-    const { company, account_number, owner_name, address, account_id, branch_id } = req.body;
 
-    await db.query(
-      `UPDATE payment_methods
-        SET company=?, account_number=?, owner_name=?, address=?, account_id=?, branch_id=?
-        WHERE id=?`,
-      [company, account_number, owner_name, address, account_id, branch_id || null, req.params.id]
-    );
+    const {
+      company,
+      account_number,
+      owner_name,
+      address
+    } = req.body;
 
-    res.json({ success: true, message: "✅ تم التعديل بنجاح" });
+    await db.query(`
+      UPDATE payment_methods
+      SET
+        company = ?,
+        account_number = ?,
+        owner_name = ?,
+        address = ?
+      WHERE id = ?
+    `, [
+      company,
+      account_number,
+      owner_name,
+      address,
+      req.params.id
+    ]);
+
+    res.json({
+      success: true,
+      message: "✅ تم التعديل"
+    });
+
   } catch (err) {
+
+    console.error("Update error:", err);
+
     res.status(500).json({ success: false });
   }
 });
 
+
 /* ==============================================
-   6. حذف طريقة دفع
+   6. حذف بنك
 ============================================== */
 router.delete("/:id", async (req, res) => {
   try {
-    // حذف الربط مع الفروع أولاً لتجنب مشاكل Foreign Key
-    await db.query("DELETE FROM branch_payment_accounts WHERE payment_method_id=?", [req.params.id]);
-    await db.query("DELETE FROM payment_methods WHERE id=?", [req.params.id]);
-    res.json({ success: true, message: "🗑️ تم الحذف بالكامل" });
+
+    await db.query(
+      "DELETE FROM branch_payment_accounts WHERE payment_method_id=?",
+      [req.params.id]
+    );
+
+    await db.query(
+      "DELETE FROM payment_methods WHERE id=?",
+      [req.params.id]
+    );
+
+    res.json({
+      success: true,
+      message: "🗑️ تم الحذف"
+    });
+
   } catch (err) {
+
+    console.error("Delete error:", err);
+
     res.status(500).json({ success: false });
   }
 });
 
+
 /* ==============================================
-   7. تفعيل / تعطيل (عبر PUT) ✅
+   7. تفعيل / تعطيل
 ============================================== */
 router.put("/:id/toggle", async (req, res) => {
+
   const { id } = req.params;
   const { is_active } = req.body;
+
   const status = is_active ? 1 : 0;
   const userId = req.user?.id || null;
 
   const conn = await db.getConnection();
+
   try {
+
     await conn.beginTransaction();
-    await conn.query("UPDATE payment_methods SET is_active=? WHERE id=?", [status, id]);
+
     await conn.query(
-      "INSERT INTO payment_method_logs (payment_method_id, action, changed_by) VALUES (?, ?, ?)",
-      [id, status === 1 ? "activate" : "deactivate", userId]
+      "UPDATE payment_methods SET is_active=? WHERE id=?",
+      [status, id]
     );
+
+    await conn.query(`
+      INSERT INTO payment_method_logs
+      (payment_method_id, action, changed_by)
+      VALUES (?, ?, ?)
+    `, [
+      id,
+      status === 1 ? "activate" : "deactivate",
+      userId
+    ]);
+
     await conn.commit();
+
     res.json({ success: true });
+
   } catch (err) {
+
     await conn.rollback();
+
     res.status(500).json({ success: false });
+
   } finally {
+
     conn.release();
   }
 });
 
+
 /* ==============================================
-   8. ترتيب بالسحب
+   8. ترتيب
 ============================================== */
 router.post("/reorder", async (req, res) => {
+
   const { orders } = req.body;
   const conn = await db.getConnection();
+
   try {
+
     await conn.beginTransaction();
+
     for (const o of orders) {
-      await conn.query("UPDATE payment_methods SET sort_order=? WHERE id=?", [o.sort_order, o.id]);
+
+      await conn.query(
+        "UPDATE payment_methods SET sort_order=? WHERE id=?",
+        [o.sort_order, o.id]
+      );
     }
+
     await conn.commit();
+
     res.json({ success: true });
+
   } catch (err) {
+
     await conn.rollback();
+
     res.status(500).json({ success: false });
+
   } finally {
+
     conn.release();
   }
 });
