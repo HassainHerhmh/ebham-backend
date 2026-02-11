@@ -645,50 +645,56 @@ router.get("/available-slots", async (req, res) => {
 
     const slots = [];
 
-    for (const r of rows){
+  for (const r of rows){
 
-      if (!r.open_time || !r.close_time){
-        console.warn("⚠️ Invalid time:", r);
-        continue;
-      }
+  if (!r.open_time || !r.close_time){
+    continue;
+  }
 
-      for (let d=0; d<=1; d++){
+  // نبحث 7 أيام للأمام
+  for (let d = 0; d < 7; d++){
 
-        const day = new Date(today);
-        day.setDate(today.getDate()+d);
+    const day = new Date(today);
+    day.setDate(today.getDate() + d);
 
-// تحويل من نظام JS إلى نظامك
-const jsDay = day.getDay(); 
-const dbDay = (jsDay + 6) % 7; // يجعل السبت = 0
+    // تحويل نظام JS → نظامك (السبت = 0)
+    const jsDay = day.getDay();
+    const dbDay = (jsDay + 6) % 7;
 
-if (dbDay !== r.day_of_week) continue;
+    if (dbDay !== r.day_of_week) continue;
 
-        let start = new Date(day);
-        const [sh,sm] = r.open_time.split(":");
-        start.setHours(sh,sm,0,0);
+    let start = new Date(day);
+    const [sh, sm] = r.open_time.split(":");
+    start.setHours(sh, sm, 0, 0);
 
-        let end = new Date(day);
-        const [eh,em] = r.close_time.split(":");
-        end.setHours(eh,em,0,0);
+    let end = new Date(day);
+    const [eh, em] = r.close_time.split(":");
+    end.setHours(eh, em, 0, 0);
 
-        while (start < end){
-
-          const slotStart = new Date(start);
-          const slotEnd   = new Date(start);
-          slotEnd.setMinutes(slotEnd.getMinutes()+30);
-
-          if (slotEnd > now){
-
-            slots.push({
-              start: slotStart.toISOString(),
-              end: slotEnd.toISOString()
-            });
-          }
-
-          start.setMinutes(start.getMinutes()+30);
-        }
-      }
+    // معالجة دوام بعد منتصف الليل
+    if (end <= start) {
+      end.setDate(end.getDate() + 1);
     }
+
+    while (start < end){
+
+      const slotStart = new Date(start);
+      const slotEnd   = new Date(start);
+      slotEnd.setMinutes(slotEnd.getMinutes() + 30);
+
+      if (slotEnd > now){
+
+        slots.push({
+          start: slotStart.toISOString(),
+          end: slotEnd.toISOString()
+        });
+      }
+
+      start.setMinutes(start.getMinutes() + 30);
+    }
+  }
+}
+
 
     console.log("🟢 Slots:", slots.length);
 
