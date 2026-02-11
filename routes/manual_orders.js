@@ -83,6 +83,8 @@ router.post("/", async (req, res) => {
       delivery_fee,
       notes,
       payment_method,
+         payment_method_id, // ✅ جديد
+
       items,
       total_amount
     } = req.body;
@@ -104,13 +106,15 @@ router.post("/", async (req, res) => {
         delivery_fee,
         total_amount,
         payment_method,
+          payment_method_id,   -- ✅
+
         notes,
         status,
         display_type,
         user_id,
         created_at
       )
-      VALUES (?,?,?,?,?,?,?, 'pending','manual',?,NOW())
+VALUES (?,?,?,?,?,?,?, ?, 'pending','manual',?,NOW())
     `,[
       customer_id,
       restaurant_id||null,
@@ -118,6 +122,8 @@ router.post("/", async (req, res) => {
       delivery_fee,
       total_amount,
       payment_method,
+         payment_method_id, // ✅
+
       notes,
       req.user.id
     ]);
