@@ -657,7 +657,11 @@ router.get("/available-slots", async (req, res) => {
         const day = new Date(today);
         day.setDate(today.getDate()+d);
 
-        if (day.getDay() !== r.day_of_week) continue;
+// تحويل من نظام JS إلى نظامك
+const jsDay = day.getDay(); 
+const dbDay = (jsDay + 6) % 7; // يجعل السبت = 0
+
+if (dbDay !== r.day_of_week) continue;
 
         let start = new Date(day);
         const [sh,sm] = r.open_time.split(":");
