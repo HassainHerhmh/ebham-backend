@@ -10,20 +10,42 @@ const router = express.Router();
 ============================================== */
 router.get("/", async (req, res) => {
   try {
+
+    const branchId = req.user?.branch_id;
+
     const [rows] = await db.query(`
       SELECT 
         pm.*,
+
+        bpa.account_id,
+
+        a.name_ar   AS account_name,
+        a.code      AS account_code,
+
         CAST(pm.is_active AS UNSIGNED) AS is_active
+
       FROM payment_methods pm
+
+      LEFT JOIN branch_payment_accounts bpa
+        ON bpa.payment_method_id = pm.id
+       AND bpa.branch_id = ?
+
+      LEFT JOIN accounts a
+        ON a.id = bpa.account_id
+
       ORDER BY pm.sort_order ASC
-    `);
+    `, [branchId]);
 
     res.json({ success: true, methods: rows });
+
   } catch (err) {
+
     console.error("Get payment methods error:", err);
+
     res.status(500).json({ success: false });
   }
 });
+
 
 
 /* ==============================================
