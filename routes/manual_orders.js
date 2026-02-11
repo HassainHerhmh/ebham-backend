@@ -102,6 +102,22 @@ scheduled_time,
 
     await conn.beginTransaction();
 
+
+let scheduledAt = null;
+
+if (scheduled_time) {
+
+  const d = new Date(scheduled_time);
+
+  scheduledAt =
+    d.getFullYear() + "-" +
+    String(d.getMonth() + 1).padStart(2, "0") + "-" +
+    String(d.getDate()).padStart(2, "0") + " " +
+    String(d.getHours()).padStart(2, "0") + ":" +
+    String(d.getMinutes()).padStart(2, "0") + ":00";
+}
+
+
     const [orderRes] = await conn.query(`
       INSERT INTO wassel_orders (
         customer_id,
@@ -128,7 +144,7 @@ VALUES (?,?,?,?,?,?,?, ?, ?, 'pending','manual',?,NOW())
       total_amount,
       payment_method,
          payment_method_id, // ✅
-scheduled_time || null,
+scheduledAt,
 
       notes,
       req.user.id
