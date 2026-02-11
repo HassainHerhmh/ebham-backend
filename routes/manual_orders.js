@@ -10,8 +10,10 @@ router.use(auth);
 ============================================== */
 router.get("/manual-list", async (req, res) => {
   try {
+console.log("🟡 Branch:", branchId);
 
     const [rows] = await db.query(`
+
       SELECT 
         w.id,
         ANY_VALUE(w.customer_id) AS customer_id,
@@ -71,8 +73,10 @@ router.get("/manual-list", async (req, res) => {
    حفظ طلب يدوي
 ============================================== */
 router.post("/", async (req, res) => {
+console.log("🟡 Branch:", branchId);
 
   const conn = await db.getConnection();
+console.log("🟢 Result:", rows);
 
   try {
 
@@ -616,6 +620,8 @@ router.get("/available-slots", async (req, res) => {
       req.headers["x-branch-id"] ||
       req.user?.branch_id;
 
+    console.log("🟡 Branch ID:", branchId);
+
     if (!branchId || branchId === "null") {
       return res.status(400).json({
         success: false,
@@ -630,6 +636,8 @@ router.get("/available-slots", async (req, res) => {
       AND is_closed=0
     `,[branchId]);
 
+    console.log("🟢 Work Times:", rows);
+
     if (!rows.length){
       return res.json({ success:true, slots:[] });
     }
@@ -641,6 +649,11 @@ router.get("/available-slots", async (req, res) => {
     const slots = [];
 
     for (const r of rows){
+
+      if (!r.open_time || !r.close_time){
+        console.warn("⚠️ Invalid time:", r);
+        continue;
+      }
 
       for (let d=0; d<=1; d++){
 
@@ -676,6 +689,8 @@ router.get("/available-slots", async (req, res) => {
       }
     }
 
+    console.log("🟢 Slots:", slots.length);
+
     res.json({
       success:true,
       slots
@@ -683,14 +698,20 @@ router.get("/available-slots", async (req, res) => {
 
   } catch(err){
 
-    console.error("❌ Slots Error:", err);
+    console.error("❌ SLOTS ERROR:", {
+      message: err.message,
+      stack: err.stack,
+      sql: err.sql
+    });
 
     res.status(500).json({
       success:false,
-      message:"فشل جلب الأوقات"
+      error: err.message,
+      stack: err.stack
     });
   }
 });
+
 
 
 export default router;
