@@ -11,18 +11,24 @@ const router = express.Router();
 router.get("/", async (req, res) => {
   try {
 
-    const branchId = req.user?.branch_id;
+    const branchId = req.user.branch_id;
 
     const [rows] = await db.query(`
       SELECT 
-        pm.*,
+        pm.id,
+        pm.company,
+        pm.account_number,
+        pm.owner_name,
+        pm.address,
+        pm.sort_order,
 
+        CAST(pm.is_active AS UNSIGNED) AS is_active,
+
+        bpa.branch_id,
         bpa.account_id,
 
-        a.name_ar   AS account_name,
-        a.code      AS account_code,
-
-        CAST(pm.is_active AS UNSIGNED) AS is_active
+        a.name_ar AS account_name,
+        a.code    AS account_code
 
       FROM payment_methods pm
 
@@ -45,6 +51,7 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 
 
