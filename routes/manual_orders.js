@@ -27,6 +27,11 @@ router.get("/manual-list", async (req, res) => {
         ANY_VALUE(w.created_at) AS created_at,
         ANY_VALUE(w.scheduled_at) AS scheduled_time,
 
+            ANY_VALUE(w.processing_at)  AS processing_at,
+ANY_VALUE(w.ready_at)       AS ready_at,
+ANY_VALUE(w.delivering_at)  AS delivering_at,
+ANY_VALUE(w.completed_at)   AS completed_at,
+ANY_VALUE(w.cancelled_at)   AS cancelled_at,
 
         ANY_VALUE(c.name) AS customer_name,
         ANY_VALUE(r.name) AS restaurant_name,
@@ -200,10 +205,30 @@ router.put("/status/:id", async (req, res) => {
     await conn.beginTransaction();
 
     /* تحديث الحالة */
-    await conn.query(
-      "UPDATE wassel_orders SET status=? WHERE id=?",
-      [status, orderId]
-    );
+   const now = new Date();
+
+let field = null;
+
+if (status === "processing") field = "processing_at";
+if (status === "ready") field = "ready_at";
+if (status === "delivering") field = "delivering_at";
+if (status === "completed") field = "completed_at";
+if (status === "cancelled") field = "cancelled_at";
+
+if (field) {
+  await conn.query(
+    `UPDATE wassel_orders 
+     SET status=?, ${field}=NOW() 
+     WHERE id=?`,
+    [status, orderId]
+  );
+} else {
+  await conn.query(
+    "UPDATE wassel_orders SET status=? WHERE id=?",
+    [status, orderId]
+  );
+}
+
 
     if (status !== "delivering") {
       await conn.commit();
