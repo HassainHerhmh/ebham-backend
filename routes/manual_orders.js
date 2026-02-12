@@ -98,7 +98,7 @@ LEFT JOIN users u
 LEFT JOIN wassel_order_items i 
   ON i.order_id = w.id
 
-WHERE w.display_type = 'manual'
+WHERE w.is_manual = 1
 
 GROUP BY w.id
 ORDER BY w.id DESC
@@ -169,37 +169,36 @@ if (scheduled_time) {
 }
 
 
-    const [orderRes] = await conn.query(`
-      INSERT INTO wassel_orders (
-        customer_id,
-        restaurant_id,
-        to_address,
-        delivery_fee,
-        total_amount,
-        payment_method,
-          payment_method_id,   -- ✅
-          scheduled_at,
+   const [orderRes] = await conn.query(`
+  INSERT INTO wassel_orders (
+    customer_id,
+    restaurant_id,
+    to_address,
+    delivery_fee,
+    total_amount,
+    payment_method,
+    payment_method_id,
+    scheduled_at,
+    notes,
+    status,
+    is_manual,
+    user_id,
+    created_at
+  )
+  VALUES (?,?,?,?,?,?,?,?,?, 'pending', 1, ?, NOW())
+`, [
+  customer_id,
+  restaurant_id || null,
+  to_address,
+  delivery_fee,
+  total_amount,
+  payment_method,
+  payment_method_id,
+  scheduledAt,
+  notes,
+  req.user.id
+]);
 
-        notes,
-        status,
-        display_type,
-        user_id,
-        created_at
-      )
-VALUES (?,?,?,?,?,?,?, ?, ?, 'pending','manual',?,NOW())
-    `,[
-      customer_id,
-      restaurant_id||null,
-      to_address,
-      delivery_fee,
-      total_amount,
-      payment_method,
-         payment_method_id, // ✅
-scheduledAt,
-
-      notes,
-      req.user.id
-    ]);
 
     const orderId = orderRes.insertId;
 
@@ -267,7 +266,7 @@ router.put("/:id", async (req, res) => {
         payment_method=?,
         total_amount=?
       WHERE id=?
-      AND display_type='manual'
+       AND is_manual = 1
     `, [
       to_address,
       delivery_fee,
