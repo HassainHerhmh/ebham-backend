@@ -145,12 +145,10 @@ if (scheduled_time) {
     .replace("T", " ");
 }
 
-const status = "pending";
+const status = scheduled_time ? "scheduled" : "pending";
 
 const [result] = await db.query(`
-
-  INSERT INTO wassel_orders 
-  (
+  INSERT INTO wassel_orders (
     customer_id,
     order_type,
     from_address,
@@ -167,7 +165,6 @@ const [result] = await db.query(`
     created_at
   )
   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,NOW())
-
 `, [
   customer_id || null,
   order_type,
@@ -176,12 +173,13 @@ const [result] = await db.query(`
   delivery_fee || 0,
   extra_fee || 0,
   notes || "",
-  status,
+  status,              // 👈 هنا
   payment_method,
   bank_id || null,
   req.user.id,
-  scheduledAt   // ✅ هنا
+  scheduled_time || null
 ]);
+
 
 
 
