@@ -207,30 +207,38 @@ router.get("/", async (req, res) => {
     /* ======================
        الاستعلام الأساسي
     ====================== */
-    const baseQuery = `
-      SELECT 
-        o.id,
-        c.name AS customer_name,
-        c.phone AS customer_phone,
-        u.name AS user_name,
-u2.name AS updater_name,
-u1.name AS creator_name,
+ const baseQuery = `
+  SELECT 
+    o.id,
 
-o.status,
+    -- ⏱️ أوقات الحركة
+    o.scheduled_at,
+    o.processing_at,
+    o.ready_at,
+    o.delivering_at,
+    o.completed_at,
+    o.cancelled_at,
 
-        o.note,
+    c.name AS customer_name,
+    c.phone AS customer_phone,
 
-        o.total_amount,
-        o.delivery_fee,
-        o.extra_store_fee,
-        o.stores_count,
-        o.created_at,
-         
-        cap.name AS captain_name,
-        o.payment_method,
+    u.name AS user_name,
+    u2.name AS updater_name,
+    u1.name AS creator_name,
 
-        n.name AS neighborhood_name,
-        b.name AS branch_name,
+    o.status,
+    o.note,
+    o.total_amount,
+    o.delivery_fee,
+    o.extra_store_fee,
+    o.stores_count,
+    o.created_at,
+
+    cap.name AS captain_name,
+    o.payment_method,
+
+    n.name AS neighborhood_name,
+    b.name AS branch_name,
 
         CASE o.payment_method
           WHEN 'cod' THEN 'الدفع عند الاستلام'
@@ -691,9 +699,18 @@ let timeField = null;
 if (status === "confirmed" || status === "preparing")
   timeField = "processing_at";
 
-if (status === "delivering") timeField = "delivering_at";
-if (status === "completed") timeField = "completed_at";
-if (status === "cancelled") timeField = "cancelled_at";
+if (status === "ready")
+  timeField = "ready_at";
+
+if (status === "delivering")
+  timeField = "delivering_at";
+
+if (status === "completed")
+  timeField = "completed_at";
+
+if (status === "cancelled")
+  timeField = "cancelled_at";
+
 
 if (timeField) {
 
