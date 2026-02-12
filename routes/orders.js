@@ -394,6 +394,23 @@ const {
         }
       }
     }
+     
+// ✅ تحويل وقت الجدولة لصيغة MySQL
+let scheduledAtSQL = null;
+
+if (scheduled_at) {
+  const d = new Date(scheduled_at);
+
+  const pad = n => n.toString().padStart(2, "0");
+
+  scheduledAtSQL =
+    d.getFullYear() + "-" +
+    pad(d.getMonth() + 1) + "-" +
+    pad(d.getDate()) + " " +
+    pad(d.getHours()) + ":" +
+    pad(d.getMinutes()) + ":00";
+}
+
 
 
     // إنشاء رأس الطلب (Order Header)
@@ -437,7 +454,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   payment_method || null,
   bank_id || null,
 
-  scheduled_at || null,                        // ✅
+  scheduledAtSQL,                 // ✅ هنا
   scheduled_at ? "scheduled" : "pending"      // ✅
 ]
 
