@@ -43,7 +43,7 @@ SELECT
 
   /* العنوان */
   ANY_VALUE(ca.address)   AS customer_address,
-  ANY_VALUE(ca.district)  AS neighborhood_name,
+ANY_VALUE(n.name) AS neighborhood_name,
   ANY_VALUE(ca.gps_link)  AS map_url,
   ANY_VALUE(ca.latitude)  AS latitude,
   ANY_VALUE(ca.longitude) AS longitude,
