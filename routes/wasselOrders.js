@@ -145,7 +145,7 @@ if (scheduled_time) {
     .replace("T", " ");
 }
 
-const status = scheduled_time ? "scheduled" : "pending";
+const status = "pending";
 
 const [result] = await db.query(`
 
