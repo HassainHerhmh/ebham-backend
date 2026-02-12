@@ -102,93 +102,209 @@ router.get("/", async (req, res) => {
 });
 
 /* ==============================================
-    4️⃣ إضافة طلب جديد (مع فحص الرصيد الذكي)
+    4️⃣ إضافة طلب جديد (مع الإحداثيات)
 ============================================== */
 router.post("/", async (req, res) => {
   try {
-const {
-  customer_id,
-  order_type,
-  from_address,
-  to_address,
-  delivery_fee,
-  extra_fee,
-  notes,
-  payment_method,
-  bank_id,
-  scheduled_time   // 👈 أضف هذا
-} = req.body;
-    const totalAmount = Number(delivery_fee || 0) + Number(extra_fee || 0);
+
+    const {
+      customer_id,
+      order_type,
+
+      from_address,
+      to_address,
+
+      from_address_id,
+      to_address_id,
+
+      from_lat,
+      from_lng,
+      to_lat,
+      to_lng,
+
+      delivery_fee,
+      extra_fee,
+      notes,
+
+      payment_method,
+      bank_id,
+      scheduled_time
+    } = req.body;
+
+    /* ======================
+       فحص الرصيد
+    ====================== */
+
+    const totalAmount =
+      Number(delivery_fee || 0) + Number(extra_fee || 0);
 
     if (payment_method === "wallet" && customer_id) {
+
       const [[wallet]] = await db.query(`
         SELECT cg.type, cg.credit_limit,
           CASE 
-            WHEN cg.type = 'account' THEN IFNULL((SELECT SUM(debit - credit) FROM journal_entries WHERE account_id = cg.account_id), 0)
-            ELSE IFNULL((SELECT SUM(amount_base) FROM customer_guarantee_moves WHERE guarantee_id = cg.id), 0)
+            WHEN cg.type = 'account'
+            THEN IFNULL(
+              (SELECT SUM(debit - credit)
+               FROM journal_entries
+               WHERE account_id = cg.account_id), 0)
+            ELSE IFNULL(
+              (SELECT SUM(amount_base)
+               FROM customer_guarantee_moves
+               WHERE guarantee_id = cg.id), 0)
           END AS balance
-        FROM customer_guarantees cg WHERE cg.customer_id = ?
+        FROM customer_guarantees cg
+        WHERE cg.customer_id = ?
       `, [customer_id]);
 
-      const availableFunds = wallet ? Number(wallet.balance) + Number(wallet.credit_limit) : 0;
-      if (availableFunds < totalAmount) return res.status(400).json({ success: false, message: "الرصيد غير كافٍ" });
+      const available =
+        wallet
+          ? Number(wallet.balance) + Number(wallet.credit_limit)
+          : 0;
+
+      if (available < totalAmount) {
+        return res.status(400).json({
+          success: false,
+          message: "الرصيد غير كافٍ"
+        });
+      }
     }
-// تحويل ISO → MySQL DATETIME
-let scheduledAt = null;
 
-if (scheduled_time) {
-  const d = new Date(scheduled_time);
+    /* ======================
+       معالجة الإحداثيات
+    ====================== */
 
-  scheduledAt = d
-    .toISOString()
-    .slice(0, 19)
-    .replace("T", " ");
-}
+    let finalFromLat = from_lat;
+    let finalFromLng = from_lng;
 
-const status = scheduled_time ? "scheduled" : "pending";
+    let finalToLat   = to_lat;
+    let finalToLng   = to_lng;
 
-const [result] = await db.query(`
-  INSERT INTO wassel_orders (
-    customer_id,
-    order_type,
-    from_address,
-    to_address,
-    delivery_fee,
-    extra_fee,
-    notes,
-    status,
-    payment_method,
-    bank_id,
-    user_id,
-    scheduled_at,
-    is_manual,
-    created_at
-  )
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,NOW())
-`, [
-  customer_id || null,
-  order_type,
-  from_address,
-  to_address,
-  delivery_fee || 0,
-  extra_fee || 0,
-  notes || "",
-  status,
-  payment_method,
-  bank_id || null,
-  req.user.id,
-  scheduledAt      // ✅ هنا التعديل المهم
-]);
+    // لو من العناوين المحفوظة
+    if (from_address_id) {
 
+      const [[addr]] = await db.query(
+        "SELECT latitude, longitude FROM customer_addresses WHERE id = ?",
+        [from_address_id]
+      );
 
+      if (addr) {
+        finalFromLat = addr.latitude;
+        finalFromLng = addr.longitude;
+      }
+    }
 
+    if (to_address_id) {
 
+      const [[addr]] = await db.query(
+        "SELECT latitude, longitude FROM customer_addresses WHERE id = ?",
+        [to_address_id]
+      );
 
-    res.json({ success: true, order_id: result.insertId });
+      if (addr) {
+        finalToLat = addr.latitude;
+        finalToLng = addr.longitude;
+      }
+    }
+
+    /* ======================
+       معالجة الجدولة
+    ====================== */
+
+    let scheduledAt = null;
+    let status = "pending";
+
+    if (scheduled_time) {
+
+      const d = new Date(scheduled_time);
+
+      scheduledAt = d
+        .toISOString()
+        .slice(0, 19)
+        .replace("T", " ");
+
+      status = "scheduled";
+    }
+
+    /* ======================
+       الإدخال
+    ====================== */
+
+    const [result] = await db.query(`
+      INSERT INTO wassel_orders (
+
+        customer_id,
+        order_type,
+
+        from_address_id,
+        to_address_id,
+
+        from_address,
+        from_lat,
+        from_lng,
+
+        to_address,
+        to_lat,
+        to_lng,
+
+        delivery_fee,
+        extra_fee,
+        notes,
+
+        status,
+        payment_method,
+        bank_id,
+
+        user_id,
+        scheduled_at,
+        is_manual,
+        created_at
+
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,NOW())
+    `, [
+
+      customer_id || null,
+      order_type,
+
+      from_address_id || null,
+      to_address_id || null,
+
+      from_address,
+      finalFromLat,
+      finalFromLng,
+
+      to_address,
+      finalToLat,
+      finalToLng,
+
+      delivery_fee || 0,
+      extra_fee || 0,
+      notes || "",
+
+      status,
+      payment_method,
+      bank_id || null,
+
+      req.user.id,
+      scheduledAt
+    ]);
+
+    res.json({
+      success: true,
+      order_id: result.insertId
+    });
+
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+
+    console.error("Create Order Error:", err);
+
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 });
+
 
 /* ==============================================
     5️⃣ تحديث حالة الطلب وتوليد القيود (المنطق المدمج)
