@@ -83,6 +83,9 @@ ON ca.id = (
   LIMIT 1
 )
 
+LEFT JOIN neighborhoods n
+ON n.id = ca.district
+
 LEFT JOIN restaurants r 
   ON r.id = w.restaurant_id
 
