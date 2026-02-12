@@ -11,55 +11,96 @@ router.use(auth);
 router.get("/manual-list", async (req, res) => {
   try {
 
-    const [rows] = await db.query(`
+  const [rows] = await db.query(`
 
-      SELECT 
-        w.id,
-        ANY_VALUE(w.customer_id) AS customer_id,
-        ANY_VALUE(w.restaurant_id) AS restaurant_id,
-        ANY_VALUE(w.captain_id) AS captain_id,
-        ANY_VALUE(w.total_amount) AS total_amount,
-        ANY_VALUE(w.delivery_fee) AS delivery_fee,
-        ANY_VALUE(w.payment_method) AS payment_method,
-        ANY_VALUE(w.status) AS status,
-        ANY_VALUE(w.notes) AS notes,
-        ANY_VALUE(w.to_address) AS to_address,
-        ANY_VALUE(w.created_at) AS created_at,
-        ANY_VALUE(w.scheduled_at) AS scheduled_time,
+SELECT 
+  w.id,
 
-            ANY_VALUE(w.processing_at)  AS processing_at,
-ANY_VALUE(w.ready_at)       AS ready_at,
-ANY_VALUE(w.delivering_at)  AS delivering_at,
-ANY_VALUE(w.completed_at)   AS completed_at,
-ANY_VALUE(w.cancelled_at)   AS cancelled_at,
+  ANY_VALUE(w.customer_id) AS customer_id,
+  ANY_VALUE(w.restaurant_id) AS restaurant_id,
+  ANY_VALUE(w.captain_id) AS captain_id,
 
-        ANY_VALUE(c.name) AS customer_name,
-        ANY_VALUE(r.name) AS restaurant_name,
-        ANY_VALUE(cap.name) AS captain_name,
-        ANY_VALUE(u.name) AS user_name,
+  ANY_VALUE(w.total_amount) AS total_amount,
+  ANY_VALUE(w.delivery_fee) AS delivery_fee,
+  ANY_VALUE(w.payment_method) AS payment_method,
+  ANY_VALUE(w.status) AS status,
+  ANY_VALUE(w.notes) AS notes,
 
-        JSON_ARRAYAGG(
-          JSON_OBJECT(
-            'name', i.product_name,
-            'qty', i.qty,
-            'price', i.price,
-            'total', i.total
-          )
-        ) AS items
+  ANY_VALUE(w.to_address) AS to_address,
 
-      FROM wassel_orders w
+  ANY_VALUE(w.created_at) AS created_at,
+  ANY_VALUE(w.scheduled_at) AS scheduled_time,
 
-      LEFT JOIN customers c ON c.id=w.customer_id
-      LEFT JOIN restaurants r ON r.id=w.restaurant_id
-      LEFT JOIN captains cap ON cap.id=w.captain_id
-      LEFT JOIN users u ON u.id=w.user_id
-      LEFT JOIN wassel_order_items i ON i.order_id=w.id
+  ANY_VALUE(w.processing_at)  AS processing_at,
+  ANY_VALUE(w.ready_at)       AS ready_at,
+  ANY_VALUE(w.delivering_at)  AS delivering_at,
+  ANY_VALUE(w.completed_at)   AS completed_at,
+  ANY_VALUE(w.cancelled_at)   AS cancelled_at,
 
-      WHERE w.display_type='manual'
+  /* العميل */
+  ANY_VALUE(c.name)  AS customer_name,
+  ANY_VALUE(c.phone) AS customer_phone,
 
-      GROUP BY w.id
-      ORDER BY w.id DESC
-    `);
+  /* العنوان */
+  ANY_VALUE(ca.address)  AS customer_address,
+  ANY_VALUE(ca.latitude) AS latitude,
+  ANY_VALUE(ca.longitude) AS longitude,
+  ANY_VALUE(ca.map_url) AS map_url,
+
+  /* الحي */
+  ANY_VALUE(n.name) AS neighborhood_name,
+
+  /* المطعم */
+  ANY_VALUE(r.name)  AS restaurant_name,
+  ANY_VALUE(r.phone) AS restaurant_phone,
+  ANY_VALUE(r.address) AS restaurant_address,
+
+  /* الكابتن */
+  ANY_VALUE(cap.name) AS captain_name,
+
+  /* المستخدم */
+  ANY_VALUE(u.name) AS user_name,
+
+  /* الأصناف */
+  JSON_ARRAYAGG(
+    JSON_OBJECT(
+      'name', i.product_name,
+      'qty', i.qty,
+      'price', i.price,
+      'total', i.total
+    )
+  ) AS items
+
+FROM wassel_orders w
+
+LEFT JOIN customers c 
+  ON c.id = w.customer_id
+
+LEFT JOIN customer_addresses ca
+  ON ca.address = w.to_address   -- مؤقت (الأفضل id لاحقًا)
+
+LEFT JOIN neighborhoods n
+  ON n.id = ca.neighborhood_id
+
+LEFT JOIN restaurants r 
+  ON r.id = w.restaurant_id
+
+LEFT JOIN captains cap 
+  ON cap.id = w.captain_id
+
+LEFT JOIN users u 
+  ON u.id = w.user_id
+
+LEFT JOIN wassel_order_items i 
+  ON i.order_id = w.id
+
+WHERE w.display_type='manual'
+
+GROUP BY w.id
+ORDER BY w.id DESC
+
+`);
+
 
     res.json({ success:true, orders:rows });
 
