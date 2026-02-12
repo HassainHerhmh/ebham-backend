@@ -75,7 +75,13 @@ LEFT JOIN customers c
   ON c.id = w.customer_id
 
 LEFT JOIN customer_addresses ca
-  ON ca.customer_id = w.customer_id   -- ✅ الربط الصحيح
+ON ca.id = (
+  SELECT id
+  FROM customer_addresses
+  WHERE customer_id = w.customer_id
+  ORDER BY id DESC
+  LIMIT 1
+)
 
 LEFT JOIN restaurants r 
   ON r.id = w.restaurant_id
