@@ -92,6 +92,7 @@ router.get("/", async (req, res) => {
       LEFT JOIN captains cap ON cap.id = w.captain_id
       LEFT JOIN users u1 ON u1.id = w.user_id
       LEFT JOIN users u2 ON u2.id = w.updated_by
+      WHERE w.is_manual = 0
       ORDER BY w.id DESC
     `);
     res.json({ success: true, orders: rows });
@@ -122,10 +123,37 @@ router.post("/", async (req, res) => {
       if (availableFunds < totalAmount) return res.status(400).json({ success: false, message: "الرصيد غير كافٍ" });
     }
 
-    const [result] = await db.query(`
-      INSERT INTO wassel_orders (customer_id, order_type, from_address, to_address, delivery_fee, extra_fee, notes, status, payment_method, bank_id, user_id, created_at)
-      VALUES (?,?,?,?,?,?,?, 'pending', ?,?,?, NOW())
-    `, [customer_id || null, order_type, from_address, to_address, delivery_fee || 0, extra_fee || 0, notes || "", payment_method, bank_id || null, req.user.id]);
+const [result] = await db.query(`
+  INSERT INTO wassel_orders 
+  (
+    customer_id,
+    order_type,
+    from_address,
+    to_address,
+    delivery_fee,
+    extra_fee,
+    notes,
+    status,
+    payment_method,
+    bank_id,
+    user_id,
+    is_manual,
+    created_at
+  )
+  VALUES (?,?,?,?,?,?,?, 'pending', ?,?,?, 0, NOW())
+`, [
+  customer_id || null,
+  order_type,
+  from_address,
+  to_address,
+  delivery_fee || 0,
+  extra_fee || 0,
+  notes || "",
+  payment_method,
+  bank_id || null,
+  req.user.id
+]);
+
 
     res.json({ success: true, order_id: result.insertId });
   } catch (err) {
