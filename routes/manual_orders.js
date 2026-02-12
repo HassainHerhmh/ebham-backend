@@ -194,14 +194,22 @@ scheduledAt,
 ============================================== */
 router.put("/:id", async (req, res) => {
   try {
+
     const id = req.params.id;
+
     const {
       to_address,
       delivery_fee,
       notes,
       payment_method,
-      total_amount
+      items
     } = req.body;
+
+    // حساب المبلغ في السيرفر
+    const total = items.reduce(
+      (sum, i) => sum + (Number(i.qty) * Number(i.price)),
+      0
+    ) + Number(delivery_fee || 0);
 
     await db.query(`
       UPDATE wassel_orders
@@ -218,18 +226,21 @@ router.put("/:id", async (req, res) => {
       delivery_fee,
       notes,
       payment_method,
-      total_amount,
+      total,
       id
     ]);
 
     res.json({ success: true });
 
   } catch (err) {
+
     console.error(err);
+
     res.status(500).json({
       success: false,
       message: "فشل التعديل"
     });
+
   }
 });
 
