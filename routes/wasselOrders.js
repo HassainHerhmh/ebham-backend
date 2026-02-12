@@ -173,12 +173,13 @@ const [result] = await db.query(`
   delivery_fee || 0,
   extra_fee || 0,
   notes || "",
-  status,              // 👈 هنا
+  status,
   payment_method,
   bank_id || null,
   req.user.id,
-  scheduled_time || null
+  scheduledAt      // ✅ هنا التعديل المهم
 ]);
+
 
 
 
