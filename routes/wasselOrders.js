@@ -316,4 +316,115 @@ async function insertEntry(conn, acc, deb, cre, notes, ref, req) {
   `, [acc, deb || 0, cre || 0, notes, ref, req.user.id, req.user.branch_id]);
 }
 
+/* ==============================================
+    7️⃣ تعديل طلب
+============================================== */
+router.put("/:id", async (req, res) => {
+  try {
+
+    const orderId = req.params.id;
+
+    const {
+      customer_id,
+      order_type,
+      from_address,
+      to_address,
+      from_address_id,
+      to_address_id,
+      from_lat,
+      from_lng,
+      to_lat,
+      to_lng,
+      delivery_fee,
+      extra_fee,
+      notes,
+      payment_method,
+      bank_id,
+      scheduled_time
+    } = req.body;
+
+    // تحويل وقت الجدولة
+    let scheduledAt = null;
+    let status = "pending";
+
+    if (scheduled_time) {
+      const d = new Date(scheduled_time);
+
+      scheduledAt = d
+        .toISOString()
+        .slice(0, 19)
+        .replace("T", " ");
+
+      status = "scheduled";
+    }
+
+    await db.query(`
+      UPDATE wassel_orders SET
+
+        customer_id     = ?,
+        order_type      = ?,
+
+        from_address_id = ?,
+        to_address_id   = ?,
+
+        from_address    = ?,
+        from_lat        = ?,
+        from_lng        = ?,
+
+        to_address      = ?,
+        to_lat          = ?,
+        to_lng          = ?,
+
+        delivery_fee    = ?,
+        extra_fee       = ?,
+        notes           = ?,
+
+        payment_method  = ?,
+        bank_id         = ?,
+
+        scheduled_at    = ?,
+        status          = ?,
+
+        updated_by      = ?
+
+      WHERE id = ?
+    `, [
+
+      customer_id || null,
+      order_type,
+
+      from_address_id || null,
+      to_address_id || null,
+
+      from_address,
+      from_lat,
+      from_lng,
+
+      to_address,
+      to_lat,
+      to_lng,
+
+      delivery_fee || 0,
+      extra_fee || 0,
+      notes || "",
+
+      payment_method,
+      bank_id || null,
+
+      scheduledAt,
+      status,
+
+      req.user.id,
+
+      orderId
+    ]);
+
+    res.json({ success: true });
+
+  } catch (err) {
+    console.error("Update Order Error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 export default router;
