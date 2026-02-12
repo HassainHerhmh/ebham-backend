@@ -851,26 +851,26 @@ router.get("/available-slots", async (req, res) => {
       end.setDate(end.getDate() + 1);
     }
 
-    while (start < end){
+while (start < end){
 
-      const slotStart = new Date(start);
-      const slotEnd   = new Date(start);
-      slotEnd.setMinutes(slotEnd.getMinutes() + 30);
+  const slotStart = new Date(start);
+  const slotEnd   = new Date(start);
+  slotEnd.setMinutes(slotEnd.getMinutes() + 30);
 
-// نخلي أقل شيء بعد الآن بـ 30 دقيقة
-const minTime = new Date(now);
-minTime.setMinutes(minTime.getMinutes() + 30);
+  // اليوم فقط: بعد الوقت الحالي
+  if (d === 0 && slotStart < now) {
+    start.setMinutes(start.getMinutes() + 30);
+    continue;
+  }
 
-if (slotStart >= minTime){
+  slots.push({
+    start: slotStart.toISOString(),
+    end: slotEnd.toISOString()
+  });
 
-        slots.push({
-          start: slotStart.toISOString(),
-          end: slotEnd.toISOString()
-        });
-      }
+  start.setMinutes(start.getMinutes() + 30);
+}
 
-      start.setMinutes(start.getMinutes() + 30);
-    }
   }
 }
 
