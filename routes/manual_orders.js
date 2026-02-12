@@ -190,9 +190,12 @@ scheduledAt,
 });
 
 /* ==============================================
-   تعديل طلب يدوي
+   تعديل طلب يدوي + الأصناف
 ============================================== */
 router.put("/:id", async (req, res) => {
+
+  const conn = await db.getConnection();
+
   try {
 
     const id = req.params.id;
@@ -202,16 +205,14 @@ router.put("/:id", async (req, res) => {
       delivery_fee,
       notes,
       payment_method,
+      total_amount,
       items
     } = req.body;
 
-    // حساب المبلغ في السيرفر
-    const total = items.reduce(
-      (sum, i) => sum + (Number(i.qty) * Number(i.price)),
-      0
-    ) + Number(delivery_fee || 0);
+    await conn.beginTransaction();
 
-    await db.query(`
+    /* تحديث الطلب */
+    await conn.query(`
       UPDATE wassel_orders
       SET
         to_address=?,
@@ -226,23 +227,55 @@ router.put("/:id", async (req, res) => {
       delivery_fee,
       notes,
       payment_method,
-      total,
+      total_amount,
       id
     ]);
+
+    /* حذف الأصناف القديمة */
+    await conn.query(`
+      DELETE FROM wassel_order_items
+      WHERE order_id=?
+    `, [id]);
+
+    /* إدخال الأصناف الجديدة */
+    if (items?.length) {
+
+      for (const item of items) {
+
+        await conn.query(`
+          INSERT INTO wassel_order_items
+          (order_id, product_name, qty, price, total)
+          VALUES (?,?,?,?,?)
+        `, [
+          id,
+          item.name,
+          item.qty,
+          item.price,
+          item.qty * item.price
+        ]);
+      }
+    }
+
+    await conn.commit();
 
     res.json({ success: true });
 
   } catch (err) {
 
-    console.error(err);
+    await conn.rollback();
+
+    console.error("❌ UPDATE MANUAL ERROR:", err);
 
     res.status(500).json({
       success: false,
       message: "فشل التعديل"
     });
 
+  } finally {
+    conn.release();
   }
 });
+
 
 /* ==============================================
    تحديث الحالة + القيود (نسخة نهائية صحيحة)
