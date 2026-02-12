@@ -189,6 +189,49 @@ scheduledAt,
   }
 });
 
+/* ==============================================
+   تعديل طلب يدوي
+============================================== */
+router.put("/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const {
+      to_address,
+      delivery_fee,
+      notes,
+      payment_method,
+      total_amount
+    } = req.body;
+
+    await db.query(`
+      UPDATE wassel_orders
+      SET
+        to_address=?,
+        delivery_fee=?,
+        notes=?,
+        payment_method=?,
+        total_amount=?
+      WHERE id=?
+      AND display_type='manual'
+    `, [
+      to_address,
+      delivery_fee,
+      notes,
+      payment_method,
+      total_amount,
+      id
+    ]);
+
+    res.json({ success: true });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: "فشل التعديل"
+    });
+  }
+});
 
 /* ==============================================
    تحديث الحالة + القيود (نسخة نهائية صحيحة)
