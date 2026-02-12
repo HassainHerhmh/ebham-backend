@@ -11,7 +11,7 @@ router.use(auth);
 router.get("/manual-list", async (req, res) => {
   try {
 
-  const [rows] = await db.query(`
+const [rows] = await db.query(`
 
 SELECT 
   w.id,
@@ -42,17 +42,15 @@ SELECT
   ANY_VALUE(c.phone) AS customer_phone,
 
   /* العنوان */
-  ANY_VALUE(ca.address)  AS customer_address,
-  ANY_VALUE(ca.latitude) AS latitude,
+  ANY_VALUE(ca.address)   AS customer_address,
+  ANY_VALUE(ca.district)  AS neighborhood_name,
+  ANY_VALUE(ca.gps_link)  AS map_url,
+  ANY_VALUE(ca.latitude)  AS latitude,
   ANY_VALUE(ca.longitude) AS longitude,
-  ANY_VALUE(ca.map_url) AS map_url,
-
-  /* الحي */
-  ANY_VALUE(n.name) AS neighborhood_name,
 
   /* المطعم */
-  ANY_VALUE(r.name)  AS restaurant_name,
-  ANY_VALUE(r.phone) AS restaurant_phone,
+  ANY_VALUE(r.name)    AS restaurant_name,
+  ANY_VALUE(r.phone)   AS restaurant_phone,
   ANY_VALUE(r.address) AS restaurant_address,
 
   /* الكابتن */
@@ -77,10 +75,7 @@ LEFT JOIN customers c
   ON c.id = w.customer_id
 
 LEFT JOIN customer_addresses ca
-  ON ca.address = w.to_address   -- مؤقت (الأفضل id لاحقًا)
-
-LEFT JOIN neighborhoods n
-  ON n.id = ca.neighborhood_id
+  ON ca.customer_id = w.customer_id   -- ✅ الربط الصحيح
 
 LEFT JOIN restaurants r 
   ON r.id = w.restaurant_id
@@ -94,12 +89,13 @@ LEFT JOIN users u
 LEFT JOIN wassel_order_items i 
   ON i.order_id = w.id
 
-WHERE w.display_type='manual'
+WHERE w.display_type = 'manual'
 
 GROUP BY w.id
 ORDER BY w.id DESC
 
 `);
+
 
 
     res.json({ success:true, orders:rows });
