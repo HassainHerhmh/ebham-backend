@@ -133,6 +133,18 @@ const {
       const availableFunds = wallet ? Number(wallet.balance) + Number(wallet.credit_limit) : 0;
       if (availableFunds < totalAmount) return res.status(400).json({ success: false, message: "الرصيد غير كافٍ" });
     }
+// تحويل ISO → MySQL DATETIME
+let scheduledAt = null;
+
+if (scheduled_time) {
+  const d = new Date(scheduled_time);
+
+  scheduledAt = d
+    .toISOString()
+    .slice(0, 19)
+    .replace("T", " ");
+}
+
 const status = scheduled_time ? "scheduled" : "pending";
 
 const [result] = await db.query(`
@@ -164,11 +176,11 @@ const [result] = await db.query(`
   delivery_fee || 0,
   extra_fee || 0,
   notes || "",
-  status,                 // 👈 مهم
+  status,
   payment_method,
   bank_id || null,
   req.user.id,
-  scheduled_time || null  // 👈 مهم
+  scheduledAt   // ✅ هنا
 ]);
 
 
