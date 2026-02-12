@@ -106,7 +106,18 @@ router.get("/", async (req, res) => {
 ============================================== */
 router.post("/", async (req, res) => {
   try {
-    const { customer_id, order_type, from_address, to_address, delivery_fee, extra_fee, notes, payment_method, bank_id } = req.body;
+const {
+  customer_id,
+  order_type,
+  from_address,
+  to_address,
+  delivery_fee,
+  extra_fee,
+  notes,
+  payment_method,
+  bank_id,
+  scheduled_time   // 👈 أضف هذا
+} = req.body;
     const totalAmount = Number(delivery_fee || 0) + Number(extra_fee || 0);
 
     if (payment_method === "wallet" && customer_id) {
@@ -122,8 +133,10 @@ router.post("/", async (req, res) => {
       const availableFunds = wallet ? Number(wallet.balance) + Number(wallet.credit_limit) : 0;
       if (availableFunds < totalAmount) return res.status(400).json({ success: false, message: "الرصيد غير كافٍ" });
     }
+const status = scheduled_time ? "scheduled" : "pending";
 
 const [result] = await db.query(`
+
   INSERT INTO wassel_orders 
   (
     customer_id,
@@ -137,10 +150,12 @@ const [result] = await db.query(`
     payment_method,
     bank_id,
     user_id,
+    scheduled_at,
     is_manual,
     created_at
   )
-  VALUES (?,?,?,?,?,?,?, 'pending', ?,?,?, 0, NOW())
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,NOW())
+
 `, [
   customer_id || null,
   order_type,
@@ -149,10 +164,13 @@ const [result] = await db.query(`
   delivery_fee || 0,
   extra_fee || 0,
   notes || "",
+  status,                 // 👈 مهم
   payment_method,
   bank_id || null,
-  req.user.id
+  req.user.id,
+  scheduled_time || null  // 👈 مهم
 ]);
+
 
 
     res.json({ success: true, order_id: result.insertId });
