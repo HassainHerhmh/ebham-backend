@@ -171,7 +171,29 @@ router.put("/status/:id", async (req, res) => {
     const orderId = req.params.id;
     await conn.beginTransaction();
 
-    await conn.query(`UPDATE wassel_orders SET status = ?, updated_by = ? WHERE id = ?`, [status, req.user.id, orderId]);
+let timeField = null;
+
+if (status === "processing")  timeField = "processing_at";
+if (status === "ready")       timeField = "ready_at";
+if (status === "delivering")  timeField = "delivering_at";
+if (status === "completed")   timeField = "completed_at";
+if (status === "cancelled")   timeField = "cancelled_at";
+
+if (timeField) {
+  await conn.query(
+    `UPDATE wassel_orders 
+     SET status = ?, ${timeField} = NOW(), updated_by = ?
+     WHERE id = ?`,
+    [status, req.user.id, orderId]
+  );
+} else {
+  await conn.query(
+    `UPDATE wassel_orders 
+     SET status = ?, updated_by = ?
+     WHERE id = ?`,
+    [status, req.user.id, orderId]
+  );
+}
 
     if (status === "delivering") {
       const [[settings]] = await conn.query("SELECT * FROM settings LIMIT 1");
