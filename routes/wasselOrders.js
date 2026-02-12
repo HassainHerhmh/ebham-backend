@@ -433,7 +433,7 @@ async function insertEntry(conn, acc, deb, cre, notes, ref, req) {
 }
 
 /* ==============================================
-    7️⃣ تعديل طلب
+    7️⃣ تعديل طلب (مع معالجة الإحداثيات)
 ============================================== */
 router.put("/:id", async (req, res) => {
   try {
@@ -443,23 +443,30 @@ router.put("/:id", async (req, res) => {
     const {
       customer_id,
       order_type,
+
       from_address,
       to_address,
+
       from_address_id,
       to_address_id,
+
       from_lat,
       from_lng,
       to_lat,
       to_lng,
+
       delivery_fee,
       extra_fee,
       notes,
+
       payment_method,
       bank_id,
       scheduled_time
     } = req.body;
 
-    // تحويل وقت الجدولة
+    /* ======================
+       معالجة وقت الجدولة
+    ====================== */
     let scheduledAt = null;
     let status = "pending";
 
@@ -473,6 +480,45 @@ router.put("/:id", async (req, res) => {
 
       status = "scheduled";
     }
+
+    /* ======================
+       معالجة الإحداثيات
+    ====================== */
+
+    let finalFromLat = from_lat;
+    let finalFromLng = from_lng;
+
+    let finalToLat   = to_lat;
+    let finalToLng   = to_lng;
+
+    // لو العنوان من المحفوظ → جيب الإحداثيات من قاعدة البيانات
+    if (from_address_id) {
+      const [[addr]] = await db.query(
+        "SELECT latitude, longitude FROM customer_addresses WHERE id = ?",
+        [from_address_id]
+      );
+
+      if (addr) {
+        finalFromLat = addr.latitude;
+        finalFromLng = addr.longitude;
+      }
+    }
+
+    if (to_address_id) {
+      const [[addr]] = await db.query(
+        "SELECT latitude, longitude FROM customer_addresses WHERE id = ?",
+        [to_address_id]
+      );
+
+      if (addr) {
+        finalToLat = addr.latitude;
+        finalToLng = addr.longitude;
+      }
+    }
+
+    /* ======================
+       التحديث
+    ====================== */
 
     await db.query(`
       UPDATE wassel_orders SET
@@ -513,12 +559,12 @@ router.put("/:id", async (req, res) => {
       to_address_id || null,
 
       from_address,
-      from_lat,
-      from_lng,
+      finalFromLat,   // ✅ مضمون
+      finalFromLng,   // ✅ مضمون
 
       to_address,
-      to_lat,
-      to_lng,
+      finalToLat,     // ✅ مضمون
+      finalToLng,     // ✅ مضمون
 
       delivery_fee || 0,
       extra_fee || 0,
@@ -539,8 +585,12 @@ router.put("/:id", async (req, res) => {
 
   } catch (err) {
     console.error("Update Order Error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 });
+
 
 export default router;
