@@ -213,7 +213,11 @@ router.get("/", async (req, res) => {
         c.name AS customer_name,
         c.phone AS customer_phone,
         u.name AS user_name,
-        o.status,
+u2.name AS updater_name,
+u1.name AS creator_name,
+
+o.status,
+
         o.note,
 
         o.total_amount,
@@ -221,7 +225,7 @@ router.get("/", async (req, res) => {
         o.extra_store_fee,
         o.stores_count,
         o.created_at,
-
+         
         cap.name AS captain_name,
         o.payment_method,
 
@@ -243,6 +247,9 @@ router.get("/", async (req, res) => {
       LEFT JOIN customer_addresses ca ON o.address_id = ca.id 
       LEFT JOIN neighborhoods n ON ca.district = n.id
       LEFT JOIN branches b ON b.id = o.branch_id
+      LEFT JOIN users u1 ON o.created_by = u1.id
+LEFT JOIN users u2 ON o.updated_by = u2.id
+
     `;
 
     let rows = [];
@@ -298,15 +305,17 @@ router.get("/", async (req, res) => {
 ===================================================== */
 router.post("/", async (req, res) => {
   try {
-    const {
-      customer_id,
-      address_id,
-      restaurants, // المصفوفة القادمة من الفرونت إند
-      payment_method,
-      bank_id,
-       note ,
-      gps_link
-    } = req.body;
+const {
+  customer_id,
+  address_id,
+  restaurants,
+  payment_method,
+  bank_id,
+  note,
+  gps_link,
+  scheduled_at // ✅ جديد
+} = req.body;
+
 
     const user = req.user || {}; 
 
@@ -382,38 +391,48 @@ router.post("/", async (req, res) => {
     // إنشاء رأس الطلب (Order Header)
     const [result] = await db.query(
   `
-  INSERT INTO orders (
-    customer_id,
-    address_id,
-    restaurant_id,
-    note,
-    gps_link,
-    stores_count,
-    branch_id,
-    user_id,
-    delivery_fee,
-    extra_store_fee,
-    payment_method,
-    bank_id
-  )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ INSERT INTO orders (
+  customer_id,
+  address_id,
+  restaurant_id,
+   created_by,
+  updated_by,
+  note,
+  gps_link,
+  stores_count,
+  branch_id,
+  user_id,
+  delivery_fee,
+  extra_store_fee,
+  payment_method,
+  bank_id,
+  scheduled_at,   -- ✅
+  status          -- ✅
+)
+
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+
   `,
-  [
-    customer_id,
-    address_id,
-    mainRestaurantId,
+[
+  customer_id,
+  address_id,
+  mainRestaurantId,
+   userId,   // created_by
+  userId,   // updated_by
+  note || null,
+  gps_link || null,
+  storesCount,
+  branchId,
+  userId,
+  deliveryFee,
+  extraStoreFee,
+  payment_method || null,
+  bank_id || null,
 
-    note || null,      // ✅ أولاً note
-    gps_link || null,  // ✅ ثم gps_link
+  scheduled_at || null,                        // ✅
+  scheduled_at ? "scheduled" : "pending"      // ✅
+]
 
-    storesCount,
-    branchId,
-    userId,
-    deliveryFee,
-    extraStoreFee,
-    payment_method || null,
-    bank_id || null
-  ]
 );
 
 
@@ -644,8 +663,60 @@ router.put("/:id/status", async (req, res) => {
 
     await conn.beginTransaction();
 
+     // منع اعتماد الطلب المجدول قبل وقته
+if (status === "confirmed" || status === "processing") {
+
+  const [[row]] = await conn.query(
+    "SELECT scheduled_at FROM orders WHERE id=?",
+    [orderId]
+  );
+
+  if (row?.scheduled_at) {
+
+    const now = new Date();
+    const sch = new Date(row.scheduled_at);
+
+    if (now < sch) {
+      return res.status(400).json({
+        success: false,
+        message: "⏰ لا يمكن اعتماد الطلب قبل وقت الجدولة"
+      });
+    }
+  }
+}
+
     // 1. تحديث حالة الطلب
-    await conn.query("UPDATE orders SET status=? WHERE id=?", [status, orderId]);
+let timeField = null;
+
+if (status === "confirmed" || status === "preparing")
+  timeField = "processing_at";
+
+if (status === "delivering") timeField = "delivering_at";
+if (status === "completed") timeField = "completed_at";
+if (status === "cancelled") timeField = "cancelled_at";
+
+if (timeField) {
+
+await conn.query(
+  `UPDATE orders 
+   SET status=?,
+       ${timeField}=NOW(),
+       scheduled_at=NULL,
+       updated_by=?
+   WHERE id=?`,
+  [status, req.user.id, orderId]
+);
+
+
+} else {
+
+  await conn.query(
+    `UPDATE orders 
+     SET status=?, updated_by=?
+     WHERE id=?`,
+    [status, req.user.id, orderId]
+  );
+}
 
     // 2. توليد القيود عند الانتقال لحالة "قيد التوصيل"
     if (status === "delivering") {
