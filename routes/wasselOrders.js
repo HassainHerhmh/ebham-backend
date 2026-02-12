@@ -173,11 +173,17 @@ router.put("/status/:id", async (req, res) => {
 
 let timeField = null;
 
-if (status === "processing")  timeField = "processing_at";
-if (status === "ready")       timeField = "ready_at";
-if (status === "delivering")  timeField = "delivering_at";
-if (status === "completed")   timeField = "completed_at";
-if (status === "cancelled")   timeField = "cancelled_at";
+// عند الاعتماد → مؤكد = يبدأ المعالجة
+if (status === "confirmed")  timeField = "processing_at";
+
+// عند التوصيل
+if (status === "delivering") timeField = "delivering_at";
+
+// عند الاكتمال
+if (status === "completed")  timeField = "completed_at";
+
+// عند الإلغاء
+if (status === "cancelled")  timeField = "cancelled_at";
 
 if (timeField) {
   await conn.query(
@@ -194,6 +200,7 @@ if (timeField) {
     [status, req.user.id, orderId]
   );
 }
+
 
     if (status === "delivering") {
       const [[settings]] = await conn.query("SELECT * FROM settings LIMIT 1");
