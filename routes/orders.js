@@ -184,16 +184,16 @@ ORDER BY o.id DESC
 /* =========================
    GET /orders
 ========================= */
-/* =========================
-   GET /orders
-========================= */
 router.get("/", async (req, res) => {
   try {
     const user = req.user;
 
     const limit = Number(req.query.limit) || 100;
-    const dateFilter = req.query.date || "all";
+    const dateFilter = req.query.date || "all"; // all | today | week
 
+    /* ======================
+       فلترة التاريخ من السيرفر
+    ====================== */
     let dateWhere = "";
 
     if (dateFilter === "today") {
@@ -204,88 +204,88 @@ router.get("/", async (req, res) => {
       dateWhere = "AND o.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)";
     }
 
-    const baseQuery = `
-    SELECT 
-      o.id,
+    /* ======================
+       الاستعلام الأساسي
+    ====================== */
+ const baseQuery = `
+  SELECT 
+    o.id,
 
-      o.scheduled_at,
-      o.processing_at,
-      o.ready_at,
-      o.delivering_at,
-      o.completed_at,
-      o.cancelled_at,
+    -- ⏱️ أوقات الحركة
+    o.scheduled_at,
+    o.processing_at,
+    o.ready_at,
+    o.delivering_at,
+    o.completed_at,
+    o.cancelled_at,
 
-      c.name AS customer_name,
-      c.phone AS customer_phone,
+    c.name AS customer_name,
+    c.phone AS customer_phone,
 
-      o.status,
-      o.note,
-      o.total_amount,
-      o.delivery_fee,
-      o.extra_store_fee,
-      o.stores_count,
-      o.created_at,
+    u.name AS user_name,
+    u2.name AS updater_name,
+    u1.name AS creator_name,
 
-      cap.name AS captain_name,
+    o.status,
+    o.note,
+    o.total_amount,
+    o.delivery_fee,
+    o.extra_store_fee,
+    o.stores_count,
+    o.created_at,
 
-      o.payment_method,
+    cap.name AS captain_name,
+    o.payment_method,
 
-      CASE o.payment_method
-        WHEN 'cod' THEN 'الدفع عند الاستلام'
-        WHEN 'bank' THEN 'إيداع بنكي'
-        WHEN 'wallet' THEN 'من الرصيد'
-        WHEN 'online' THEN 'دفع إلكتروني'
-        ELSE '-'
-      END AS payment_method_label,
+    n.name AS neighborhood_name,
+    b.name AS branch_name,
 
-      n.name AS neighborhood_name,
-      ca.address AS customer_address,
-      ca.latitude,
-      ca.longitude,
+        CASE o.payment_method
+          WHEN 'cod' THEN 'الدفع عند الاستلام'
+          WHEN 'bank' THEN 'إيداع بنكي'
+          WHEN 'wallet' THEN 'من الرصيد'
+          WHEN 'online' THEN 'دفع إلكتروني'
+          ELSE '-'
+        END AS payment_method_label
 
-      b.name AS branch_name,
-      b.latitude AS branch_lat,
-      b.longitude AS branch_lng,
+      FROM orders o
+      JOIN customers c ON c.id = o.customer_id
+      LEFT JOIN captains cap ON cap.id = o.captain_id
+      LEFT JOIN users u ON o.user_id = u.id
+      LEFT JOIN customer_addresses ca ON o.address_id = ca.id 
+      LEFT JOIN neighborhoods n ON ca.district = n.id
+      LEFT JOIN branches b ON b.id = o.branch_id
+      LEFT JOIN users u1 ON o.created_by = u1.id
+LEFT JOIN users u2 ON o.updated_by = u2.id
 
-      GROUP_CONCAT(DISTINCT r.name) AS restaurant_names
-
-    FROM orders o
-
-    JOIN customers c ON c.id = o.customer_id
-    LEFT JOIN captains cap ON cap.id = o.captain_id
-    LEFT JOIN customer_addresses ca ON o.address_id = ca.id
-    LEFT JOIN neighborhoods n ON ca.district = n.id
-    LEFT JOIN branches b ON b.id = o.branch_id
-    LEFT JOIN order_items oi ON oi.order_id = o.id
-    LEFT JOIN restaurants r ON r.id = oi.restaurant_id
     `;
 
     let rows = [];
 
-    /* ===== Admin Branch ===== */
+    /* ======================
+       Admin Branch
+    ====================== */
     if (user.is_admin_branch) {
-
       [rows] = await db.query(
         `
         ${baseQuery}
-        WHERE o.branch_id = ?
+        WHERE 1=1
         ${dateWhere}
-        GROUP BY o.id
         ORDER BY o.id DESC
         LIMIT ?
         `,
-        [user.branch_id, limit]
+        [limit]
       );
 
-    /* ===== User Branch ===== */
+    /* ======================
+       User Branch
+    ====================== */
     } else {
-
       [rows] = await db.query(
         `
         ${baseQuery}
         WHERE o.branch_id = ?
         ${dateWhere}
-        GROUP BY o.id
         ORDER BY o.id DESC
         LIMIT ?
         `,
@@ -307,7 +307,6 @@ router.get("/", async (req, res) => {
     });
   }
 });
-
 
 /* ===================================================
    POST /orders (المحسن لدعم تكرار الطلب ومنع الأخطاء)
