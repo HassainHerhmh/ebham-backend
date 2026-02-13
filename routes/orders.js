@@ -218,10 +218,15 @@ router.get("/", async (req, res) => {
     o.delivering_at,
     o.completed_at,
     o.cancelled_at,
-
+  -- المطعم
+  r.name AS restaurant_name,
+  r.address AS restaurant_address,
+  
     c.name AS customer_name,
     c.phone AS customer_phone,
-
+  ca.latitude,
+  ca.longitude,
+  
     u.name AS user_name,
     u2.name AS updater_name,
     u1.name AS creator_name,
@@ -255,6 +260,8 @@ router.get("/", async (req, res) => {
       LEFT JOIN customer_addresses ca ON o.address_id = ca.id 
       LEFT JOIN neighborhoods n ON ca.district = n.id
       LEFT JOIN branches b ON b.id = o.branch_id
+      LEFT JOIN restaurants r ON r.id = o.restaurant_id
+
       LEFT JOIN users u1 ON o.created_by = u1.id
 LEFT JOIN users u2 ON o.updated_by = u2.id
 
