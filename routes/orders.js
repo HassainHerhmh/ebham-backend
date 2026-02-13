@@ -207,58 +207,75 @@ router.get("/", async (req, res) => {
     /* ======================
        الاستعلام الأساسي
     ====================== */
- const baseQuery = `
-  SELECT 
-    o.id,
+const baseQuery = `
+SELECT 
+  o.id,
 
-    -- ⏱️ أوقات الحركة
-    o.scheduled_at,
-    o.processing_at,
-    o.ready_at,
-    o.delivering_at,
-    o.completed_at,
-    o.cancelled_at,
+  -- الأوقات
+  o.scheduled_at,
+  o.processing_at,
+  o.ready_at,
+  o.delivering_at,
+  o.completed_at,
+  o.cancelled_at,
 
-    c.name AS customer_name,
-    c.phone AS customer_phone,
+  -- العميل
+  c.name AS customer_name,
+  c.phone AS customer_phone,
 
-    u.name AS user_name,
-    u2.name AS updater_name,
-    u1.name AS creator_name,
+  -- الحالة
+  o.status,
+  o.note,
+  o.total_amount,
+  o.delivery_fee,
+  o.extra_store_fee,
+  o.stores_count,
+  o.created_at,
 
-    o.status,
-    o.note,
-    o.total_amount,
-    o.delivery_fee,
-    o.extra_store_fee,
-    o.stores_count,
-    o.created_at,
+  -- الكابتن
+  cap.name AS captain_name,
 
-    cap.name AS captain_name,
-    o.payment_method,
+  -- الدفع
+  o.payment_method,
 
-    n.name AS neighborhood_name,
-    b.name AS branch_name,
+  CASE o.payment_method
+    WHEN 'cod' THEN 'الدفع عند الاستلام'
+    WHEN 'bank' THEN 'إيداع بنكي'
+    WHEN 'wallet' THEN 'من الرصيد'
+    WHEN 'online' THEN 'دفع إلكتروني'
+    ELSE '-'
+  END AS payment_method_label,
 
-        CASE o.payment_method
-          WHEN 'cod' THEN 'الدفع عند الاستلام'
-          WHEN 'bank' THEN 'إيداع بنكي'
-          WHEN 'wallet' THEN 'من الرصيد'
-          WHEN 'online' THEN 'دفع إلكتروني'
-          ELSE '-'
-        END AS payment_method_label
+  -- العنوان
+  n.name AS neighborhood_name,
+  ca.address AS customer_address,
+  ca.latitude,
+  ca.longitude,
 
-      FROM orders o
-      JOIN customers c ON c.id = o.customer_id
-      LEFT JOIN captains cap ON cap.id = o.captain_id
-      LEFT JOIN users u ON o.user_id = u.id
-      LEFT JOIN customer_addresses ca ON o.address_id = ca.id 
-      LEFT JOIN neighborhoods n ON ca.district = n.id
-      LEFT JOIN branches b ON b.id = o.branch_id
-      LEFT JOIN users u1 ON o.created_by = u1.id
-LEFT JOIN users u2 ON o.updated_by = u2.id
+  -- الفرع
+  b.name AS branch_name,
+  b.latitude AS branch_lat,
+  b.longitude AS branch_lng,
 
-    `;
+  -- المطاعم
+  GROUP_CONCAT(DISTINCT r.name) AS restaurant_names
+
+FROM orders o
+
+JOIN customers c ON c.id = o.customer_id
+
+LEFT JOIN captains cap ON cap.id = o.captain_id
+
+LEFT JOIN customer_addresses ca ON o.address_id = ca.id
+
+LEFT JOIN neighborhoods n ON ca.district = n.id
+
+LEFT JOIN branches b ON b.id = o.branch_id
+
+LEFT JOIN order_items oi ON oi.order_id = o.id
+
+LEFT JOIN restaurants r ON r.id = oi.restaurant_id
+`;
 
     let rows = [];
 
@@ -268,11 +285,13 @@ LEFT JOIN users u2 ON o.updated_by = u2.id
     if (user.is_admin_branch) {
       [rows] = await db.query(
         `
-        ${baseQuery}
-        WHERE 1=1
-        ${dateWhere}
-        ORDER BY o.id DESC
-        LIMIT ?
+   ${baseQuery}
+WHERE o.branch_id = ?
+${dateWhere}
+GROUP BY o.id
+ORDER BY o.id DESC
+LIMIT ?
+
         `,
         [limit]
       );
