@@ -155,6 +155,9 @@ app.use("/api/restaurants", restaurantsRoutes);
 import captainsRoutes from "./routes/captains.js";
 app.use("/api/captains", captainsRoutes);
 
+import captainAuth from "./routes/captainAuth.js";
+
+app.use("/api/captain-auth", captainAuth);
 
 /* =========================
    مجموعة الكباتن
