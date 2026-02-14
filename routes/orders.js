@@ -220,10 +220,12 @@ SELECT
   o.cancelled_at,
 
   -- المطعم
-  r.name AS restaurant_name,
-  r.address AS restaurant_address,
-  r.latitude AS restaurant_lat,
-  r.longitude AS restaurant_lng,
+GROUP_CONCAT(DISTINCT r.id) AS restaurant_ids,
+GROUP_CONCAT(DISTINCT r.name SEPARATOR '||') AS restaurant_names,
+GROUP_CONCAT(DISTINCT r.address SEPARATOR '||') AS restaurant_addresses,
+GROUP_CONCAT(DISTINCT r.latitude SEPARATOR '||') AS restaurant_lats,
+GROUP_CONCAT(DISTINCT r.longitude SEPARATOR '||') AS restaurant_lngs,
+
 
   -- العميل
   c.name AS customer_name,
@@ -267,7 +269,8 @@ LEFT JOIN users u2 ON o.updated_by = u2.id
 LEFT JOIN customer_addresses ca ON o.address_id = ca.id
 LEFT JOIN neighborhoods n ON ca.district = n.id
 LEFT JOIN branches b ON b.id = o.branch_id
-LEFT JOIN restaurants r ON r.id = o.restaurant_id
+LEFT JOIN order_items oi ON oi.order_id = o.id
+LEFT JOIN restaurants r ON r.id = oi.restaurant_id
 `;
 
 
@@ -277,31 +280,35 @@ LEFT JOIN restaurants r ON r.id = o.restaurant_id
        Admin Branch
     ====================== */
     if (user.is_admin_branch) {
-      [rows] = await db.query(
-        `
-        ${baseQuery}
-        WHERE 1=1
-        ${dateWhere}
-        ORDER BY o.id DESC
-        LIMIT ?
-        `,
-        [limit]
-      );
+   [rows] = await db.query(
+  `
+  ${baseQuery}
+  WHERE 1=1
+  ${dateWhere}
+  GROUP BY o.id
+  ORDER BY o.id DESC
+  LIMIT ?
+  `,
+  [limit]
+);
+
 
     /* ======================
        User Branch
     ====================== */
     } else {
-      [rows] = await db.query(
-        `
-        ${baseQuery}
-        WHERE o.branch_id = ?
-        ${dateWhere}
-        ORDER BY o.id DESC
-        LIMIT ?
-        `,
-        [user.branch_id, limit]
-      );
+ [rows] = await db.query(
+  `
+  ${baseQuery}
+  WHERE o.branch_id = ?
+  ${dateWhere}
+  GROUP BY o.id
+  ORDER BY o.id DESC
+  LIMIT ?
+  `,
+  [user.branch_id, limit]
+);
+
     }
 
     res.json({
