@@ -219,13 +219,12 @@ SELECT
   o.completed_at,
   o.cancelled_at,
 
-  -- المطعم
-GROUP_CONCAT(r.id ORDER BY oi.id SEPARATOR '||') AS restaurant_ids,
-GROUP_CONCAT(r.name ORDER BY oi.id SEPARATOR '||') AS restaurant_names,
-GROUP_CONCAT(r.address ORDER BY oi.id SEPARATOR '||') AS restaurant_addresses,
-GROUP_CONCAT(r.latitude ORDER BY oi.id SEPARATOR '||') AS restaurant_lats,
-GROUP_CONCAT(r.longitude ORDER BY oi.id SEPARATOR '||') AS restaurant_lngs,
-
+  -- المطاعم (مهم جدًا ORDER BY ثابت)
+  GROUP_CONCAT(r.id ORDER BY r.id SEPARATOR '||') AS restaurant_ids,
+  GROUP_CONCAT(r.name ORDER BY r.id SEPARATOR '||') AS restaurant_names,
+  GROUP_CONCAT(r.address ORDER BY r.id SEPARATOR '||') AS restaurant_addresses,
+  GROUP_CONCAT(IFNULL(r.latitude,'') ORDER BY r.id SEPARATOR '||') AS restaurant_lats,
+  GROUP_CONCAT(IFNULL(r.longitude,'') ORDER BY r.id SEPARATOR '||') AS restaurant_lngs,
 
   -- العميل
   c.name AS customer_name,
@@ -261,20 +260,27 @@ GROUP_CONCAT(r.longitude ORDER BY oi.id SEPARATOR '||') AS restaurant_lngs,
   END AS payment_method_label
 
 FROM orders o
+
 JOIN customers c ON c.id = o.customer_id
+
 LEFT JOIN captains cap ON cap.id = o.captain_id
 LEFT JOIN users u ON o.user_id = u.id
 LEFT JOIN users u1 ON o.created_by = u1.id
 LEFT JOIN users u2 ON o.updated_by = u2.id
+
 LEFT JOIN customer_addresses ca ON o.address_id = ca.id
 LEFT JOIN neighborhoods n ON ca.district = n.id
 LEFT JOIN branches b ON b.id = o.branch_id
+
 LEFT JOIN (
-  SELECT DISTINCT order_id, restaurant_id
+  SELECT order_id, restaurant_id
   FROM order_items
+  GROUP BY order_id, restaurant_id
 ) oi ON oi.order_id = o.id
+
 LEFT JOIN restaurants r ON r.id = oi.restaurant_id
 
+GROUP BY o.id
 `;
 
 
@@ -314,6 +320,23 @@ LEFT JOIN restaurants r ON r.id = oi.restaurant_id
 );
 
     }
+
+
+     rows.forEach(order => {
+
+  const names = order.restaurant_names?.split("||") || [];
+  const addresses = order.restaurant_addresses?.split("||") || [];
+  const lats = order.restaurant_lats?.split("||") || [];
+  const lngs = order.restaurant_lngs?.split("||") || [];
+
+  order.restaurants = names.map((name, i) => ({
+    name,
+    address: addresses[i] || "",
+    latitude: lats[i] || null,
+    longitude: lngs[i] || null
+  }));
+
+});
 
     res.json({
       success: true,
