@@ -269,8 +269,12 @@ LEFT JOIN users u2 ON o.updated_by = u2.id
 LEFT JOIN customer_addresses ca ON o.address_id = ca.id
 LEFT JOIN neighborhoods n ON ca.district = n.id
 LEFT JOIN branches b ON b.id = o.branch_id
-LEFT JOIN order_items oi ON oi.order_id = o.id
+LEFT JOIN (
+  SELECT DISTINCT order_id, restaurant_id
+  FROM order_items
+) oi ON oi.order_id = o.id
 LEFT JOIN restaurants r ON r.id = oi.restaurant_id
+
 `;
 
 
