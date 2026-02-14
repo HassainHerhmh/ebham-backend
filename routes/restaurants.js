@@ -174,7 +174,10 @@ router.get("/", async (req, res) => {
         r.phone,
         r.image_url,
         r.map_url,
-        r.delivery_time,
+r.latitude,
+r.longitude,
+r.delivery_time,
+
         r.is_active,
         r.created_at,
         r.sort_order,
