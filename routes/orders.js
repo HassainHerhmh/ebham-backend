@@ -280,7 +280,6 @@ LEFT JOIN (
 
 LEFT JOIN restaurants r ON r.id = oi.restaurant_id
 
-GROUP BY o.id
 `;
 
 
