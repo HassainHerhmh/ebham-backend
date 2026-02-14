@@ -1245,4 +1245,40 @@ router.post("/:id/item", async (req, res) => {
 
 });
 
+//////اضاف منتج تطبيق الكباتن
+router.get("/restaurants/:id/products", async (req, res) => {
+
+  try {
+
+    const restaurantId = req.params.id;
+
+    const [rows] = await db.query(`
+      SELECT 
+        id,
+        name,
+        price
+      FROM products
+      WHERE restaurant_id = ?
+      AND is_available = 1
+      ORDER BY name
+    `,[restaurantId]);
+
+    res.json({
+      success:true,
+      products:rows
+    });
+
+  } catch(err){
+
+    console.error(err);
+
+    res.json({
+      success:false,
+      products:[]
+    });
+
+  }
+
+});
+
 export default router;
