@@ -204,7 +204,7 @@ router.get("/", async (req, res) => {
       dateWhere = "AND o.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)";
     }
 
-    /* ======================
+  /* ======================
        الاستعلام الأساسي
     ====================== */
 const baseQuery = `
@@ -219,12 +219,12 @@ SELECT
   o.completed_at,
   o.cancelled_at,
 
-  -- المطاعم
-  GROUP_CONCAT(DISTINCT r.id ORDER BY r.id SEPARATOR '||') AS restaurant_ids,
-  GROUP_CONCAT(DISTINCT r.name ORDER BY r.id SEPARATOR '||') AS restaurant_names,
-  GROUP_CONCAT(DISTINCT r.address ORDER BY r.id SEPARATOR '||') AS restaurant_addresses,
-  GROUP_CONCAT(DISTINCT IFNULL(r.latitude,'') ORDER BY r.id SEPARATOR '||') AS restaurant_lats,
-  GROUP_CONCAT(DISTINCT IFNULL(r.longitude,'') ORDER BY r.id SEPARATOR '||') AS restaurant_lngs,
+  -- المطاعم (مهم جدًا ORDER BY ثابت)
+  GROUP_CONCAT(r.id ORDER BY r.id SEPARATOR '||') AS restaurant_ids,
+  GROUP_CONCAT(r.name ORDER BY r.id SEPARATOR '||') AS restaurant_names,
+  GROUP_CONCAT(r.address ORDER BY r.id SEPARATOR '||') AS restaurant_addresses,
+  GROUP_CONCAT(IFNULL(r.latitude,'') ORDER BY r.id SEPARATOR '||') AS restaurant_lats,
+  GROUP_CONCAT(IFNULL(r.longitude,'') ORDER BY r.id SEPARATOR '||') AS restaurant_lngs,
 
   -- العميل
   c.name AS customer_name,
@@ -234,30 +234,53 @@ SELECT
   ca.latitude,
   ca.longitude,
 
-  -- إضافي
+  -- معلومات إضافية
+  u.name AS user_name,
+  u1.name AS creator_name,
+  u2.name AS updater_name,
+
   o.status,
+  o.note,
   o.total_amount,
   o.delivery_fee,
   o.extra_store_fee,
+  o.stores_count,
   o.created_at,
 
   cap.name AS captain_name,
-  b.name AS branch_name
+  o.payment_method,
+  b.name AS branch_name,
+
+  CASE o.payment_method
+    WHEN 'cod' THEN 'الدفع عند الاستلام'
+    WHEN 'bank' THEN 'إيداع بنكي'
+    WHEN 'wallet' THEN 'من الرصيد'
+    WHEN 'online' THEN 'دفع إلكتروني'
+    ELSE '-'
+  END AS payment_method_label
 
 FROM orders o
 
 JOIN customers c ON c.id = o.customer_id
 
 LEFT JOIN captains cap ON cap.id = o.captain_id
+LEFT JOIN users u ON o.user_id = u.id
+LEFT JOIN users u1 ON o.created_by = u1.id
+LEFT JOIN users u2 ON o.updated_by = u2.id
+
 LEFT JOIN customer_addresses ca ON o.address_id = ca.id
 LEFT JOIN neighborhoods n ON ca.district = n.id
 LEFT JOIN branches b ON b.id = o.branch_id
 
-LEFT JOIN order_items oi ON oi.order_id = o.id
+LEFT JOIN (
+  SELECT order_id, restaurant_id
+  FROM order_items
+  GROUP BY order_id, restaurant_id
+) oi ON oi.order_id = o.id
+
 LEFT JOIN restaurants r ON r.id = oi.restaurant_id
 
 `;
-
 
 
     let rows = [];
@@ -912,7 +935,7 @@ router.post("/:id/assign", async (req, res) => {
   }
 });
 
-
+//المنتجات
 // routes/products.js أو داخل orders.js
 
 router.post("/products/check", async (req, res) => {
@@ -944,5 +967,52 @@ router.post("/products/check", async (req, res) => {
 });
 
 
+router.get("/:id/details", async (req, res) => {
+
+  try {
+
+    const orderId = req.params.id;
+
+    const [rows] = await db.query(`
+      SELECT 
+
+        r.id AS restaurant_id,
+        r.name AS restaurant_name,
+
+        oi.product_id,
+        oi.quantity,
+        oi.price,
+
+        p.name AS product_name
+
+      FROM order_items oi
+
+      JOIN restaurants r ON r.id = oi.restaurant_id
+      JOIN products p ON p.id = oi.product_id
+
+      WHERE oi.order_id = ?
+
+      ORDER BY r.id
+
+    `, [orderId]);
+
+
+    res.json({
+      success: true,
+      items: rows
+    });
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.json({
+      success: false,
+      items: []
+    });
+
+  }
+
+});
 
 export default router;
