@@ -207,65 +207,69 @@ router.get("/", async (req, res) => {
     /* ======================
        الاستعلام الأساسي
     ====================== */
- const baseQuery = `
-  SELECT 
-    o.id,
+const baseQuery = `
+SELECT 
+  o.id,
 
-    -- ⏱️ أوقات الحركة
-    o.scheduled_at,
-    o.processing_at,
-    o.ready_at,
-    o.delivering_at,
-    o.completed_at,
-    o.cancelled_at,
+  -- ⏱️ أوقات الحركة
+  o.scheduled_at,
+  o.processing_at,
+  o.ready_at,
+  o.delivering_at,
+  o.completed_at,
+  o.cancelled_at,
+
   -- المطعم
   r.name AS restaurant_name,
   r.address AS restaurant_address,
-  
-    c.name AS customer_name,
-    c.phone AS customer_phone,
+  r.latitude AS restaurant_lat,
+  r.longitude AS restaurant_lng,
+
+  -- العميل
+  c.name AS customer_name,
+  c.phone AS customer_phone,
+  n.name AS neighborhood_name,
+  ca.address AS customer_address,
   ca.latitude,
   ca.longitude,
-  
-    u.name AS user_name,
-    u2.name AS updater_name,
-    u1.name AS creator_name,
 
-    o.status,
-    o.note,
-    o.total_amount,
-    o.delivery_fee,
-    o.extra_store_fee,
-    o.stores_count,
-    o.created_at,
+  -- معلومات إضافية
+  u.name AS user_name,
+  u1.name AS creator_name,
+  u2.name AS updater_name,
 
-    cap.name AS captain_name,
-    o.payment_method,
+  o.status,
+  o.note,
+  o.total_amount,
+  o.delivery_fee,
+  o.extra_store_fee,
+  o.stores_count,
+  o.created_at,
 
-    n.name AS neighborhood_name,
-    b.name AS branch_name,
+  cap.name AS captain_name,
+  o.payment_method,
+  b.name AS branch_name,
 
-        CASE o.payment_method
-          WHEN 'cod' THEN 'الدفع عند الاستلام'
-          WHEN 'bank' THEN 'إيداع بنكي'
-          WHEN 'wallet' THEN 'من الرصيد'
-          WHEN 'online' THEN 'دفع إلكتروني'
-          ELSE '-'
-        END AS payment_method_label
+  CASE o.payment_method
+    WHEN 'cod' THEN 'الدفع عند الاستلام'
+    WHEN 'bank' THEN 'إيداع بنكي'
+    WHEN 'wallet' THEN 'من الرصيد'
+    WHEN 'online' THEN 'دفع إلكتروني'
+    ELSE '-'
+  END AS payment_method_label
 
-      FROM orders o
-      JOIN customers c ON c.id = o.customer_id
-      LEFT JOIN captains cap ON cap.id = o.captain_id
-      LEFT JOIN users u ON o.user_id = u.id
-      LEFT JOIN customer_addresses ca ON o.address_id = ca.id 
-      LEFT JOIN neighborhoods n ON ca.district = n.id
-      LEFT JOIN branches b ON b.id = o.branch_id
-      LEFT JOIN restaurants r ON r.id = o.restaurant_id
-
-      LEFT JOIN users u1 ON o.created_by = u1.id
+FROM orders o
+JOIN customers c ON c.id = o.customer_id
+LEFT JOIN captains cap ON cap.id = o.captain_id
+LEFT JOIN users u ON o.user_id = u.id
+LEFT JOIN users u1 ON o.created_by = u1.id
 LEFT JOIN users u2 ON o.updated_by = u2.id
+LEFT JOIN customer_addresses ca ON o.address_id = ca.id
+LEFT JOIN neighborhoods n ON ca.district = n.id
+LEFT JOIN branches b ON b.id = o.branch_id
+LEFT JOIN restaurants r ON r.id = o.restaurant_id
+`;
 
-    `;
 
     let rows = [];
 
