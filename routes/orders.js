@@ -220,11 +220,11 @@ SELECT
   o.cancelled_at,
 
   -- المطعم
-GROUP_CONCAT(DISTINCT r.id) AS restaurant_ids,
-GROUP_CONCAT(DISTINCT r.name SEPARATOR '||') AS restaurant_names,
-GROUP_CONCAT(DISTINCT r.address SEPARATOR '||') AS restaurant_addresses,
-GROUP_CONCAT(DISTINCT r.latitude SEPARATOR '||') AS restaurant_lats,
-GROUP_CONCAT(DISTINCT r.longitude SEPARATOR '||') AS restaurant_lngs,
+GROUP_CONCAT(r.id ORDER BY oi.id SEPARATOR '||') AS restaurant_ids,
+GROUP_CONCAT(r.name ORDER BY oi.id SEPARATOR '||') AS restaurant_names,
+GROUP_CONCAT(r.address ORDER BY oi.id SEPARATOR '||') AS restaurant_addresses,
+GROUP_CONCAT(r.latitude ORDER BY oi.id SEPARATOR '||') AS restaurant_lats,
+GROUP_CONCAT(r.longitude ORDER BY oi.id SEPARATOR '||') AS restaurant_lngs,
 
 
   -- العميل
