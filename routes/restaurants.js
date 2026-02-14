@@ -2,6 +2,27 @@ import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
 import upload, { uploadToCloudinary } from "../middlewares/upload.js";
+function extractLatLng(url) {
+  if (!url) return null;
+
+  const match = url.match(/@([-0-9.]+),([-0-9.]+)/);
+  if (match) {
+    return {
+      lat: parseFloat(match[1]),
+      lng: parseFloat(match[2])
+    };
+  }
+
+  const qMatch = url.match(/q=([-0-9.]+),([-0-9.]+)/);
+  if (qMatch) {
+    return {
+      lat: parseFloat(qMatch[1]),
+      lng: parseFloat(qMatch[2])
+    };
+  }
+
+  return null;
+}
 
 const router = express.Router();
 
