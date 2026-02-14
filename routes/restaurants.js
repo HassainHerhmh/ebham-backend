@@ -261,27 +261,32 @@ if (req.file) {
       "SELECT COALESCE(MAX(sort_order), 0) AS maxOrder FROM restaurants WHERE branch_id=?",
       [finalBranchId]
     );
+const location = extractLatLng(map_url);
+const latitude = location?.lat || null;
+const longitude = location?.lng || null;
 
- const [result] = await db.query(
+const [result] = await db.query(
   `INSERT INTO restaurants
-    (name, type_id, display_type, address, phone, image_url, map_url, delivery_time, is_active, sort_order, branch_id, agent_id, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`, 
+   (name, type_id, display_type, address, phone, image_url, map_url, latitude, longitude, delivery_time, is_active, sort_order, branch_id, agent_id, created_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+  [
+    name,
+    type_id || null,
+    display_type,
+    address,
+    phone,
+    image_url,
+    map_url,
+    latitude,
+    longitude,
+    delivery_time || null,
+    is_active ? 1 : 0,
+    maxOrder + 1,
+    finalBranchId,
+    agent_id || null,
+  ]
+);
 
-      [
-        name,
-        type_id || null,
-         display_type, // 👈 تمرير القيمة هنا
-        address,
-        phone,
-        image_url,
-        map_url,
-        delivery_time || null,
-        is_active ? 1 : 0,
-        maxOrder + 1,
-        finalBranchId,
-        agent_id || null,
-      ]
-    );
 
     const restaurantId = result.insertId;
 
@@ -347,7 +352,17 @@ router.put("/:id", upload.single("image"), async (req, res) => {
      if (display_type !== undefined) { updates.push("display_type=?"); params.push(display_type); } // 👈 تحديث القيمة
     if (address !== undefined) { updates.push("address=?"); params.push(address); }
     if (phone !== undefined) { updates.push("phone=?"); params.push(phone); }
-    if (map_url !== undefined) { updates.push("map_url=?"); params.push(map_url || null); }
+if (map_url !== undefined) {
+  updates.push("map_url=?");
+  params.push(map_url || null);
+
+  const location = extractLatLng(map_url);
+  updates.push("latitude=?");
+  params.push(location?.lat || null);
+
+  updates.push("longitude=?");
+  params.push(location?.lng || null);
+}
     if (type_id !== undefined) { updates.push("type_id=?"); params.push(type_id || null); }
 
     if (agent_id !== undefined) {
