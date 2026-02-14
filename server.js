@@ -15,9 +15,11 @@ app.use((req, res, next) => {
   next();
 }); 
 
+
 /* =========================
-   Middlewares
+   Professional CORS Setup
 ========================= */
+
 const allowedOrigins = [
   "https://ebham-dashboard2.vercel.app",
   "http://localhost:5173",
@@ -25,39 +27,84 @@ const allowedOrigins = [
   "https://localhost",
 ];
 
-app.use(cors({
+// دالة التحقق من origin
+function isAllowedOrigin(origin) {
+
+  // ✅ Android WebView
+  if (!origin || origin === "null" || origin.startsWith("file://")) {
+    return true;
+  }
+
+  // ✅ iOS WebView
+  if (
+    origin.startsWith("capacitor://") ||
+    origin.startsWith("ionic://")
+  ) {
+    return true;
+  }
+
+  // ✅ localhost
+  if (
+    origin.startsWith("http://localhost") ||
+    origin.startsWith("https://localhost") ||
+    origin.startsWith("http://127.0.0.1")
+  ) {
+    return true;
+  }
+
+  // ✅ allowed domains
+  if (allowedOrigins.includes(origin)) {
+    return true;
+  }
+
+  return false;
+}
+
+// إعداد cors في متغير
+const corsOptions = {
+
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
 
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
+    if (isAllowedOrigin(origin)) {
+      callback(null, true);
+    } else {
+      console.log("❌ Blocked by CORS:", origin);
+      callback(new Error("Not allowed by CORS"));
     }
 
-    if (
-      origin.startsWith("capacitor://") ||
-      origin.startsWith("ionic://") ||
-      origin.startsWith("http://localhost") ||
-      origin.startsWith("https://localhost")
-    ) {
-      return callback(null, true);
-    }
-
-    console.log("❌ Blocked by CORS:", origin);
-    callback(new Error("Not allowed by CORS"));
   },
+
   credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-branch-id"],
-}));
+
+  methods: [
+    "GET",
+    "POST",
+    "PUT",
+    "DELETE",
+    "OPTIONS"
+  ],
+
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "x-branch-id"
+  ],
+
+};
+
+// استخدام cors
+app.use(cors(corsOptions));
+
+// دعم preflight requests
+app.options("*", cors(corsOptions));
 
 
-
+/* =========================
+   Body Parsers
+========================= */
 
 app.use(express.json());
-app.use(express.urlencoded({ extended: true })); // ⭐⭐⭐ هذا هو الحل
-
-// مهم جدًا للـ preflight
-app.options("*", cors());
+app.use(express.urlencoded({ extended: true }));
 
 /* =========================
    📡 Ping Test (فحص الاتصال)
