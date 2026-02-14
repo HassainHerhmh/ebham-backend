@@ -1014,5 +1014,235 @@ router.get("/:id/details", async (req, res) => {
   }
 
 });
+/* =========================
+   DELETE /orders/item/:id
+========================= */
+router.delete("/item/:id", async (req, res) => {
+
+  const conn = await db.getConnection();
+
+  try {
+
+    const itemId = req.params.id;
+
+    await conn.beginTransaction();
+
+    // جلب بيانات المنتج قبل الحذف
+    const [[item]] = await conn.query(
+      `
+      SELECT order_id, price, quantity
+      FROM order_items
+      WHERE id=?
+      `,
+      [itemId]
+    );
+
+    if (!item) {
+      return res.json({ success:false });
+    }
+
+    const subtotal =
+      Number(item.price) * Number(item.quantity);
+
+    // حذف المنتج
+    await conn.query(
+      `DELETE FROM order_items WHERE id=?`,
+      [itemId]
+    );
+
+    // تحديث إجمالي الطلب
+    await conn.query(
+      `
+      UPDATE orders
+      SET total_amount = total_amount - ?
+      WHERE id=?
+      `,
+      [subtotal, item.order_id]
+    );
+
+    await conn.commit();
+
+    res.json({ success:true });
+
+  } catch(err){
+
+    await conn.rollback();
+
+    console.error(err);
+
+    res.status(500).json({ success:false });
+
+  } finally {
+
+    conn.release();
+
+  }
+
+});
+/* =========================
+   PUT /orders/item/:id
+========================= */
+router.put("/item/:id", async (req, res) => {
+
+  const conn = await db.getConnection();
+
+  try {
+
+    const itemId = req.params.id;
+    const { quantity } = req.body;
+
+    if (!quantity || quantity < 1) {
+      return res.json({ success:false });
+    }
+
+    await conn.beginTransaction();
+
+    const [[item]] = await conn.query(
+      `
+      SELECT order_id, price, quantity
+      FROM order_items
+      WHERE id=?
+      `,
+      [itemId]
+    );
+
+    if (!item) {
+      return res.json({ success:false });
+    }
+
+    const oldTotal =
+      Number(item.price) * Number(item.quantity);
+
+    const newTotal =
+      Number(item.price) * Number(quantity);
+
+    const diff = newTotal - oldTotal;
+
+    // تحديث الكمية
+    await conn.query(
+      `
+      UPDATE order_items
+      SET quantity=?
+      WHERE id=?
+      `,
+      [quantity, itemId]
+    );
+
+    // تحديث إجمالي الطلب
+    await conn.query(
+      `
+      UPDATE orders
+      SET total_amount = total_amount + ?
+      WHERE id=?
+      `,
+      [diff, item.order_id]
+    );
+
+    await conn.commit();
+
+    res.json({ success:true });
+
+  } catch(err){
+
+    await conn.rollback();
+
+    console.error(err);
+
+    res.status(500).json({ success:false });
+
+  } finally {
+
+    conn.release();
+
+  }
+
+});
+/* =========================
+   POST /orders/:id/item
+========================= */
+router.post("/:id/item", async (req, res) => {
+
+  const conn = await db.getConnection();
+
+  try {
+
+    const orderId = req.params.id;
+
+    const {
+      product_id,
+      quantity,
+      restaurant_id
+    } = req.body;
+
+    await conn.beginTransaction();
+
+    const [[product]] = await conn.query(
+      `
+      SELECT name, price
+      FROM products
+      WHERE id=?
+      `,
+      [product_id]
+    );
+
+    if (!product) {
+      return res.json({ success:false });
+    }
+
+    const subtotal =
+      Number(product.price) * Number(quantity);
+
+    await conn.query(
+      `
+      INSERT INTO order_items
+      (
+        order_id,
+        product_id,
+        restaurant_id,
+        name,
+        price,
+        quantity
+      )
+      VALUES (?,?,?,?,?,?)
+      `,
+      [
+        orderId,
+        product_id,
+        restaurant_id,
+        product.name,
+        product.price,
+        quantity
+      ]
+    );
+
+    await conn.query(
+      `
+      UPDATE orders
+      SET total_amount =
+      total_amount + ?
+      WHERE id=?
+      `,
+      [subtotal, orderId]
+    );
+
+    await conn.commit();
+
+    res.json({ success:true });
+
+  } catch(err){
+
+    await conn.rollback();
+
+    console.error(err);
+
+    res.status(500).json({ success:false });
+
+  } finally {
+
+    conn.release();
+
+  }
+
+});
 
 export default router;
