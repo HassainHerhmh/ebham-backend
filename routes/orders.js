@@ -629,7 +629,8 @@ router.get("/:id", async (req, res) => {
           o.status,          -- ✅ أضف هذا
 
   o.created_at,      -- ✅ وهذا
- 
+   o.cancel_reason,    -- ✅ أضف هذا
+
       -- أوقات الحالة
   o.created_at,
   o.processing_at,
@@ -1285,6 +1286,65 @@ router.get("/restaurants/:id/products", async (req, res) => {
       success:false,
       products:[]
     });
+
+  }
+
+});
+
+/* =========================
+   PUT /orders/:id/cancel
+   إلغاء الطلب مع حفظ السبب
+========================= */
+router.put("/:id/cancel", async (req, res) => {
+
+  const conn = await db.getConnection();
+
+  try {
+
+    const orderId = req.params.id;
+    const { reason } = req.body;
+
+    if (!reason) {
+      return res.status(400).json({
+        success: false,
+        message: "سبب الإلغاء مطلوب"
+      });
+    }
+
+    await conn.beginTransaction();
+
+    await conn.query(
+      `
+      UPDATE orders
+      SET
+        status = 'cancelled',
+        cancel_reason = ?,
+        cancelled_at = NOW(),
+        updated_by = ?
+      WHERE id = ?
+      `,
+      [reason, req.user.id, orderId]
+    );
+
+    await conn.commit();
+
+    res.json({
+      success: true
+    });
+
+  } catch (err) {
+
+    await conn.rollback();
+
+    console.error("CANCEL ORDER ERROR:", err);
+
+    res.status(500).json({
+      success: false
+    });
+
+  } finally {
+
+    conn.release();
 
   }
 
