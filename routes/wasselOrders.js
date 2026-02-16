@@ -592,5 +592,78 @@ router.put("/:id", async (req, res) => {
   }
 });
 
+/* ==============================================
+   8️⃣ جلب طلبات وصل لي للكابتن
+============================================== */
+router.get("/wassel_orders", async (req, res) => {
+
+  try {
+
+    const captainId = req.user.id;
+
+    const [rows] = await db.query(`
+
+      SELECT
+
+        w.id,
+        w.order_type,
+        w.status,
+
+        w.from_address,
+        w.from_lat,
+        w.from_lng,
+
+        w.to_address,
+        w.to_lat,
+        w.to_lng,
+
+        w.delivery_fee,
+        w.extra_fee,
+
+        w.payment_method,
+
+        w.customer_id,
+        c.name AS customer_name,
+
+        w.created_at
+
+      FROM wassel_orders w
+
+      LEFT JOIN customers c
+        ON c.id = w.customer_id
+
+      WHERE
+
+        w.is_manual = 0
+
+        AND
+        (
+          w.captain_id IS NULL
+          OR w.captain_id = ?
+        )
+
+      ORDER BY w.id DESC
+
+    `, [captainId]);
+
+
+    res.json({
+      success: true,
+      orders: rows
+    });
+
+  }
+  catch (err) {
+
+    console.error("Wassel Orders Error:", err);
+
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+
+  }
+
+});
 
 export default router;
