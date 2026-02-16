@@ -447,12 +447,26 @@ const io = new Server(httpServer, {
 app.set("io", io);
 
 io.on("connection", (socket) => {
+
   console.log("🔌 Client connected:", socket.id);
 
-  socket.on("disconnect", () => {
-    console.log("❌ Client disconnected:", socket.id);
+  // ✅ انضمام الكابتن لغرفته الخاصة
+  socket.on("join_captain", (captainId) => {
+
+    socket.join("captain_" + captainId);
+
+    console.log("✅ Captain joined room:", captainId);
+
   });
+
+  socket.on("disconnect", () => {
+
+    console.log("❌ Client disconnected:", socket.id);
+
+  });
+
 });
+
 
 httpServer.listen(PORT, () => {
   console.log(`🚀 Server running with Socket.IO on ${PORT}`);
