@@ -20,12 +20,19 @@ app.use((req, res, next) => {
    Professional CORS Setup
 ========================= */
 
-const allowedOrigins = [
-  "https://ebham-dashboard2.vercel.app",
-  "http://localhost:5173",
-  "http://localhost",
-  "https://localhost",
-];
+const io = new Server(httpServer, {
+  cors: {
+    origin: [
+      "https://ebham-dashboard2.vercel.app",
+      "http://localhost:5173",
+      "http://localhost:63342",
+      "http://127.0.0.1:63342"
+    ],
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
+});
+
 
 // دالة التحقق من origin
 function isAllowedOrigin(origin) {
