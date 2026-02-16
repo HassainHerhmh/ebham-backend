@@ -593,5 +593,88 @@ router.put("/:id", async (req, res) => {
 });
 
 
+/* ==============================================
+   8️⃣ جلب تفاصيل طلب وصل لي
+============================================== */
+router.get("/:id", async (req, res) => {
+
+  try {
+
+    const orderId = req.params.id;
+
+    const [[order]] = await db.query(`
+      
+      SELECT
+
+        w.id,
+        w.order_type,
+        w.status,
+
+        w.from_address,
+        w.from_lat,
+        w.from_lng,
+
+        w.to_address,
+        w.to_lat,
+        w.to_lng,
+
+        w.delivery_fee,
+        w.extra_fee,
+
+        (w.delivery_fee + w.extra_fee) AS total_fee,
+
+        w.notes,
+
+        w.payment_method,
+
+        w.customer_id,
+        c.name AS customer_name,
+
+        w.created_at,
+        w.processing_at,
+        w.delivering_at,
+        w.completed_at,
+        w.cancelled_at
+
+      FROM wassel_orders w
+
+      LEFT JOIN customers c
+        ON c.id = w.customer_id
+
+      WHERE w.id = ?
+
+      LIMIT 1
+
+    `, [orderId]);
+
+
+    if (!order) {
+
+      return res.status(404).json({
+        success: false,
+        message: "الطلب غير موجود"
+      });
+
+    }
+
+
+    res.json({
+      success: true,
+      order
+    });
+
+  }
+  catch (err) {
+
+    console.error("Wassel Order Details Error:", err);
+
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+
+  }
+
+});
 
 export default router;
