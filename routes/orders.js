@@ -629,6 +629,15 @@ router.get("/:id", async (req, res) => {
           o.status,          -- ✅ أضف هذا
 
   o.created_at,      -- ✅ وهذا
+ 
+      -- أوقات الحالة
+  o.created_at,
+  o.processing_at,
+  o.ready_at,
+  o.delivering_at,
+  o.completed_at,
+  o.cancelled_at,
+    
     o.note,    
         c.name AS customer_name,
         c.phone AS customer_phone,
