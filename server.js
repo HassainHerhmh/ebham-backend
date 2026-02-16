@@ -438,19 +438,19 @@ const io = new Server(httpServer, {
     origin: [
       "https://ebham-dashboard2.vercel.app",
       "http://localhost:5173",
+      "http://localhost:63342",
+      "http://127.0.0.1:63342"
     ],
     credentials: true,
   },
 });
 
-// نخزن io داخل app عشان نستخدمه في الراوترات
 app.set("io", io);
 
 io.on("connection", (socket) => {
 
   console.log("🔌 Client connected:", socket.id);
 
-  // ✅ انضمام الكابتن لغرفته الخاصة
   socket.on("join_captain", (captainId) => {
 
     socket.join("captain_" + captainId);
@@ -459,16 +459,10 @@ io.on("connection", (socket) => {
 
   });
 
-  socket.on("disconnect", () => {
-
-    console.log("❌ Client disconnected:", socket.id);
-
-  });
-
 });
+
 
 
 httpServer.listen(PORT, () => {
   console.log(`🚀 Server running with Socket.IO on ${PORT}`);
 });
-
