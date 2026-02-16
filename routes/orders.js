@@ -967,18 +967,41 @@ GROUP BY oi.restaurant_id
       }
     }
 
-    await conn.commit();
+await conn.commit();
 
-     
-// 🔔 إشعار تغيير حالة
+// الحصول على io
 const io = req.app.get("io");
+
+// جلب captain_id
+const [[orderRow]] = await conn.query(
+  "SELECT captain_id FROM orders WHERE id=?",
+  [orderId]
+);
+
+const captainId = orderRow?.captain_id;
+
+
+// 🔔 إشعار عام
 io.emit("notification", {
   message: `🔄 تم تحديث حالة الطلب #${orderId} إلى (${status})`,
   user: req.user?.name || "النظام",
   order_id: orderId,
   status,
 });
-     
+
+
+// ✅ تحديث realtime للكابتن المسؤول فقط
+if (captainId) {
+
+  io.to("captain_" + captainId).emit("order_updated", {
+    orderId: orderId,
+    status: status
+  });
+
+  console.log("📡 order_updated sent to captain:", captainId);
+
+}
+
     res.json({ success: true });
   } catch (err) {
     if (conn) await conn.rollback();
