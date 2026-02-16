@@ -676,5 +676,42 @@ router.get("/:id", async (req, res) => {
   }
 
 });
+/* =========================
+   تحديث حالة طلب وصل لي
+========================= */
+router.put("/:id/status", auth, async (req, res) => {
+
+  try{
+
+    const { id } = req.params;
+    const { status } = req.body;
+
+    await db.query(
+      `
+      UPDATE wassel_orders
+      SET status = ?
+      WHERE id = ?
+      `,
+      [status, id]
+    );
+
+    res.json({
+      success:true,
+      message:"تم تحديث الحالة"
+    });
+
+  }
+  catch(err){
+
+    console.error(err);
+
+    res.status(500).json({
+      success:false,
+      message:"Server error"
+    });
+
+  }
+
+});
 
 export default router;
