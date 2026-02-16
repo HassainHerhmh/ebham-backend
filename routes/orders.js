@@ -645,6 +645,7 @@ router.get("/wassel_orders", async (req, res) => {
         w.extra_fee,
 
         w.payment_method,
+        w.notes,              -- ✅ أضف هذا
 
         w.customer_id,
         c.name AS customer_name,
