@@ -237,4 +237,55 @@ router.put("/:id/status", async (req, res) => {
   }
 });
 
+/* =========================
+   POST /captains/fcm-token
+   حفظ FCM Token للكابتن
+========================= */
+router.post("/fcm-token", async (req, res) => {
+
+  try {
+
+    const { token } = req.body;
+
+    if (!token) {
+
+      return res.json({
+        success: false,
+        message: "FCM Token مطلوب"
+      });
+
+    }
+
+    // captain_id من auth middleware
+    const captainId = req.user.id;
+
+    await db.query(
+      `
+      UPDATE captains
+      SET fcm_token = ?
+      WHERE id = ?
+      `,
+      [token, captainId]
+    );
+
+    console.log("✅ FCM Token saved for captain:", captainId);
+
+    res.json({
+      success: true
+    });
+
+  }
+  catch (err) {
+
+    console.error("FCM TOKEN SAVE ERROR:", err);
+
+    res.status(500).json({
+      success: false,
+      message: "فشل حفظ FCM Token"
+    });
+
+  }
+
+});
+
 export default router;
