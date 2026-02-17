@@ -5,32 +5,83 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import admin from "firebase-admin";
 
-dotenv.config(); // ✅ لازم يكون هنا أولاً
-// ✅ اختبار
+import pool from "./db.js";
+import auth from "./middlewares/auth.js";
+
+/* =========================
+   Load ENV أولاً
+========================= */
+
+dotenv.config();
+
+/* =========================
+   اختبار وجود Firebase Service Account
+========================= */
+
 console.log(
   "SERVICE ACCOUNT EXISTS:",
   !!process.env.FIREBASE_SERVICE_ACCOUNT
 );
 
-
-const serviceAccount = JSON.parse(
+console.log(
+  "SERVICE ACCOUNT LENGTH:",
   process.env.FIREBASE_SERVICE_ACCOUNT
+    ? process.env.FIREBASE_SERVICE_ACCOUNT.length
+    : 0
 );
 
-import pool from "./db.js";
-import auth from "./middlewares/auth.js";
+/* =========================
+   تحقق من وجود المتغير
+========================= */
 
-const app = express();
+if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
+  console.error("❌ FIREBASE_SERVICE_ACCOUNT is missing from ENV");
+  process.exit(1);
+}
+
+/* =========================
+   Parse Service Account بأمان
+========================= */
+
+let serviceAccount;
+
+try {
+
+  serviceAccount = JSON.parse(
+    process.env.FIREBASE_SERVICE_ACCOUNT
+  );
+
+  console.log("✅ Firebase Service Account parsed");
+
+}
+catch (err) {
+
+  console.error("❌ Failed to parse FIREBASE_SERVICE_ACCOUNT");
+
+  console.error(err.message);
+
+  process.exit(1);
+
+}
 
 /* =========================
    Firebase Admin Init
 ========================= */
 
 admin.initializeApp({
+
   credential: admin.credential.cert(serviceAccount)
+
 });
 
 console.log("🔥 Firebase Admin initialized");
+
+/* =========================
+   Express App Init
+========================= */
+
+const app = express();
+
 
 /* =========================
    Professional CORS Setup
