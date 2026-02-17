@@ -3,12 +3,26 @@ import cors from "cors";
 import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
+import admin from "firebase-admin";
+import serviceAccount from "./firebase-service-account.json" assert { type: "json" };
+
 import pool from "./db.js";
 import auth from "./middlewares/auth.js";
 
 
 dotenv.config();
 const app = express();
+
+/* =========================
+   Firebase Admin Init
+========================= */
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
+console.log("🔥 Firebase Admin initialized");
+
 
 app.use((req, res, next) => {
   console.log("➡️ INCOMING REQUEST:", req.method, req.url);
