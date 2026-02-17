@@ -6,6 +6,12 @@ import bcrypt from "bcrypt";
 import admin from "firebase-admin";
 
 dotenv.config(); // ✅ لازم يكون هنا أولاً
+// ✅ اختبار
+console.log(
+  "SERVICE ACCOUNT EXISTS:",
+  !!process.env.FIREBASE_SERVICE_ACCOUNT
+);
+
 
 const serviceAccount = JSON.parse(
   process.env.FIREBASE_SERVICE_ACCOUNT
