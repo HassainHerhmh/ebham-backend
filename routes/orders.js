@@ -534,16 +534,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     const grandTotal = total + deliveryFee + extraStoreFee;
     await db.query("UPDATE orders SET total_amount=? WHERE id=?", [grandTotal, orderId]);
 
-    // إرسال الإشعار
-    const io = req.app.get("io");
-    if (io) {
-        io.emit("notification", {
-          message: `🆕 تم إنشاء طلب جديد رقم #${orderId}`,
-          user: user?.name || "النظام",
-          order_id: orderId,
-        });
-    }
-
+ 
     res.json({ success: true, order_id: orderId, total: grandTotal });
 
   } catch (err) {
@@ -972,25 +963,24 @@ await conn.commit();
 // الحصول على io
 const io = req.app.get("io");
 
-// جلب captain_id
-const [[orderRow]] = await conn.query(
-  "SELECT captain_id FROM orders WHERE id=?",
-  [orderId]
-);
+// جلب بيانات الكابتن
+let captain = null;
 
-const captainId = orderRow?.captain_id;
+if (captainId) {
 
+  const [[row]] = await conn.query(
+    "SELECT id, name, fcm_token FROM captains WHERE id=?",
+    [captainId]
+  );
 
-// 🔔 إشعار عام
-io.emit("notification", {
-  message: `🔄 تم تحديث حالة الطلب #${orderId} إلى (${status})`,
-  user: req.user?.name || "النظام",
-  order_id: orderId,
-  status,
-});
+  captain = row;
 
+}
 
-// ✅ تحديث realtime للكابتن المسؤول فقط
+/* =========================================
+   إشعار realtime للكابتن فقط
+========================================= */
+
 if (captainId) {
 
   // جلب الطلب كامل
@@ -999,15 +989,71 @@ if (captainId) {
     [orderId]
   );
 
+  // إرسال للكابتن فقط
   io.to("captain_" + captainId).emit("order_updated", {
+
     orderId: orderId,
     status: status,
     order: updatedOrder
+
   });
 
-  console.log("📡 realtime order sent:", updatedOrder.id);
+  console.log("📡 realtime sent to captain:", captainId);
 
 }
+
+
+/* =========================================
+   إشعار لوحة التحكم فقط
+========================================= */
+
+io.emit("admin_notification", {
+
+  message:
+    `👨‍✈️ الكابتن ${captain?.name || "غير معروف"} حدث الطلب #${orderId} إلى (${status})`,
+
+  captain_id: captainId,
+  order_id: orderId,
+  status: status
+
+});
+
+
+/* =========================================
+   إشعار FCM للكابتن
+========================================= */
+
+if (captain?.fcm_token) {
+
+  try {
+
+    await admin.messaging().send({
+
+      token: captain.fcm_token,
+
+      notification: {
+        title: "تحديث الطلب",
+        body: `تم تحديث الطلب إلى ${status}`
+      },
+
+      data: {
+        orderId: String(orderId),
+        status: status
+      }
+
+    });
+
+    console.log("📲 FCM sent to captain");
+
+  }
+  catch(err){
+
+    console.error("FCM error:", err.message);
+
+  }
+
+}
+
 
     res.json({ success: true });
   } catch (err) {
@@ -1033,50 +1079,82 @@ async function insertJournalEntry(conn, type, refId, cur, acc, debit, credit, no
    POST /orders/:id/assign
 ========================= */
 router.post("/:id/assign", async (req, res) => {
+
   try {
+
     const { captain_id } = req.body;
 
+    const orderId = req.params.id;
+
+    // تحديث الطلب
     await db.query(
       "UPDATE orders SET captain_id=? WHERE id=?",
-      [captain_id, req.params.id]
+      [captain_id, orderId]
     );
 
-    res.json({ success: true });
-  } catch (err) {
-    console.error("ASSIGN CAPTAIN ERROR:", err);
-    res.status(500).json({ success: false });
-  }
-});
+    const io = req.app.get("io");
 
-//المنتجات
-// routes/products.js أو داخل orders.js
-
-router.post("/products/check", async (req, res) => {
-  try {
-    const { ids } = req.body;
-
-    if (!ids || !ids.length) {
-      return res.json({ success: false, products: [] });
-    }
-
-    const placeholders = ids.map(() => "?").join(",");
-
-    const [rows] = await db.query(
-      `SELECT id, name, price, image_url AS image, is_available
-       FROM products
-       WHERE id IN (${placeholders})`,
-      ids
+    // جلب اسم الكابتن
+    const [[captain]] = await db.query(
+      "SELECT name, fcm_token FROM captains WHERE id=?",
+      [captain_id]
     );
 
-    res.json({
-      success: true,
-      products: rows,
+    /* =========================
+       realtime للكابتن
+    ========================= */
+
+    io.to("captain_" + captain_id).emit("new_order_assigned", {
+      orderId
     });
 
-  } catch (err) {
-    console.error("CHECK PRODUCTS ERROR:", err);
-    res.status(500).json({ success: false, products: [] });
+    /* =========================
+       FCM للكابتن
+    ========================= */
+
+    if (captain?.fcm_token) {
+
+      await admin.messaging().send({
+
+        token: captain.fcm_token,
+
+        notification: {
+          title: "طلب جديد",
+          body: "لديك طلب جديد"
+        },
+
+        data: {
+          orderId: String(orderId),
+          type: "new_order"
+        }
+
+      });
+
+    }
+
+    /* =========================
+       إشعار لوحة التحكم
+    ========================= */
+
+    io.emit("admin_notification", {
+
+      message: `📦 تم تعيين الطلب #${orderId} إلى الكابتن ${captain?.name}`,
+      captain_id: captain_id,
+      order_id: orderId
+
+    });
+
+    res.json({ success: true });
+
   }
+  catch (err) {
+
+    console.error(err);
+
+    res.status(500).json({ success: false });
+
+  }
+
 });
 
 
