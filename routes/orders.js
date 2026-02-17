@@ -535,7 +535,31 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     const grandTotal = total + deliveryFee + extraStoreFee;
     await db.query("UPDATE orders SET total_amount=? WHERE id=?", [grandTotal, orderId]);
 
- 
+ /* =========================
+   إشعارات إنشاء الطلب
+========================= */
+
+const io = req.app.get("io");
+
+/* جلب اسم العميل */
+const [[customer]] = await db.query(
+  "SELECT name FROM customers WHERE id=?",
+  [customer_id]
+);
+
+/* اسم المستخدم (الموظف) */
+const creatorName = req.user?.name || "العميل";
+
+/* لوحة التحكم */
+io.emit("admin_notification", {
+  type: "order_created",
+  order_id: orderId,
+  message:
+    req.user?.role === "customer"
+      ? `🧾 العميل ${customer?.name} أنشأ طلب رقم #${orderId}`
+      : `👨‍💼 المستخدم ${creatorName} أنشأ طلب للعميل ${customer?.name} رقم #${orderId}`
+});
+
     res.json({ success: true, order_id: orderId, total: grandTotal });
 
   } catch (err) {
@@ -960,6 +984,33 @@ GROUP BY oi.restaurant_id
     }
 
 await conn.commit();
+/* =========================
+   إشعار لوحة التحكم بتحديث الحالة
+========================= */
+
+const io = req.app.get("io");
+
+const [[orderInfo]] = await conn.query(`
+SELECT 
+  o.id,
+  c.name AS customer_name,
+  u.name AS user_name
+FROM orders o
+LEFT JOIN customers c ON c.id = o.customer_id
+LEFT JOIN users u ON u.id = o.updated_by
+WHERE o.id=?
+`, [orderId]);
+
+io.emit("admin_notification", {
+
+  type: "order_status_updated",
+
+  order_id: orderId,
+
+  message:
+    `📦 المستخدم ${orderInfo?.user_name || "غير معروف"} حدث طلب #${orderId} للعميل ${orderInfo?.customer_name} إلى (${status})`
+
+});
 
 const io = req.app.get("io");
 
@@ -1060,16 +1111,25 @@ async function insertJournalEntry(conn, type, refId, cur, acc, debit, credit, no
 }
 /* =========================
    POST /orders/:id/assign
+   تعيين كابتن + إشعارات كاملة
 ========================= */
 router.post("/:id/assign", async (req, res) => {
 
   try {
 
     const { captain_id } = req.body;
-
     const orderId = req.params.id;
 
-    // تحديث الطلب
+    if (!captain_id) {
+      return res.status(400).json({
+        success: false,
+        message: "captain_id مطلوب"
+      });
+    }
+
+    /* =========================
+       تحديث الطلب
+    ========================= */
     await db.query(
       "UPDATE orders SET captain_id=? WHERE id=?",
       [captain_id, orderId]
@@ -1077,24 +1137,47 @@ router.post("/:id/assign", async (req, res) => {
 
     const io = req.app.get("io");
 
-    // جلب اسم الكابتن
+    /* =========================
+       جلب بيانات الكابتن
+    ========================= */
     const [[captain]] = await db.query(
-      "SELECT name, fcm_token FROM captains WHERE id=?",
+      "SELECT id, name, fcm_token FROM captains WHERE id=?",
       [captain_id]
     );
 
     /* =========================
-       realtime للكابتن
+       جلب بيانات الطلب والعميل
     ========================= */
+    const [[order]] = await db.query(`
+      SELECT 
+        o.id,
+        c.name AS customer_name
+      FROM orders o
+      LEFT JOIN customers c ON c.id = o.customer_id
+      WHERE o.id=?
+    `, [orderId]);
 
-    io.to("captain_" + captain_id).emit("new_order_assigned", {
-      orderId
-    });
+    const customerName = order?.customer_name || "غير معروف";
 
     /* =========================
-       FCM للكابتن
+       realtime للكابتن
     ========================= */
+    io.to("captain_" + captain_id).emit("new_order_assigned", {
 
+      type: "new_order",
+
+      order_id: orderId,
+
+      message:
+        `🚀 وصلك طلب رقم #${orderId} للعميل ${customerName} — عجل عليه يا وحش`
+
+    });
+
+    console.log("📡 realtime sent to captain:", captain_id);
+
+    /* =========================
+       Push Notification للكابتن
+    ========================= */
     if (captain?.fcm_token) {
 
       await admin.messaging().send({
@@ -1102,43 +1185,70 @@ router.post("/:id/assign", async (req, res) => {
         token: captain.fcm_token,
 
         notification: {
-          title: "طلب جديد",
-          body: "لديك طلب جديد"
+
+          title: "🚀 طلب جديد",
+
+          body:
+            `طلب رقم #${orderId} للعميل ${customerName}`
+
         },
 
         data: {
+
           orderId: String(orderId),
+
+          customerName: customerName,
+
           type: "new_order"
+
         }
 
       });
+
+      console.log("📲 FCM sent to captain:", captain.name);
 
     }
 
     /* =========================
        إشعار لوحة التحكم
     ========================= */
-
     io.emit("admin_notification", {
 
-      message: `📦 تم تعيين الطلب #${orderId} إلى الكابتن ${captain?.name}`,
+      type: "captain_assigned",
+
+      order_id: orderId,
+
       captain_id: captain_id,
-      order_id: orderId
+
+      message:
+        `👨‍✈️ تم تعيين الكابتن ${captain?.name} للطلب رقم #${orderId} الخاص بالعميل ${customerName}`
 
     });
 
-    res.json({ success: true });
+    console.log("📡 admin notification sent");
+
+    /* =========================
+       الرد
+    ========================= */
+    res.json({
+      success: true,
+      message: "تم تعيين الكابتن بنجاح"
+    });
 
   }
   catch (err) {
 
-    console.error(err);
+    console.error("ASSIGN CAPTAIN ERROR:", err);
 
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: "فشل تعيين الكابتن"
+    });
 
   }
 
 });
+
 
 
 router.get("/:id/details", async (req, res) => {
