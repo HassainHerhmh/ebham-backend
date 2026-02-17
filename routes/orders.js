@@ -993,12 +993,19 @@ io.emit("notification", {
 // ✅ تحديث realtime للكابتن المسؤول فقط
 if (captainId) {
 
+  // جلب الطلب كامل
+  const [[updatedOrder]] = await conn.query(
+    "SELECT * FROM orders WHERE id=?",
+    [orderId]
+  );
+
   io.to("captain_" + captainId).emit("order_updated", {
     orderId: orderId,
-    status: status
+    status: status,
+    order: updatedOrder
   });
 
-  console.log("📡 order_updated sent to captain:", captainId);
+  console.log("📡 realtime order sent:", updatedOrder.id);
 
 }
 
