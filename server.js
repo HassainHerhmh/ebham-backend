@@ -9,7 +9,7 @@ import pool from "./db.js";
 import auth from "./middlewares/auth.js";
 
 /* =========================
-   Load ENV أولاً
+   Load ENV أولاً (مهم جداً)
 ========================= */
 
 dotenv.config();
@@ -35,12 +35,15 @@ console.log(
 ========================= */
 
 if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
+
   console.error("❌ FIREBASE_SERVICE_ACCOUNT is missing from ENV");
+
   process.exit(1);
+
 }
 
 /* =========================
-   Parse Service Account بأمان
+   Parse Service Account بأمان + إصلاح private_key
 ========================= */
 
 let serviceAccount;
@@ -51,7 +54,11 @@ try {
     process.env.FIREBASE_SERVICE_ACCOUNT
   );
 
-  console.log("✅ Firebase Service Account parsed");
+  // ✅ إصلاح private_key (الأهم)
+  serviceAccount.private_key =
+    serviceAccount.private_key.replace(/\\n/g, "\n");
+
+  console.log("✅ Firebase Service Account parsed successfully");
 
 }
 catch (err) {
@@ -68,20 +75,32 @@ catch (err) {
    Firebase Admin Init
 ========================= */
 
-admin.initializeApp({
+try {
 
-  credential: admin.credential.cert(serviceAccount)
+  admin.initializeApp({
 
-});
+    credential: admin.credential.cert(serviceAccount)
 
-console.log("🔥 Firebase Admin initialized");
+  });
+
+  console.log("🔥 Firebase Admin initialized successfully");
+
+}
+catch (err) {
+
+  console.error("❌ Firebase initialization failed");
+
+  console.error(err.message);
+
+  process.exit(1);
+
+}
 
 /* =========================
    Express App Init
 ========================= */
 
 const app = express();
-
 
 /* =========================
    Professional CORS Setup
