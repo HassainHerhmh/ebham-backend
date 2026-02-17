@@ -4,13 +4,16 @@ import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import admin from "firebase-admin";
-import serviceAccount from "./firebase-service-account.json" assert { type: "json" };
+
+dotenv.config(); // ✅ لازم يكون هنا أولاً
+
+const serviceAccount = JSON.parse(
+  process.env.FIREBASE_SERVICE_ACCOUNT
+);
 
 import pool from "./db.js";
 import auth from "./middlewares/auth.js";
 
-
-dotenv.config();
 const app = express();
 
 /* =========================
@@ -22,13 +25,6 @@ admin.initializeApp({
 });
 
 console.log("🔥 Firebase Admin initialized");
-
-
-app.use((req, res, next) => {
-  console.log("➡️ INCOMING REQUEST:", req.method, req.url);
-  next();
-}); 
-
 
 /* =========================
    Professional CORS Setup
