@@ -1551,5 +1551,20 @@ router.put("/:id/cancel", async (req, res) => {
 
 });
 
-
+/* =========================
+   دالة مساعدة لإرسال إشعارات FCM
+========================= */
+async function sendFCMNotification(token, title, body, data = {}) {
+  if (!token) return;
+  try {
+    await admin.messaging().send({
+      token: token,
+      notification: { title, body },
+      data: { ...data, click_action: "FLUTTER_NOTIFICATION_CLICK" } // مهم لفتح التطبيق عند النقر
+    });
+    console.log("📲 FCM Sent Successfully to:", token.substring(0, 10) + "...");
+  } catch (err) {
+    console.error("❌ FCM Error:", err.message);
+  }
+}
 export default router;
