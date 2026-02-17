@@ -9,51 +9,90 @@ const router = express.Router();
    Captain Login
 ====================== */
 router.post("/login", async (req, res) => {
-  const { phone, password } = req.body;
+
+  const { phone, password, fcm_token } = req.body;
 
   if (!phone || !password) {
+
     return res.status(400).json({
       success: false,
       message: "رقم الجوال وكلمة المرور مطلوبة",
     });
+
   }
 
   try {
-    // 1. جلب الكابتن
+
+    /* ======================
+       1. جلب الكابتن
+    ====================== */
+
     const [rows] = await db.query(
       "SELECT * FROM captains WHERE phone=? LIMIT 1",
       [phone]
     );
 
     if (!rows.length) {
+
       return res.status(401).json({
         success: false,
         message: "الحساب غير موجود",
       });
+
     }
 
     const captain = rows[0];
 
-    // 2. التحقق من كلمة المرور
+    /* ======================
+       2. التحقق من كلمة المرور
+    ====================== */
+
     let passwordValid = false;
 
-    // لو قديم (بدون تشفير)
     if (captain.password.length < 40) {
+
       passwordValid = password === captain.password;
-    }
-    // لو مشفر
-    else {
-      passwordValid = await bcrypt.compare(password, captain.password);
+
+    } else {
+
+      passwordValid = await bcrypt.compare(
+        password,
+        captain.password
+      );
+
     }
 
     if (!passwordValid) {
+
       return res.status(401).json({
         success: false,
         message: "كلمة المرور غير صحيحة",
       });
+
     }
 
-    // 3. إنشاء التوكن
+    /* ======================
+       3. حفظ FCM Token
+    ====================== */
+
+    if (fcm_token) {
+
+      await db.query(
+        "UPDATE captains SET fcm_token=? WHERE id=?",
+        [fcm_token, captain.id]
+      );
+
+      console.log(
+        "✅ FCM Token saved for captain:",
+        captain.id
+      );
+
+    }
+
+    /* ======================
+       4. إنشاء JWT
+    ====================== */
+
     const token = jwt.sign(
       {
         id: captain.id,
@@ -66,9 +105,14 @@ router.post("/login", async (req, res) => {
       }
     );
 
-    // 4. الرد
+    /* ======================
+       5. الرد
+    ====================== */
+
     res.json({
+
       success: true,
+
       token,
 
       captain: {
@@ -78,16 +122,21 @@ router.post("/login", async (req, res) => {
         status: captain.status,
         branch_id: captain.branch_id,
       },
+
     });
 
-  } catch (err) {
+  }
+  catch (err) {
+
     console.error("CAPTAIN LOGIN ERROR:", err);
 
     res.status(500).json({
       success: false,
       message: "فشل تسجيل الدخول",
     });
+
   }
+
 });
 
 export default router;
