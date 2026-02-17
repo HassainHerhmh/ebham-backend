@@ -815,85 +815,67 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-
 /* =====================================================
-   PUT /orders/:id/status
-   تحديث حالة الطلب وتوليد القيود المحاسبية لجميع المطاعم المشاركة
+   PUT /orders/:id/status
+   تحديث حالة الطلب وتوليد القيود المحاسبية + إشعارات FCM و Socket.io
 ===================================================== */
 router.put("/:id/status", async (req, res) => {
   const conn = await db.getConnection();
   try {
     const { status } = req.body; 
     const orderId = req.params.id;
-     const updated_by = req.user.id;
+    const updated_by = req.user.id;
 
     if (!status) return res.status(400).json({ success: false, message: "الحالة غير محددة" });
 
     await conn.beginTransaction();
 
-     // منع اعتماد الطلب المجدول قبل وقته
-if (status === "confirmed" || status === "processing") {
+    // منع اعتماد الطلب المجدول قبل وقته
+    if (status === "confirmed" || status === "processing") {
+      const [[row]] = await conn.query(
+        "SELECT scheduled_at FROM orders WHERE id=?",
+        [orderId]
+      );
 
-  const [[row]] = await conn.query(
-    "SELECT scheduled_at FROM orders WHERE id=?",
-    [orderId]
-  );
+      if (row?.scheduled_at) {
+        const now = new Date();
+        const sch = new Date(row.scheduled_at);
 
-  if (row?.scheduled_at) {
-
-    const now = new Date();
-    const sch = new Date(row.scheduled_at);
-
-    if (now < sch) {
-      return res.status(400).json({
-        success: false,
-        message: "⏰ لا يمكن اعتماد الطلب قبل وقت الجدولة"
-      });
+        if (now < sch) {
+          return res.status(400).json({
+            success: false,
+            message: "⏰ لا يمكن اعتماد الطلب قبل وقت الجدولة"
+          });
+        }
+      }
     }
-  }
-}
 
     // 1. تحديث حالة الطلب
-let timeField = null;
+    let timeField = null;
+    if (status === "confirmed" || status === "preparing") timeField = "processing_at";
+    if (status === "ready") timeField = "ready_at";
+    if (status === "delivering") timeField = "delivering_at";
+    if (status === "completed") timeField = "completed_at";
+    if (status === "cancelled") timeField = "cancelled_at";
 
-if (status === "confirmed" || status === "preparing")
-  timeField = "processing_at";
-
-if (status === "ready")
-  timeField = "ready_at";
-
-if (status === "delivering")
-  timeField = "delivering_at";
-
-if (status === "completed")
-  timeField = "completed_at";
-
-if (status === "cancelled")
-  timeField = "cancelled_at";
-
-
-if (timeField) {
-
-await conn.query(
-  `UPDATE orders 
-   SET status=?,
-       ${timeField}=NOW(),
-       scheduled_at=NULL,
-       updated_by=?
-   WHERE id=?`,
-  [status, req.user.id, orderId]
-);
-
-
-} else {
-
-  await conn.query(
-    `UPDATE orders 
-     SET status=?, updated_by=?
-     WHERE id=?`,
-    [status, req.user.id, orderId]
-  );
-}
+    if (timeField) {
+      await conn.query(
+        `UPDATE orders 
+         SET status=?,
+             ${timeField}=NOW(),
+             scheduled_at=NULL,
+             updated_by=?
+         WHERE id=?`,
+        [status, req.user.id, orderId]
+      );
+    } else {
+      await conn.query(
+        `UPDATE orders 
+         SET status=?, updated_by=?
+         WHERE id=?`,
+        [status, req.user.id, orderId]
+      );
+    }
 
     // 2. توليد القيود عند الانتقال لحالة "قيد التوصيل"
     if (status === "delivering") {
@@ -901,7 +883,6 @@ await conn.query(
       const [[baseCur]] = await conn.query("SELECT id FROM currencies WHERE is_local=1 LIMIT 1");
       const journalTypeId = 5; 
 
-      // جلب بيانات الطلب العامة (العميل، الكابتن، طرق الدفع)
       const [orderRows] = await conn.query(`
         SELECT 
           o.*,
@@ -922,7 +903,6 @@ await conn.query(
       const order = orderRows[0];
       if (!order) throw new Error("الطلب غير موجود");
 
-      // تحديد الحساب المدين الرئيسي (من سيتحمل التكلفة الكلية)
       let mainDebitAccount = null;
       if (order.guarantee_type === 'account' && order.direct_acc_id) {
         mainDebitAccount = order.direct_acc_id;
@@ -933,33 +913,29 @@ await conn.query(
         else mainDebitAccount = settings.customer_guarantee_account || 51;
       }
 
-      // --- أ: جلب جميع المطاعم المشاركة في هذا الطلب وحساب مبالغها ---
       const [restaurantItems] = await conn.query(`
-SELECT 
-  oi.restaurant_id, 
-  MAX(r.name) AS restaurant_name,
-  MAX(r_comm.agent_account_id) AS res_acc_id, 
-  MAX(r_comm.commission_type) AS res_comm_type, 
-  MAX(r_comm.commission_value) AS res_comm_val,
-  SUM(oi.price * oi.quantity) AS net_amount
-FROM order_items oi
-JOIN restaurants r ON oi.restaurant_id = r.id
-LEFT JOIN commissions r_comm 
-  ON (r_comm.account_id = r.agent_id 
-      AND r_comm.account_type = 'agent' 
-      AND r_comm.is_active = 1)
-WHERE oi.order_id = ?
-GROUP BY oi.restaurant_id
-
+        SELECT 
+          oi.restaurant_id, 
+          MAX(r.name) AS restaurant_name,
+          MAX(r_comm.agent_account_id) AS res_acc_id, 
+          MAX(r_comm.commission_type) AS res_comm_type, 
+          MAX(r_comm.commission_value) AS res_comm_val,
+          SUM(oi.price * oi.quantity) AS net_amount
+        FROM order_items oi
+        JOIN restaurants r ON oi.restaurant_id = r.id
+        LEFT JOIN commissions r_comm 
+          ON (r_comm.account_id = r.agent_id 
+              AND r_comm.account_type = 'agent' 
+              AND r_comm.is_active = 1)
+        WHERE oi.order_id = ?
+        GROUP BY oi.restaurant_id
       `, [orderId]);
 
       for (const res of restaurantItems) {
         if (res.res_acc_id && res.net_amount > 0) {
-          // قيد مبيعات المطعم (من حساب المديونية إلى حساب المطعم)
           await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, mainDebitAccount, res.net_amount, 0, `قيمة وجبات من ${res.restaurant_name} طلب #${orderId}`, req);
           await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, res.res_acc_id, 0, res.net_amount, `صافي مبيعات طلب #${orderId}`, req);
 
-          // خصم عمولة المطعم لكل مطعم على حدة
           if (settings.commission_income_account && res.res_comm_val > 0) {
             let resComm = (res.res_comm_type === 'percent') ? (res.net_amount * Number(res.res_comm_val)) / 100 : Number(res.res_comm_val);
             await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, res.res_acc_id, resComm, 0, `خصم عمولة ${res.restaurant_name} طلب #${orderId}`, req);
@@ -968,13 +944,11 @@ GROUP BY oi.restaurant_id
         }
       }
 
-      // --- ب: قيود رسوم التوصيل (تتم مرة واحدة للطلب) ---
       const deliveryTotal = Number(order.delivery_fee || 0) + Number(order.extra_store_fee || 0);
       if (deliveryTotal > 0 && order.cap_acc_id) {
         await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, mainDebitAccount, deliveryTotal, 0, `إجمالي رسوم توصيل طلب #${orderId}`, req);
         await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, order.cap_acc_id, 0, deliveryTotal, `إيراد توصيل كابتن طلب #${orderId}`, req);
 
-        // عمولة الشركة من الكابتن
         if (settings.courier_commission_account && order.cap_comm_val > 0) {
           let capComm = (order.cap_comm_type === 'percent') ? (deliveryTotal * Number(order.cap_comm_val)) / 100 : Number(order.cap_comm_val);
           await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, order.cap_acc_id, capComm, 0, `خصم عمولة شركة من الكابتن طلب #${orderId}`, req);
@@ -983,38 +957,65 @@ GROUP BY oi.restaurant_id
       }
     }
 
-await conn.commit();
-/* =========================
-   إشعار لوحة التحكم بتحديث الحالة
-========================= */
+    await conn.commit();
 
-const io = req.app.get("io");
+    /* =========================
+       إشعارات FCM (للعميل والكابتن)
+    ========================= */
+    try {
+      const [[orderContacts]] = await conn.query(`
+        SELECT 
+          o.id, 
+          c.fcm_token AS customer_token, 
+          cap.fcm_token AS captain_token,
+          c.name AS customer_name,
+          u.name AS user_name
+        FROM orders o
+        LEFT JOIN customers c ON o.customer_id = c.id
+        LEFT JOIN captains cap ON o.captain_id = cap.id
+        LEFT JOIN users u ON u.id = ?
+        WHERE o.id = ?
+      `, [updated_by, orderId]);
 
-const [[orderInfo]] = await conn.query(`
-SELECT 
-  o.id,
-  c.name AS customer_name,
-  u.name AS user_name
-FROM orders o
-LEFT JOIN customers c ON c.id = o.customer_id
-LEFT JOIN users u ON u.id = o.updated_by
-WHERE o.id=?
-`, [orderId]);
+      if (orderContacts) {
+        let title = "تحديث في طلبك 📦";
+        let body = "";
 
-io.emit("admin_notification", {
+        if (status === "processing") body = `بدأ المطعم في تحضير طلبك رقم #${orderId} 👨‍🍳`;
+        else if (status === "ready") body = `أبشر! طلبك رقم #${orderId} جاهز للاستلام 🥯`;
+        else if (status === "delivering") body = `الكابتن استلم طلبك رقم #${orderId} وهو في الطريق إليك 🏍️`;
+        else if (status === "completed") body = `تم توصيل الطلب رقم #${orderId} بنجاح، بالعافية! ❤️`;
+        else if (status === "cancelled") body = `نعتذر منك، تم إلغاء طلبك رقم #${orderId} ❌`;
 
-  type: "order_status_updated",
+        // إرسال للعميل
+        if (body && orderContacts.customer_token) {
+          await sendFCMNotification(orderContacts.customer_token, title, body, { orderId: String(orderId), status });
+        }
 
-  order_id: orderId,
+        // إرسال للكابتن (تنبيه بالاستلام عند الجاهزية)
+        if (status === "ready" && orderContacts.captain_token) {
+          await sendFCMNotification(
+            orderContacts.captain_token, 
+            "📦 طلب جاهز", 
+            `الطلب رقم #${orderId} للعميل ${orderContacts.customer_name} جاهز في المطعم.`,
+            { orderId: String(orderId), type: "order_ready" }
+          );
+        }
 
-  message:
-    `📦 المستخدم ${orderInfo?.user_name || "غير معروف"} حدث طلب #${orderId} للعميل ${orderInfo?.customer_name} إلى (${status})`
-
-});
-
-
-
-
+        /* =========================
+           إشعار لوحة التحكم (Socket.io)
+        ========================= */
+        const io = req.app.get("io");
+        io.emit("admin_notification", {
+          type: "order_status_updated",
+          order_id: orderId,
+          message: `📦 المستخدم ${orderContacts.user_name || "غير معروف"} حدث طلب #${orderId} للعميل ${orderContacts.customer_name} إلى (${status})`
+        });
+      }
+    } catch (fcmErr) {
+      console.error("FCM NOTIFICATION ERROR:", fcmErr.message);
+      // لا نوقف العملية إذا فشل الإشعار
+    }
 
     res.json({ success: true });
   } catch (err) {
@@ -1527,8 +1528,32 @@ router.put("/:id/cancel", async (req, res) => {
       [reason, req.user.id, orderId]
     );
 
-    await conn.commit();
+await conn.commit();
 
+    /* =========================
+       🚀 إرسال إشعار الإلغاء
+    ========================= */
+    try {
+      const [[cancelContacts]] = await conn.query(`
+        SELECT c.fcm_token AS customer_token, cap.fcm_token AS captain_token 
+        FROM orders o
+        LEFT JOIN customers c ON o.customer_id = c.id
+        LEFT JOIN captains cap ON o.captain_id = cap.id
+        WHERE o.id = ?
+      `, [orderId]);
+
+      // إشعار للعميل
+      if (cancelContacts?.customer_token) {
+        await sendFCMNotification(cancelContacts.customer_token, "❌ تم إلغاء الطلب", `تم إلغاء طلبك رقم #${orderId}. السبب: ${reason}`);
+      }
+      
+      // إشعار للكابتن (لينتبه ولا يذهب للمطعم)
+      if (cancelContacts?.captain_token) {
+        await sendFCMNotification(cancelContacts.captain_token, "⚠️ تم إلغاء الطلب", `انتبه! تم إلغاء الطلب رقم #${orderId}`);
+      }
+    } catch (e) {
+      console.error("FCM Cancel Error:", e.message);
+    }
     res.json({
       success: true
     });
@@ -1552,7 +1577,7 @@ router.put("/:id/cancel", async (req, res) => {
 });
 
 /* =========================
-   دالة مساعدة لإرسال إشعارات FCM
+   دالة مساعدة لإرسال إشعارات FCM (محدثة)
 ========================= */
 async function sendFCMNotification(token, title, body, data = {}) {
   if (!token) return;
@@ -1560,9 +1585,16 @@ async function sendFCMNotification(token, title, body, data = {}) {
     await admin.messaging().send({
       token: token,
       notification: { title, body },
-      data: { ...data, click_action: "FLUTTER_NOTIFICATION_CLICK" } // مهم لفتح التطبيق عند النقر
+      data: { ...data, click_action: "FLUTTER_NOTIFICATION_CLICK" },
+      android: {
+        priority: "high",
+        notification: {
+          sound: "default",
+          channelId: "orders_channel", // تأكد أن هذا الاسم مطابق لما في كود الأندرويد
+        }
+      }
     });
-    console.log("📲 FCM Sent Successfully to:", token.substring(0, 10) + "...");
+    console.log("📲 FCM Sent to:", token.substring(0, 10) + "...");
   } catch (err) {
     console.error("❌ FCM Error:", err.message);
   }
