@@ -1,6 +1,7 @@
 import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
+import admin from "firebase-admin";
 
 const router = express.Router();
 
@@ -960,8 +961,15 @@ GROUP BY oi.restaurant_id
 
 await conn.commit();
 
-// الحصول على io
 const io = req.app.get("io");
+
+// جلب captain_id
+const [[orderRow]] = await conn.query(
+  "SELECT captain_id FROM orders WHERE id=?",
+  [orderId]
+);
+
+const captainId = orderRow?.captain_id;
 
 // جلب بيانات الكابتن
 let captain = null;
@@ -977,19 +985,14 @@ if (captainId) {
 
 }
 
-/* =========================================
-   إشعار realtime للكابتن فقط
-========================================= */
-
+/* realtime للكابتن */
 if (captainId) {
 
-  // جلب الطلب كامل
   const [[updatedOrder]] = await conn.query(
     "SELECT * FROM orders WHERE id=?",
     [orderId]
   );
 
-  // إرسال للكابتن فقط
   io.to("captain_" + captainId).emit("order_updated", {
 
     orderId: orderId,
@@ -998,15 +1001,9 @@ if (captainId) {
 
   });
 
-  console.log("📡 realtime sent to captain:", captainId);
-
 }
 
-
-/* =========================================
-   إشعار لوحة التحكم فقط
-========================================= */
-
+/* إشعار لوحة التحكم */
 io.emit("admin_notification", {
 
   message:
@@ -1018,41 +1015,27 @@ io.emit("admin_notification", {
 
 });
 
-
-/* =========================================
-   إشعار FCM للكابتن
-========================================= */
-
+/* إشعار Push Notification */
 if (captain?.fcm_token) {
 
-  try {
+  await admin.messaging().send({
 
-    await admin.messaging().send({
+    token: captain.fcm_token,
 
-      token: captain.fcm_token,
+    notification: {
+      title: "تحديث الطلب",
+      body: `تم تحديث الطلب إلى ${status}`
+    },
 
-      notification: {
-        title: "تحديث الطلب",
-        body: `تم تحديث الطلب إلى ${status}`
-      },
+    data: {
+      orderId: String(orderId),
+      status: status
+    }
 
-      data: {
-        orderId: String(orderId),
-        status: status
-      }
-
-    });
-
-    console.log("📲 FCM sent to captain");
-
-  }
-  catch(err){
-
-    console.error("FCM error:", err.message);
-
-  }
+  });
 
 }
+
 
 
     res.json({ success: true });
