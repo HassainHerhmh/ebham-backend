@@ -1445,48 +1445,6 @@ router.put("/:id/cancel", async (req, res) => {
   }
 
 });
-/* =========================
-   GET /orders/captain
-   طلبات الكابتن فقط
-========================= */
-router.get("/captain", async (req, res) => {
 
-  try {
-
-    const captainId = req.user.id;
-
-    const [rows] = await db.query(`
-      SELECT 
-        o.*,
-        c.name AS customer_name,
-        ca.address AS customer_address,
-        ca.latitude,
-        ca.longitude
-      FROM orders o
-
-      JOIN customers c ON c.id = o.customer_id
-      LEFT JOIN customer_addresses ca ON ca.id = o.address_id
-
-      WHERE o.captain_id = ?
-      ORDER BY o.id DESC
-    `, [captainId]);
-
-    res.json({
-      success:true,
-      orders:rows
-    });
-
-  } catch(err){
-
-    console.error(err);
-
-    res.status(500).json({
-      success:false,
-      orders:[]
-    });
-
-  }
-
-});
 
 export default router;
