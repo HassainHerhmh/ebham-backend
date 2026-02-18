@@ -537,18 +537,33 @@ io.on("connection", (socket) => {
 
   console.log("🔌 Client connected:", socket.id);
 
+  // 1. انضمام الكابتن لغرفة خاصة به (موجود مسبقاً)
   socket.on("join_captain", (captainId) => {
-
     socket.join("captain_" + captainId);
-
     console.log("✅ Captain joined room:", captainId);
+  });
 
+  // =================================================
+  // 🚀 2. (جديد) استقبال موقع الكابتن وإرساله للوحة التحكم
+  // =================================================
+  socket.on("update_captain_location", (data) => {
+    // data = { captainId, lat, lng }
+    
+    if(!data || !data.captainId) return;
+
+    // طباعة للتأكد في السيرفر
+    // console.log(`📍 Captain ${data.captainId} location:`, data.lat, data.lng);
+
+    // إرسال الإحداثيات فوراً إلى لوحة التحكم (Dashboard)
+    // اسم الحدث يجب أن يطابق ما كتبناه في Orders.tsx
+    io.emit(`captain_location_${data.captainId}`, {
+      lat: data.lat,
+      lng: data.lng
+    });
   });
 
 });
 
-
-
 httpServer.listen(PORT, () => {
   console.log(`🚀 Server running with Socket.IO on ${PORT}`);
-});
+});;
