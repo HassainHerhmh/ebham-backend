@@ -183,160 +183,138 @@ ORDER BY o.id DESC
 
 
 /* =========================
-   GET /orders
+   GET /orders (تم الإصلاح)
 ========================= */
 router.get("/", async (req, res) => {
   try {
-    const user = req.user;
-
+    const user = req.user || {};
     const limit = Number(req.query.limit) || 100;
-    const dateFilter = req.query.date || "all"; // all | today | week
+    const dateFilter = req.query.date || "all"; 
+
+    // ✅ إصلاح 1: قراءة الفرع من التوكن أو من الهيدر (لأن تطبيق الكابتن يرسله في الهيدر)
+    let branchId = user.branch_id;
+    if (!branchId && req.headers["x-branch-id"]) {
+        branchId = Number(req.headers["x-branch-id"]);
+    }
 
     /* ======================
-       فلترة التاريخ من السيرفر
+       فلترة التاريخ
     ====================== */
     let dateWhere = "";
-
     if (dateFilter === "today") {
       dateWhere = "AND DATE(o.created_at) = CURDATE()";
     }
-
     if (dateFilter === "week") {
       dateWhere = "AND o.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)";
     }
 
-  /* ======================
+    /* ======================
        الاستعلام الأساسي
     ====================== */
-const baseQuery = `
-SELECT 
-  o.id,
-
-  -- ⏱️ أوقات الحركة
-  o.scheduled_at,
-  o.processing_at,
-  o.ready_at,
-  o.delivering_at,
-  o.completed_at,
-  o.cancelled_at,
-
-  -- المطاعم (مهم جدًا ORDER BY ثابت)
-  GROUP_CONCAT(r.id ORDER BY r.id SEPARATOR '||') AS restaurant_ids,
-  GROUP_CONCAT(r.name ORDER BY r.id SEPARATOR '||') AS restaurant_names,
-  GROUP_CONCAT(r.address ORDER BY r.id SEPARATOR '||') AS restaurant_addresses,
-  GROUP_CONCAT(IFNULL(r.latitude,'') ORDER BY r.id SEPARATOR '||') AS restaurant_lats,
-  GROUP_CONCAT(IFNULL(r.longitude,'') ORDER BY r.id SEPARATOR '||') AS restaurant_lngs,
-
-  -- العميل
-  c.name AS customer_name,
-  c.phone AS customer_phone,
-  n.name AS neighborhood_name,
-  ca.address AS customer_address,
-  ca.latitude,
-  ca.longitude,
-
-  -- معلومات إضافية
-  u.name AS user_name,
-  u1.name AS creator_name,
-  u2.name AS updater_name,
-
-  o.status,
-  o.note,
-  o.total_amount,
-  o.delivery_fee,
-  o.extra_store_fee,
-  o.stores_count,
-  o.created_at,
-
-  cap.name AS captain_name,
-  o.payment_method,
-  b.name AS branch_name,
-
-  CASE o.payment_method
-    WHEN 'cod' THEN 'الدفع عند الاستلام'
-    WHEN 'bank' THEN 'إيداع بنكي'
-    WHEN 'wallet' THEN 'من الرصيد'
-    WHEN 'online' THEN 'دفع إلكتروني'
-    ELSE '-'
-  END AS payment_method_label
-
-FROM orders o
-
-JOIN customers c ON c.id = o.customer_id
-
-LEFT JOIN captains cap ON cap.id = o.captain_id
-LEFT JOIN users u ON o.user_id = u.id
-LEFT JOIN users u1 ON o.created_by = u1.id
-LEFT JOIN users u2 ON o.updated_by = u2.id
-
-LEFT JOIN customer_addresses ca ON o.address_id = ca.id
-LEFT JOIN neighborhoods n ON ca.district = n.id
-LEFT JOIN branches b ON b.id = o.branch_id
-
-LEFT JOIN (
-  SELECT order_id, restaurant_id
-  FROM order_items
-  GROUP BY order_id, restaurant_id
-) oi ON oi.order_id = o.id
-
-LEFT JOIN restaurants r ON r.id = oi.restaurant_id
-
-`;
-
+    const baseQuery = `
+      SELECT 
+        o.id,
+        o.scheduled_at, o.processing_at, o.ready_at, o.delivering_at, o.completed_at, o.cancelled_at,
+        GROUP_CONCAT(r.id ORDER BY r.id SEPARATOR '||') AS restaurant_ids,
+        GROUP_CONCAT(r.name ORDER BY r.id SEPARATOR '||') AS restaurant_names,
+        GROUP_CONCAT(r.address ORDER BY r.id SEPARATOR '||') AS restaurant_addresses,
+        GROUP_CONCAT(IFNULL(r.latitude,'') ORDER BY r.id SEPARATOR '||') AS restaurant_lats,
+        GROUP_CONCAT(IFNULL(r.longitude,'') ORDER BY r.id SEPARATOR '||') AS restaurant_lngs,
+        c.name AS customer_name,
+        c.phone AS customer_phone,
+        n.name AS neighborhood_name,
+        ca.address AS customer_address,
+        ca.latitude,
+        ca.longitude,
+        u.name AS user_name,
+        u1.name AS creator_name,
+        u2.name AS updater_name,
+        o.status, o.note, o.total_amount, o.delivery_fee, o.extra_store_fee, o.stores_count, o.created_at,
+        cap.name AS captain_name, o.captain_id, -- ✅ مهم للكابتن
+        o.payment_method, b.name AS branch_name,
+        CASE o.payment_method
+          WHEN 'cod' THEN 'الدفع عند الاستلام'
+          WHEN 'bank' THEN 'إيداع بنكي'
+          WHEN 'wallet' THEN 'من الرصيد'
+          WHEN 'online' THEN 'دفع إلكتروني'
+          ELSE '-'
+        END AS payment_method_label
+      FROM orders o
+      JOIN customers c ON c.id = o.customer_id
+      LEFT JOIN captains cap ON cap.id = o.captain_id
+      LEFT JOIN users u ON o.user_id = u.id
+      LEFT JOIN users u1 ON o.created_by = u1.id
+      LEFT JOIN users u2 ON o.updated_by = u2.id
+      LEFT JOIN customer_addresses ca ON o.address_id = ca.id
+      LEFT JOIN neighborhoods n ON ca.district = n.id
+      LEFT JOIN branches b ON b.id = o.branch_id
+      LEFT JOIN (
+        SELECT order_id, restaurant_id FROM order_items GROUP BY order_id, restaurant_id
+      ) oi ON oi.order_id = o.id
+      LEFT JOIN restaurants r ON r.id = oi.restaurant_id
+    `;
 
     let rows = [];
 
-    /* ======================
-       Admin Branch
-    ====================== */
+    // الحالة 1: أدمن الفرع الرئيسي (يرى كل شيء)
     if (user.is_admin_branch) {
-   [rows] = await db.query(
-  `
-  ${baseQuery}
-  WHERE 1=1
-  ${dateWhere}
-  GROUP BY o.id
-  ORDER BY o.id DESC
-  LIMIT ?
-  `,
-  [limit]
-);
+       [rows] = await db.query(`
+         ${baseQuery}
+         WHERE 1=1 ${dateWhere}
+         GROUP BY o.id
+         ORDER BY o.id DESC
+         LIMIT ?
+       `, [limit]);
 
+    } 
+    // الحالة 2: الكابتن (Role Check) - يرى طلباته + الطلبات الجاهزة في الفرع
+    // ✅ إصلاح 2: إضافة شرط خاص للكابتن
+    else if (user.role === 'captain' || (!user.is_admin_branch && !branchId)) {
+        // إذا كان كابتن، نُظهر له:
+        // 1. الطلبات المسندة إليه (captain_id = user.id)
+        // 2. أو الطلبات الجاهزة (status = 'ready') التي ليس لها كابتن (لأخذها)
+        // 3. أو الطلبات قيد التوصيل الخاصة به
+        
+        [rows] = await db.query(`
+          ${baseQuery}
+          WHERE 
+            (o.captain_id = ? OR (o.status IN ('ready', 'processing') AND o.captain_id IS NULL))
+            ${dateWhere}
+          GROUP BY o.id
+          ORDER BY o.id DESC
+          LIMIT ?
+        `, [user.id, limit]);
+    }
+    // الحالة 3: مستخدم عادي أو مدير فرع (فلترة حسب Branch ID)
+    else {
+        // إذا لم يتم العثور على Branch ID نعيد مصفوفة فارغة لتجنب الخطأ
+        if (!branchId) {
+             return res.json({ success: true, orders: [] });
+        }
 
-    /* ======================
-       User Branch
-    ====================== */
-    } else {
- [rows] = await db.query(
-  `
-  ${baseQuery}
-  WHERE o.branch_id = ?
-  ${dateWhere}
-  GROUP BY o.id
-  ORDER BY o.id DESC
-  LIMIT ?
-  `,
-  [user.branch_id, limit]
-);
-
+        [rows] = await db.query(`
+          ${baseQuery}
+          WHERE o.branch_id = ?
+          ${dateWhere}
+          GROUP BY o.id
+          ORDER BY o.id DESC
+          LIMIT ?
+        `, [branchId, limit]);
     }
 
-
-     rows.forEach(order => {
-
-  const names = order.restaurant_names?.split("||") || [];
-  const addresses = order.restaurant_addresses?.split("||") || [];
-  const lats = order.restaurant_lats?.split("||") || [];
-  const lngs = order.restaurant_lngs?.split("||") || [];
-
-  order.restaurants = names.map((name, i) => ({
-    name,
-    address: addresses[i] || "",
-    latitude: lats[i] || null,
-    longitude: lngs[i] || null
-  }));
-
-});
+    // تنسيق بيانات المطاعم (نفس كودك القديم)
+    rows.forEach(order => {
+      const names = order.restaurant_names?.split("||") || [];
+      const addresses = order.restaurant_addresses?.split("||") || [];
+      const lats = order.restaurant_lats?.split("||") || [];
+      const lngs = order.restaurant_lngs?.split("||") || [];
+      order.restaurants = names.map((name, i) => ({
+        name,
+        address: addresses[i] || "",
+        latitude: lats[i] || null,
+        longitude: lngs[i] || null
+      }));
+    });
 
     res.json({
       success: true,
@@ -345,14 +323,12 @@ LEFT JOIN restaurants r ON r.id = oi.restaurant_id
 
   } catch (err) {
     console.error("GET ORDERS ERROR:", err);
-
     res.status(500).json({
       success: false,
       orders: [],
     });
   }
 });
-
 /* ===================================================
    POST /orders (المحسن لدعم تكرار الطلب ومنع الأخطاء)
 ===================================================== */
