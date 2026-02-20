@@ -772,7 +772,7 @@ router.get("/:id", async (req, res) => {
     const orderId = req.params.id;
 
     /* جلب الطلب */
-    const [[order]] = await db.query(`
+    const [orderRows] = await db.query(`
       SELECT
         w.id,
         w.order_type,
@@ -786,7 +786,6 @@ router.get("/:id", async (req, res) => {
         w.to_lng,
         w.delivery_fee,
         w.extra_fee,
-        (w.delivery_fee + w.extra_fee) AS total_fee,
         w.notes,
         w.payment_method,
         w.customer_id,
@@ -802,12 +801,14 @@ router.get("/:id", async (req, res) => {
       LIMIT 1
     `, [orderId]);
 
-    if (!order) {
+    if(orderRows.length === 0){
       return res.status(404).json({
-        success: false,
-        message: "الطلب غير موجود"
+        success:false,
+        message:"الطلب غير موجود"
       });
     }
+
+    const order = orderRows[0];
 
     /* جلب المنتجات */
     const [items] = await db.query(`
@@ -819,23 +820,22 @@ router.get("/:id", async (req, res) => {
         total
       FROM wassel_order_items
       WHERE order_id = ?
-    `, [orderId]);
+    `,[orderId]);
 
-    /* إضافة المنتجات داخل order */
     order.items = items;
 
-    res.json({
-      success: true,
+    return res.json({
+      success:true,
       order
     });
 
   }
-  catch (err) {
+  catch(err){
 
-    console.error("Wassel Order Details Error:", err);
+    console.error("Wassel order error:", err);
 
-    res.status(500).json({
-      success: false,
+    return res.status(500).json({
+      success:false,
       message: err.message
     });
 
