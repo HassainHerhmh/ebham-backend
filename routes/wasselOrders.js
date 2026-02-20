@@ -771,13 +771,16 @@ router.get("/:id", async (req, res) => {
 
     const orderId = req.params.id;
 
+    /* =========================
+       جلب الطلب
+    ========================= */
+
     const [[order]] = await db.query(`
-      
       SELECT
 
         w.id,
         w.order_type,
-          w.is_manual,
+        w.is_manual,
         w.status,
 
         w.from_address,
@@ -812,11 +815,8 @@ router.get("/:id", async (req, res) => {
         ON c.id = w.customer_id
 
       WHERE w.id = ?
-
       LIMIT 1
-
     `, [orderId]);
-
 
     if (!order) {
 
@@ -827,6 +827,30 @@ router.get("/:id", async (req, res) => {
 
     }
 
+    /* =========================
+       جلب المنتجات (هذا هو الجزء المفقود)
+    ========================= */
+
+    const [items] = await db.query(`
+      SELECT
+        id,
+        product_name,
+        qty,
+        price,
+        total
+      FROM wassel_order_items
+      WHERE order_id = ?
+    `, [orderId]);
+
+    /* =========================
+       إضافة المنتجات إلى الطلب
+    ========================= */
+
+    order.items = items;
+
+    /* =========================
+       إرسال النتيجة
+    ========================= */
 
     res.json({
       success: true,
