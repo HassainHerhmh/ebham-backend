@@ -1031,4 +1031,47 @@ async function sendFCMNotification(token, title, body, data = {}) {
   }
 
 }
+
+// تحديث عنصر طلب يدوي
+router.put("/item/:id", auth, async (req,res)=>{
+
+  try{
+
+    const { quantity, price } = req.body;
+    const itemId = req.params.id;
+
+    await pool.query(
+      `
+      UPDATE wassel_order_items
+      SET
+        qty = COALESCE(?, qty),
+        price = COALESCE(?, price),
+        total = COALESCE(?, qty) * COALESCE(?, price)
+      WHERE id = ?
+      `,
+      [
+        quantity,
+        price,
+        quantity,
+        price,
+        itemId
+      ]
+    );
+
+    res.json({
+      success:true
+    });
+
+  }
+  catch(err){
+
+    console.error(err);
+
+    res.status(500).json({
+      success:false
+    });
+
+  }
+
+});
 export default router;
