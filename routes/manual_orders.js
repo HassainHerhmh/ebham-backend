@@ -898,6 +898,66 @@ while (start < end){
   }
 });
 
+router.get("/customer-orders", async (req, res) => {
 
+  try {
+
+    const customerId = req.user.id;
+
+    const [rows] = await db.query(`
+      SELECT
+        w.id,
+        w.status,
+        w.total_amount,
+        w.delivery_fee,
+        w.payment_method,
+        w.notes,
+        w.created_at,
+        w.processing_at,
+        w.ready_at,
+        w.delivering_at,
+        w.completed_at,
+        w.cancelled_at,
+
+        r.name AS restaurant_name,
+        cap.name AS captain_name
+
+      FROM wassel_orders w
+
+      LEFT JOIN restaurants r
+        ON r.id = w.restaurant_id
+
+      LEFT JOIN captains cap
+        ON cap.id = w.captain_id
+
+      WHERE w.customer_id = ?
+      AND w.is_manual = 1
+
+      ORDER BY w.id DESC
+    `,[customerId]);
+
+
+    res.json({
+
+      success:true,
+
+      orders:rows
+
+    });
+
+  }
+  catch(err){
+
+    console.error(err);
+
+    res.status(500).json({
+
+      success:false
+
+    });
+
+  }
+
+});
 
 export default router;
