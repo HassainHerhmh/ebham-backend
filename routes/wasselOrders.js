@@ -1,7 +1,7 @@
 import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
-
+import admin from "firebase-admin";
 const router = express.Router();
 
 /* ==============================================
@@ -289,10 +289,71 @@ router.post("/", async (req, res) => {
       scheduledAt
     ]);
 
-    res.json({
-      success: true,
-      order_id: result.insertId
-    });
+   const orderId = result.insertId;
+
+const io = req.app.get("io");
+
+/* إشعار لوحة التحكم */
+
+io.emit("admin_notification", {
+
+  type: "wassel_order_created",
+
+  order_id: orderId,
+
+  message: `🚚 تم إنشاء طلب وصل لي رقم #${orderId}`
+
+});
+
+/* إرسال للكباتن المتصلين realtime */
+
+io.emit("new_wassel_order", {
+
+  order_id: orderId,
+
+  type: "wassel_order",
+
+  message: `🚚 طلب وصل لي جديد رقم #${orderId}`
+
+});
+
+/* إرسال Push Notification لجميع الكباتن */
+
+const [captains] = await db.query(
+
+  "SELECT id, fcm_token FROM captains WHERE fcm_token IS NOT NULL"
+
+);
+
+for(const captain of captains){
+
+  await sendFCMNotification(
+
+    captain.fcm_token,
+
+    "🚚 طلب وصل لي جديد",
+
+    `طلب رقم #${orderId}`,
+
+    {
+
+      orderId: String(orderId),
+
+      type: "wassel_order"
+
+    }
+
+  );
+
+}
+
+res.json({
+
+  success: true,
+
+  order_id: orderId
+
+});
 
   } catch (err) {
 
@@ -413,13 +474,92 @@ if (timeField) {
     6️⃣ إسناد كابتن
 ============================================== */
 router.post("/assign", async (req, res) => {
+
   try {
+
     const { orderId, captainId } = req.body;
-    await db.query(`UPDATE wassel_orders SET captain_id = ?, updated_by = ? WHERE id = ?`, [captainId, req.user.id, orderId]);
+
+    await db.query(
+
+      `UPDATE wassel_orders SET captain_id = ?, updated_by = ? WHERE id = ?`,
+
+      [captainId, req.user.id, orderId]
+
+    );
+
+    const io = req.app.get("io");
+
+    /* realtime */
+
+    io.to("captain_" + captainId).emit(
+
+      "new_wassel_order_assigned",
+
+      {
+
+        order_id: orderId,
+
+        message: `🚚 تم إسناد طلب وصل لي رقم #${orderId}`
+
+      }
+
+    );
+
+    /* push */
+
+    const [[captain]] = await db.query(
+
+      "SELECT fcm_token FROM captains WHERE id=?",
+
+      [captainId]
+
+    );
+
+    if(captain?.fcm_token){
+
+      await sendFCMNotification(
+
+        captain.fcm_token,
+
+        "🚚 طلب وصل لي جديد",
+
+        `تم إسناد طلب رقم #${orderId}`,
+
+        {
+
+          orderId: String(orderId),
+
+          type: "wassel_order_assigned"
+
+        }
+
+      );
+
+    }
+
+    /* admin */
+
+    io.emit("admin_notification", {
+
+      type: "wassel_assigned",
+
+      order_id: orderId,
+
+      message: `👨‍✈️ تم إسناد طلب وصل لي #${orderId}`
+
+    });
+
     res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ success: false });
+
   }
+  catch(err){
+
+    console.error(err);
+
+    res.status(500).json({ success:false });
+
+  }
+
 });
 
 /* ==============================================
@@ -695,6 +835,18 @@ router.put("/:id/status", auth, async (req, res) => {
       [status, id]
     );
 
+      const io = req.app.get("io");
+
+io.emit("admin_notification", {
+
+  type: "wassel_status",
+
+  order_id: orderId,
+
+  message: `🚚 تم تحديث حالة طلب وصل لي #${orderId} إلى ${status}`
+
+});
+      
     res.json({
       success:true,
       message:"تم تحديث الحالة"
@@ -713,5 +865,44 @@ router.put("/:id/status", auth, async (req, res) => {
   }
 
 });
+async function sendFCMNotification(token, title, body, data = {}) {
 
+  if (!token) return;
+
+  try {
+
+    await admin.messaging().send({
+
+      token,
+
+      notification: {
+        title,
+        body
+      },
+
+      data: {
+        ...data,
+        click_action: "FLUTTER_NOTIFICATION_CLICK"
+      },
+
+      android: {
+        priority: "high",
+        notification: {
+          sound: "default",
+          channelId: "orders_channel"
+        }
+      }
+
+    });
+
+    console.log("📲 Wassel FCM sent");
+
+  }
+  catch(err){
+
+    console.error("Wassel FCM Error:", err.message);
+
+  }
+
+}
 export default router;
