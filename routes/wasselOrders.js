@@ -1040,8 +1040,8 @@ router.put("/item/:id", auth, async (req,res)=>{
     const { quantity, price } = req.body;
     const itemId = req.params.id;
 
-    await pool.query(
-      `
+await db.query(
+    `
       UPDATE wassel_order_items
       SET
         qty = COALESCE(?, qty),
