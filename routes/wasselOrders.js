@@ -85,22 +85,51 @@ router.get("/banks", async (req, res) => {
 ============================================== */
 router.get("/", async (req, res) => {
   try {
-    const [rows] = await db.query(`
-      SELECT w.*, c.name AS customer_name, cap.name AS captain_name, u1.name AS creator_name, u2.name AS updater_name
+
+    let query = `
+      SELECT 
+        w.*, 
+        c.name AS customer_name, 
+        cap.name AS captain_name, 
+        u1.name AS creator_name, 
+        u2.name AS updater_name
       FROM wassel_orders w
       LEFT JOIN customers c ON c.id = w.customer_id
       LEFT JOIN captains cap ON cap.id = w.captain_id
       LEFT JOIN users u1 ON u1.id = w.user_id
       LEFT JOIN users u2 ON u2.id = w.updated_by
       WHERE w.is_manual = 0
-      ORDER BY w.id DESC
-    `);
-    res.json({ success: true, orders: rows });
+    `;
+
+    let params = [];
+
+    // إذا كان المستخدم كابتن → عرض طلباته فقط
+    if(req.user.role === "captain"){
+
+      query += ` AND w.captain_id = ?`;
+      params.push(req.user.id);
+
+    }
+
+    query += ` ORDER BY w.id DESC`;
+
+    const [rows] = await db.query(query, params);
+
+    res.json({
+      success: true,
+      orders: rows
+    });
+
   } catch (err) {
-    res.status(500).json({ success: false });
+
+    console.error(err);
+
+    res.status(500).json({
+      success: false
+    });
+
   }
 });
-
 /* ==============================================
     4️⃣ إضافة طلب جديد (مع الإحداثيات)
 ============================================== */
