@@ -776,8 +776,10 @@ router.get("/:id", async (req, res) => {
       SELECT
 
         w.id,
-        w.order_type,
-        w.status,
+CASE 
+  WHEN w.is_manual = 1 THEN 'manual'
+  ELSE 'wassel'
+END AS order_type,        w.status,
 
         w.from_address,
         w.from_lat,
