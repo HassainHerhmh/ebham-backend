@@ -826,27 +826,98 @@ router.put("/:id/status", auth, async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    await db.query(
-      `
+    // تحديث الحالة
+    await db.query(`
       UPDATE wassel_orders
-      SET status = ?
+      SET status = ?, updated_by = ?
       WHERE id = ?
-      `,
-      [status, id]
-    );
+    `,[status, req.user.id, id]);
 
-      const io = req.app.get("io");
 
-io.emit("admin_notification", {
+    /* ======================
+       جلب بيانات الطلب
+    ====================== */
 
-  type: "wassel_status",
+    const [[order]] = await db.query(`
+      SELECT
+        w.id,
+        w.status,
+        c.name AS customer_name,
+        cap.name AS captain_name,
+        u.name AS user_name
+      FROM wassel_orders w
+      LEFT JOIN customers c ON c.id = w.customer_id
+      LEFT JOIN captains cap ON cap.id = ?
+      LEFT JOIN users u ON u.id = ?
+      WHERE w.id = ?
+    `,[req.user.id, req.user.id, id]);
 
-  order_id: orderId,
 
-  message: `🚚 تم تحديث حالة طلب وصل لي #${orderId} إلى ${status}`
+    /* ======================
+       تحديد من قام بالتحديث
+    ====================== */
 
-});
-      
+    let actorName = "النظام";
+    let actorIcon = "⚙️";
+
+    if(order?.captain_name){
+
+      actorName = order.captain_name;
+      actorIcon = "👨‍✈️";
+
+    }
+    else if(order?.user_name){
+
+      actorName = order.user_name;
+      actorIcon = "🧑‍💼";
+
+    }
+
+
+    /* ======================
+       تحويل الحالة للعربي
+    ====================== */
+
+    const statusMap = {
+
+      pending: "قيد الانتظار",
+      confirmed: "قيد المعالجة",
+      preparing: "قيد التحضير",
+      ready: "جاهز",
+      delivering: "قيد التوصيل",
+      completed: "مكتمل",
+      cancelled: "ملغي",
+      scheduled: "مجدول"
+
+    };
+
+    const statusText = statusMap[status] || status;
+
+
+    /* ======================
+       إرسال Socket Notification
+    ====================== */
+
+    const io = req.app.get("io");
+
+    io.emit("admin_notification", {
+
+      type: "wassel_status",
+
+      order_id: id,
+
+      actor_name: actorName,
+
+      customer_name: order.customer_name,
+
+      status: status,
+
+      message:
+        `${actorIcon} ${actorName} حدث طلب العميل ${order.customer_name} رقم #${id} إلى ${statusText}`
+
+    });
+
+
     res.json({
       success:true,
       message:"تم تحديث الحالة"
@@ -865,6 +936,7 @@ io.emit("admin_notification", {
   }
 
 });
+///////////////////////
 async function sendFCMNotification(token, title, body, data = {}) {
 
   if (!token) return;
