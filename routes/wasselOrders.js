@@ -771,62 +771,58 @@ router.get("/:id", async (req, res) => {
 
     const orderId = req.params.id;
 
+    /* جلب الطلب */
     const [[order]] = await db.query(`
-      
       SELECT
-
         w.id,
         w.order_type,
-          w.is_manual,
+        w.is_manual,
         w.status,
-
         w.from_address,
         w.from_lat,
         w.from_lng,
-
         w.to_address,
         w.to_lat,
         w.to_lng,
-
         w.delivery_fee,
         w.extra_fee,
-
         (w.delivery_fee + w.extra_fee) AS total_fee,
-
         w.notes,
-
         w.payment_method,
-
         w.customer_id,
         c.name AS customer_name,
-
         w.created_at,
         w.processing_at,
         w.delivering_at,
         w.completed_at,
         w.cancelled_at
-
       FROM wassel_orders w
-
-      LEFT JOIN customers c
-        ON c.id = w.customer_id
-
+      LEFT JOIN customers c ON c.id = w.customer_id
       WHERE w.id = ?
-
       LIMIT 1
-
     `, [orderId]);
 
-
     if (!order) {
-
       return res.status(404).json({
         success: false,
         message: "الطلب غير موجود"
       });
-
     }
 
+    /* جلب المنتجات */
+    const [items] = await db.query(`
+      SELECT
+        id,
+        product_name,
+        qty,
+        price,
+        total
+      FROM wassel_order_items
+      WHERE order_id = ?
+    `, [orderId]);
+
+    /* إضافة المنتجات داخل order */
+    order.items = items;
 
     res.json({
       success: true,
