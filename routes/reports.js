@@ -399,7 +399,7 @@ router.get("/captain-stats", auth, async (req, res) => {
 
 });
 /* =========================================
-   📄 كشف حساب الكابتن
+   📄 كشف حساب الكابتن (مخصص ونظيف)
 ========================================= */
 router.get("/captain-statement", auth, async (req, res) => {
 
@@ -409,12 +409,35 @@ router.get("/captain-statement", auth, async (req, res) => {
 
     const { from_date, to_date } = req.query;
 
+    /* =====================================
+       1. الحصول على account_id الخاص بالكابتن
+    ===================================== */
+    const [[captain]] = await db.query(`
+      SELECT account_id
+      FROM captains
+      WHERE id = ?
+    `, [captain_id]);
+
+    if(!captain || !captain.account_id){
+
+      return res.json({
+        success:true,
+        list:[]
+      });
+
+    }
+
+    const captain_account_id = captain.account_id;
+
+    /* =====================================
+       2. بناء شرط الفلترة
+    ===================================== */
     let where = `
-      je.reference_type = 'order'
-      AND o.captain_id = ?
+      je.account_id = ?
+      AND je.reference_type = 'order'
     `;
 
-    const params = [captain_id];
+    const params = [captain_account_id];
 
     if(from_date){
       where += " AND je.journal_date >= ?";
@@ -426,6 +449,9 @@ router.get("/captain-statement", auth, async (req, res) => {
       params.push(to_date);
     }
 
+    /* =====================================
+       3. جلب القيود الخاصة بالكابتن فقط
+    ===================================== */
     const [rows] = await db.query(`
 
       SELECT
@@ -440,19 +466,16 @@ router.get("/captain-statement", auth, async (req, res) => {
 
         a.name_ar AS account_name,
 
-        je.debit,
+        ROUND(je.debit,2) AS debit,
 
-        je.credit,
+        ROUND(je.credit,2) AS credit,
 
         je.notes
 
       FROM journal_entries je
 
       JOIN accounts a
-      ON a.id = je.account_id
-
-      JOIN orders o
-      ON o.id = je.reference_id
+        ON a.id = je.account_id
 
       WHERE ${where}
 
@@ -460,14 +483,17 @@ router.get("/captain-statement", auth, async (req, res) => {
 
     `, params);
 
-    /* حساب الرصيد التراكمي */
+    /* =====================================
+       4. حساب الرصيد التراكمي
+    ===================================== */
     let balance = 0;
 
     const result = rows.map(row=>{
 
-      balance +=
-        Number(row.debit) -
-        Number(row.credit);
+      const debit = Number(row.debit || 0);
+      const credit = Number(row.credit || 0);
+
+      balance += debit - credit;
 
       return {
 
@@ -479,11 +505,11 @@ router.get("/captain-statement", auth, async (req, res) => {
 
         account: row.account_name,
 
-        debit: row.debit,
+        debit: debit,
 
-        credit: row.credit,
+        credit: credit,
 
-        balance: balance,
+        balance: Number(balance.toFixed(2)),
 
         status:
           balance > 0
@@ -496,6 +522,9 @@ router.get("/captain-statement", auth, async (req, res) => {
 
     });
 
+    /* =====================================
+       5. ارسال النتيجة
+    ===================================== */
     res.json({
       success:true,
       list: result
@@ -504,7 +533,7 @@ router.get("/captain-statement", auth, async (req, res) => {
   }
   catch(err){
 
-    console.error(err);
+    console.error("CAPTAIN STATEMENT ERROR:", err);
 
     res.status(500).json({
       success:false
