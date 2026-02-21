@@ -398,4 +398,119 @@ router.get("/captain-stats", auth, async (req, res) => {
   }
 
 });
+/* =========================================
+   📄 كشف حساب الكابتن
+========================================= */
+router.get("/captain-statement", auth, async (req, res) => {
+
+  try {
+
+    const captain_id = req.user.id;
+
+    const { from_date, to_date } = req.query;
+
+    let where = `
+      je.reference_type = 'order'
+      AND o.captain_id = ?
+    `;
+
+    const params = [captain_id];
+
+    if(from_date){
+      where += " AND je.journal_date >= ?";
+      params.push(from_date);
+    }
+
+    if(to_date){
+      where += " AND je.journal_date <= ?";
+      params.push(to_date);
+    }
+
+    const [rows] = await db.query(`
+
+      SELECT
+
+        je.id,
+
+        je.journal_date AS date,
+
+        je.reference_id AS order_id,
+
+        'طلب توصيل' AS document,
+
+        a.name_ar AS account_name,
+
+        je.debit,
+
+        je.credit,
+
+        je.notes
+
+      FROM journal_entries je
+
+      JOIN accounts a
+      ON a.id = je.account_id
+
+      JOIN orders o
+      ON o.id = je.reference_id
+
+      WHERE ${where}
+
+      ORDER BY je.journal_date ASC, je.id ASC
+
+    `, params);
+
+    /* حساب الرصيد التراكمي */
+    let balance = 0;
+
+    const result = rows.map(row=>{
+
+      balance +=
+        Number(row.debit) -
+        Number(row.credit);
+
+      return {
+
+        date: row.date,
+
+        document: row.document,
+
+        reference: row.order_id,
+
+        account: row.account_name,
+
+        debit: row.debit,
+
+        credit: row.credit,
+
+        balance: balance,
+
+        status:
+          balance > 0
+          ? "عليه"
+          : "له",
+
+        notes: row.notes
+
+      };
+
+    });
+
+    res.json({
+      success:true,
+      list: result
+    });
+
+  }
+  catch(err){
+
+    console.error(err);
+
+    res.status(500).json({
+      success:false
+    });
+
+  }
+
+});
 export default router;
