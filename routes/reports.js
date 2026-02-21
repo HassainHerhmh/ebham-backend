@@ -275,5 +275,128 @@ router.get("/commissions", auth, async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+/* =========================================
+   📊 احصائيات الكابتن
+========================================= */
+router.get("/captain-stats", auth, async (req, res) => {
 
+  try {
+
+    const { period } = req.query;
+    const captain_id = req.user.id;
+
+    let dateFilter = "";
+
+    if(period === "daily"){
+
+      dateFilter = "DATE(o.created_at) = CURDATE()";
+
+    }
+    else if(period === "weekly"){
+
+      dateFilter =
+        "YEARWEEK(o.created_at, 1) = YEARWEEK(CURDATE(), 1)";
+
+    }
+    else if(period === "monthly"){
+
+      dateFilter =
+        "YEAR(o.created_at) = YEAR(CURDATE()) AND MONTH(o.created_at) = MONTH(CURDATE())";
+
+    }
+    else{
+
+      dateFilter = "1=1";
+
+    }
+
+    const [rows] = await db.query(`
+
+      SELECT
+
+        COUNT(o.id) AS total_orders,
+
+        IFNULL(SUM(o.total_amount), 0)
+          AS total_sales,
+
+        IFNULL(SUM(o.delivery_fee), 0)
+          AS delivery_fees,
+
+        IFNULL(SUM(
+          CASE
+            WHEN cc.commission_type = 'percent'
+            THEN (o.delivery_fee * cc.commission_value / 100)
+            ELSE cc.commission_value
+          END
+        ), 0) AS company_commission,
+
+        IFNULL(SUM(
+          o.delivery_fee -
+          CASE
+            WHEN cc.commission_type = 'percent'
+            THEN (o.delivery_fee * cc.commission_value / 100)
+            ELSE cc.commission_value
+          END
+        ), 0) AS captain_profit
+
+      FROM orders o
+
+      LEFT JOIN commissions cc
+        ON cc.account_type = 'captain'
+        AND cc.account_id = o.captain_id
+        AND cc.is_active = 1
+
+      WHERE o.captain_id = ?
+      AND o.status = 'completed'
+      AND ${dateFilter}
+
+    `, [captain_id]);
+
+    const stats = rows[0];
+
+    res.json({
+
+      success: true,
+
+      stats: {
+
+        total_orders:
+          Number(stats.total_orders),
+
+        total_sales:
+          Number(stats.total_sales),
+
+        delivery_fees:
+          Number(stats.delivery_fees),
+
+        company_commission:
+          Number(stats.company_commission),
+
+        captain_profit:
+          Number(stats.captain_profit),
+
+        avg_order_value:
+          stats.total_orders > 0
+          ? Number(
+              stats.total_sales /
+              stats.total_orders
+            ).toFixed(2)
+          : 0
+
+      }
+
+    });
+
+  }
+  catch(err){
+
+    console.error("CAPTAIN STATS ERROR:", err);
+
+    res.status(500).json({
+      success:false
+    });
+
+  }
+
+});
 export default router;
