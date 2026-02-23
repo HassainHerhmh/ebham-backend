@@ -399,7 +399,7 @@ router.get("/captain-stats", auth, async (req, res) => {
 
 });
 /* =========================================
-   📄 كشف حساب الكابتن (مخصص ونظيف)
+   📄 كشف حساب الكابتن (احترافي + رصيد سابق + إجماليات)
 ========================================= */
 router.get("/captain-statement", auth, async (req, res) => {
 
@@ -410,7 +410,7 @@ router.get("/captain-statement", auth, async (req, res) => {
     const { from_date, to_date } = req.query;
 
     /* =====================================
-       1. الحصول على account_id الخاص بالكابتن
+       1. الحصول على account_id
     ===================================== */
     const [[captain]] = await db.query(`
       SELECT account_id
@@ -422,88 +422,150 @@ router.get("/captain-statement", auth, async (req, res) => {
 
       return res.json({
         success:true,
+        opening_balance:0,
+        totals:{
+          debit:0,
+          credit:0,
+          balance:0
+        },
         list:[]
       });
 
     }
 
-    const captain_account_id = captain.account_id;
+    const account_id = captain.account_id;
 
     /* =====================================
-       2. بناء شرط الفلترة
+       2. حساب الرصيد السابق
     ===================================== */
-    let where = `
-      je.account_id = ?
-      AND je.reference_type = 'order'
-    `;
-
-    const params = [captain_account_id];
+    let opening_balance = 0;
 
     if(from_date){
-      where += " AND je.journal_date >= ?";
+
+      const [[opening]] = await db.query(`
+        SELECT
+          ROUND(SUM(debit - credit),2) AS balance
+        FROM journal_entries
+        WHERE account_id = ?
+        AND journal_date < ?
+      `,[account_id, from_date]);
+
+      opening_balance =
+        Number(opening.balance || 0);
+
+    }
+
+    /* =====================================
+       3. بناء شرط الفلترة
+    ===================================== */
+    let where = `
+      account_id = ?
+      AND reference_type = 'order'
+    `;
+
+    const params = [account_id];
+
+    if(from_date){
+
+      where += " AND journal_date >= ?";
       params.push(from_date);
+
     }
 
     if(to_date){
-      where += " AND je.journal_date <= ?";
+
+      where += " AND journal_date <= ?";
       params.push(to_date);
+
     }
 
     /* =====================================
-       3. جلب القيود الخاصة بالكابتن فقط
+       4. جلب القيود
     ===================================== */
     const [rows] = await db.query(`
 
       SELECT
 
-        je.id,
+        id,
 
-        je.journal_date AS date,
+        journal_date AS date,
 
-        je.reference_id AS order_id,
+        reference_id AS order_id,
 
-        'طلب توصيل' AS document,
+        ROUND(debit,2) AS debit,
 
-        a.name_ar AS account_name,
+        ROUND(credit,2) AS credit,
 
-        ROUND(je.debit,2) AS debit,
+        notes
 
-        ROUND(je.credit,2) AS credit,
-
-        je.notes
-
-      FROM journal_entries je
-
-      JOIN accounts a
-        ON a.id = je.account_id
+      FROM journal_entries
 
       WHERE ${where}
 
-      ORDER BY je.journal_date ASC, je.id ASC
+      ORDER BY journal_date ASC, id ASC
 
     `, params);
 
     /* =====================================
-       4. حساب الرصيد التراكمي
+       5. تجهيز النتائج
     ===================================== */
-    let balance = 0;
+    let balance = opening_balance;
 
-    const result = rows.map(row=>{
+    let total_debit = 0;
+    let total_credit = 0;
+
+    const list = [];
+
+    /* إضافة الرصيد السابق */
+    if(opening_balance !== 0){
+
+      list.push({
+
+        date: from_date || null,
+
+        document:"رصيد سابق",
+
+        reference:"",
+
+        account:"رصيد سابق",
+
+        debit:0,
+
+        credit:0,
+
+        balance: Number(balance.toFixed(2)),
+
+        status:
+          balance > 0
+          ? "عليه"
+          : "له",
+
+        notes:""
+
+      });
+
+    }
+
+    /* إضافة القيود */
+    rows.forEach(row=>{
 
       const debit = Number(row.debit || 0);
       const credit = Number(row.credit || 0);
 
+      total_debit += debit;
+      total_credit += credit;
+
       balance += debit - credit;
 
-      return {
+      list.push({
 
         date: row.date,
 
-        document: row.document,
+        document:"طلب توصيل",
 
         reference: row.order_id,
 
-        account: row.account_name,
+        account:"حساب الكابتن",
 
         debit: debit,
 
@@ -518,22 +580,45 @@ router.get("/captain-statement", auth, async (req, res) => {
 
         notes: row.notes
 
-      };
+      });
 
     });
 
     /* =====================================
-       5. ارسال النتيجة
+       6. الإرسال النهائي
     ===================================== */
     res.json({
+
       success:true,
-      list: result
+
+      opening_balance:
+
+        Number(opening_balance.toFixed(2)),
+
+      totals:{
+
+        debit:
+          Number(total_debit.toFixed(2)),
+
+        credit:
+          Number(total_credit.toFixed(2)),
+
+        balance:
+          Number(balance.toFixed(2))
+
+      },
+
+      list:list
+
     });
 
   }
   catch(err){
 
-    console.error("CAPTAIN STATEMENT ERROR:", err);
+    console.error(
+      "CAPTAIN STATEMENT ERROR:",
+      err
+    );
 
     res.status(500).json({
       success:false
