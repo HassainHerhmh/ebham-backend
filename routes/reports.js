@@ -406,11 +406,10 @@ router.get("/captain-statement", auth, async (req, res) => {
   try {
 
     const captain_id = req.user.id;
-
     const { from_date, to_date } = req.query;
 
     /* =====================================
-       1. الحصول على account_id
+       1. الحصول على account_id الخاص بالكابتن
     ===================================== */
     const [[captain]] = await db.query(`
       SELECT account_id
@@ -418,17 +417,17 @@ router.get("/captain-statement", auth, async (req, res) => {
       WHERE id = ?
     `, [captain_id]);
 
-    if(!captain || !captain.account_id){
+    if (!captain || !captain.account_id) {
 
       return res.json({
-        success:true,
-        opening_balance:0,
-        totals:{
-          debit:0,
-          credit:0,
-          balance:0
+        success: true,
+        opening_balance: 0,
+        totals: {
+          debit: 0,
+          credit: 0,
+          balance: 0
         },
-        list:[]
+        list: []
       });
 
     }
@@ -440,18 +439,17 @@ router.get("/captain-statement", auth, async (req, res) => {
     ===================================== */
     let opening_balance = 0;
 
-    if(from_date){
+    if (from_date) {
 
       const [[opening]] = await db.query(`
         SELECT
-          ROUND(SUM(debit - credit),2) AS balance
+          ROUND(IFNULL(SUM(debit - credit),0),2) AS balance
         FROM journal_entries
         WHERE account_id = ?
         AND journal_date < ?
-      `,[account_id, from_date]);
+      `, [account_id, from_date]);
 
-      opening_balance =
-        Number(opening.balance || 0);
+      opening_balance = Number(opening.balance || 0);
 
     }
 
@@ -459,51 +457,36 @@ router.get("/captain-statement", auth, async (req, res) => {
        3. بناء شرط الفلترة
     ===================================== */
     let where = `
-      account_id = ?
-      AND reference_type = 'order'
+      je.account_id = ?
+      AND je.reference_type = 'order'
     `;
 
     const params = [account_id];
 
-    if(from_date){
-
-      where += " AND journal_date >= ?";
+    if (from_date) {
+      where += " AND DATE(je.journal_date) >= ?";
       params.push(from_date);
-
     }
 
-    if(to_date){
-
-      where += " AND journal_date <= ?";
+    if (to_date) {
+      where += " AND DATE(je.journal_date) <= ?";
       params.push(to_date);
-
     }
 
     /* =====================================
-       4. جلب القيود
+       4. جلب القيود الخاصة بالكابتن فقط
     ===================================== */
     const [rows] = await db.query(`
-
       SELECT
-
-        id,
-
-        journal_date AS date,
-
-        reference_id AS order_id,
-
-        ROUND(debit,2) AS debit,
-
-        ROUND(credit,2) AS credit,
-
-        notes
-
-      FROM journal_entries
-
+        je.id,
+        DATE(je.journal_date) AS date,
+        je.reference_id AS order_id,
+        ROUND(IFNULL(je.debit,0),2) AS debit,
+        ROUND(IFNULL(je.credit,0),2) AS credit,
+        je.notes
+      FROM journal_entries je
       WHERE ${where}
-
-      ORDER BY journal_date ASC, id ASC
-
+      ORDER BY je.journal_date ASC, je.id ASC
     `, params);
 
     /* =====================================
@@ -516,41 +499,38 @@ router.get("/captain-statement", auth, async (req, res) => {
 
     const list = [];
 
-    /* إضافة الرصيد السابق */
-    if(opening_balance !== 0){
+    /* =====================================
+       إضافة الرصيد السابق
+    ===================================== */
+    list.push({
 
-      list.push({
+      date: from_date || null,
 
-        date: from_date || null,
+      document: "رصيد سابق",
 
-        document:"رصيد سابق",
+      reference: "",
 
-        reference:"",
+      account: "حساب الكابتن",
 
-        account:"رصيد سابق",
+      debit: opening_balance > 0 ? opening_balance : 0,
 
-        debit:0,
+      credit: opening_balance < 0 ? Math.abs(opening_balance) : 0,
 
-        credit:0,
+      balance: Number(balance.toFixed(2)),
 
-        balance: Number(balance.toFixed(2)),
+      status: balance > 0 ? "عليه" : "له",
 
-        status:
-          balance > 0
-          ? "عليه"
-          : "له",
+      notes: ""
 
-        notes:""
+    });
 
-      });
+    /* =====================================
+       إضافة القيود
+    ===================================== */
+    rows.forEach(row => {
 
-    }
-
-    /* إضافة القيود */
-    rows.forEach(row=>{
-
-      const debit = Number(row.debit || 0);
-      const credit = Number(row.credit || 0);
+      const debit = Number(row.debit);
+      const credit = Number(row.credit);
 
       total_debit += debit;
       total_credit += credit;
@@ -561,11 +541,11 @@ router.get("/captain-statement", auth, async (req, res) => {
 
         date: row.date,
 
-        document:"طلب توصيل",
+        document: "طلب توصيل",
 
         reference: row.order_id,
 
-        account:"حساب الكابتن",
+        account: "حساب الكابتن",
 
         debit: debit,
 
@@ -573,55 +553,51 @@ router.get("/captain-statement", auth, async (req, res) => {
 
         balance: Number(balance.toFixed(2)),
 
-        status:
-          balance > 0
-          ? "عليه"
-          : "له",
+        status: balance > 0 ? "عليه" : "له",
 
-        notes: row.notes
+        notes: row.notes || ""
 
       });
 
     });
 
     /* =====================================
-       6. الإرسال النهائي
+       6. الإجماليات النهائية
+    ===================================== */
+    const final_balance = opening_balance + total_debit - total_credit;
+
+    /* =====================================
+       7. إرسال النتيجة
     ===================================== */
     res.json({
 
-      success:true,
+      success: true,
 
-      opening_balance:
+      opening_balance: Number(opening_balance.toFixed(2)),
 
-        Number(opening_balance.toFixed(2)),
+      totals: {
 
-      totals:{
+        debit: Number(total_debit.toFixed(2)),
 
-        debit:
-          Number(total_debit.toFixed(2)),
+        credit: Number(total_credit.toFixed(2)),
 
-        credit:
-          Number(total_credit.toFixed(2)),
+        balance: Number(final_balance.toFixed(2)),
 
-        balance:
-          Number(balance.toFixed(2))
+        status: final_balance > 0 ? "عليه" : "له"
 
       },
 
-      list:list
+      list: list
 
     });
 
   }
-  catch(err){
+  catch (err) {
 
-    console.error(
-      "CAPTAIN STATEMENT ERROR:",
-      err
-    );
+    console.error("CAPTAIN STATEMENT ERROR:", err);
 
     res.status(500).json({
-      success:false
+      success: false
     });
 
   }
