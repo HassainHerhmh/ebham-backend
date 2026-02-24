@@ -276,7 +276,7 @@ router.get("/commissions", auth, async (req, res) => {
   }
 });
 /* =========================================
-   📊 احصائيات الكابتن + كشف حساب الشركة
+   📊 احصائيات الكابتن + كشف حساب الشركة (مصحح)
 ========================================= */
 router.get("/captain-stats", auth, async (req, res) => {
 
@@ -291,7 +291,8 @@ router.get("/captain-stats", auth, async (req, res) => {
       dateFilter = "DATE(o.created_at) = CURDATE()";
     }
     else if(period === "weekly"){
-      dateFilter = "YEARWEEK(o.created_at,1)=YEARWEEK(CURDATE(),1)";
+      dateFilter =
+      "YEARWEEK(o.created_at,1)=YEARWEEK(CURDATE(),1)";
     }
     else if(period === "monthly"){
       dateFilter =
@@ -307,30 +308,85 @@ router.get("/captain-stats", auth, async (req, res) => {
 
         COUNT(o.id) AS total_orders,
 
+        /* ======================
+           إجمالي مبيعات الشركة
+        ====================== */
         IFNULL(SUM(o.total_amount),0)
         AS company_sales_total,
 
-        IFNULL(SUM(o.delivery_fee),0)
+
+        /* ======================
+           إجمالي رسوم التوصيل (يشمل الإضافي)
+        ====================== */
+        IFNULL(SUM(
+          IFNULL(o.delivery_fee,0)
+          +
+          IFNULL(o.extra_store_fee,0)
+        ),0)
         AS delivery_fees_total,
 
+
+        /* ======================
+           عمولة الشركة
+        ====================== */
         IFNULL(SUM(
+
           CASE
+
             WHEN cc.commission_type='percent'
-            THEN (o.delivery_fee*cc.commission_value/100)
+            THEN (
+              (
+                IFNULL(o.delivery_fee,0)
+                +
+                IFNULL(o.extra_store_fee,0)
+              )
+              *
+              cc.commission_value
+              /100
+            )
+
             ELSE cc.commission_value
+
           END
+
         ),0)
         AS company_commission_total,
 
+
+        /* ======================
+           ربح الكابتن
+        ====================== */
         IFNULL(SUM(
-          o.delivery_fee -
+
+          (
+            IFNULL(o.delivery_fee,0)
+            +
+            IFNULL(o.extra_store_fee,0)
+          )
+
+          -
+
           CASE
+
             WHEN cc.commission_type='percent'
-            THEN (o.delivery_fee*cc.commission_value/100)
+            THEN (
+              (
+                IFNULL(o.delivery_fee,0)
+                +
+                IFNULL(o.extra_store_fee,0)
+              )
+              *
+              cc.commission_value
+              /100
+            )
+
             ELSE cc.commission_value
+
           END
+
         ),0)
         AS captain_profit_total
+
 
       FROM orders o
 
@@ -347,6 +403,16 @@ router.get("/captain-stats", auth, async (req, res) => {
 
     const s = rows[0];
 
+    const company_sales_total =
+      Number(s.company_sales_total || 0);
+
+    const company_commission_total =
+      Number(s.company_commission_total || 0);
+
+    const company_due_total =
+      company_sales_total +
+      company_commission_total;
+
     res.json({
 
       success:true,
@@ -358,29 +424,27 @@ router.get("/captain-stats", auth, async (req, res) => {
         ====================== */
 
         total_orders:
-          Number(s.total_orders),
+          Number(s.total_orders || 0),
 
         delivery_fees_total:
-          Number(s.delivery_fees_total),
+          Number(s.delivery_fees_total || 0),
 
         company_commission_total:
-          Number(s.company_commission_total),
+          company_commission_total,
 
         captain_profit_total:
-          Number(s.captain_profit_total),
+          Number(s.captain_profit_total || 0),
+
 
         /* ======================
            الشركة
         ====================== */
 
         company_sales_total:
-          Number(s.company_sales_total),
+          company_sales_total,
 
         company_due_total:
-          Number(
-            s.company_sales_total +
-            s.company_commission_total
-          )
+          Number(company_due_total.toFixed(2))
 
       }
 
@@ -389,7 +453,7 @@ router.get("/captain-stats", auth, async (req, res) => {
   }
   catch(err){
 
-    console.error(err);
+    console.error("CAPTAIN STATS ERROR:", err);
 
     res.status(500).json({
       success:false
