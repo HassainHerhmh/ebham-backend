@@ -276,7 +276,7 @@ router.get("/commissions", auth, async (req, res) => {
   }
 });
 /* =========================================
-   📊 احصائيات الكابتن + كشف حساب الشركة (مصحح)
+   📊 احصائيات الكابتن + كشف حساب الشركة (مصحح نهائي)
 ========================================= */
 router.get("/captain-stats", auth, async (req, res) => {
 
@@ -308,15 +308,16 @@ router.get("/captain-stats", auth, async (req, res) => {
 
         COUNT(o.id) AS total_orders,
 
+
         /* ======================
-           إجمالي مبيعات الشركة
+           إجمالي المبيعات الكامل
         ====================== */
         IFNULL(SUM(o.total_amount),0)
         AS company_sales_total,
 
 
         /* ======================
-           إجمالي رسوم التوصيل (يشمل الإضافي)
+           إجمالي رسوم التوصيل
         ====================== */
         IFNULL(SUM(
           IFNULL(o.delivery_fee,0)
@@ -324,6 +325,19 @@ router.get("/captain-stats", auth, async (req, res) => {
           IFNULL(o.extra_store_fee,0)
         ),0)
         AS delivery_fees_total,
+
+
+        /* ======================
+           إجمالي الفواتير فقط (بدون رسوم التوصيل)
+        ====================== */
+        IFNULL(SUM(
+          o.total_amount
+          -
+          IFNULL(o.delivery_fee,0)
+          -
+          IFNULL(o.extra_store_fee,0)
+        ),0)
+        AS invoices_total,
 
 
         /* ======================
@@ -401,17 +415,23 @@ router.get("/captain-stats", auth, async (req, res) => {
 
     `,[captain_id]);
 
+
     const s = rows[0];
 
     const company_sales_total =
       Number(s.company_sales_total || 0);
 
+    const invoices_total =
+      Number(s.invoices_total || 0);
+
     const company_commission_total =
       Number(s.company_commission_total || 0);
 
+    /* ✅ الصحيح */
     const company_due_total =
-      company_sales_total +
+      invoices_total +
       company_commission_total;
+
 
     res.json({
 
