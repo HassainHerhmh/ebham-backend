@@ -512,6 +512,15 @@ app.use("/api/wassel-orders", wasselOrders);
 import manualOrdersRouter from "./routes/manual_orders.js";
 // ...
 app.use("/api/wassel-orders/manual", manualOrdersRouter);
+
+/*==================
+داش بورد
+
+=================*/
+import dashboardRoutes from "./routes/dashboard.js";
+
+app.use("/api/dashboard", dashboardRoutes);
+
 /* =========================
    Start Server + Socket.IO
 ========================= */
