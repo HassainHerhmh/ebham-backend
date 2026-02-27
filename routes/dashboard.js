@@ -58,14 +58,14 @@ router.get("/today-stats", auth, async (req, res) => {
     const netProfit = deliveryTotal - commissionTotal;
 
    /* =====================================
-   4️⃣ حساب ساعات العمل اليوم (دقيق)
+   حساب نشاط اليوم بالثواني
 ====================================== */
 const [[sessions]] = await db.query(`
   SELECT 
     COALESCE(
       SUM(
         TIMESTAMPDIFF(
-          MINUTE,
+          SECOND,
           GREATEST(login_time, CURDATE()),
           LEAST(
             IFNULL(logout_time, NOW()),
@@ -73,7 +73,7 @@ const [[sessions]] = await db.query(`
           )
         )
       ),
-    0) AS total_minutes
+    0) AS total_seconds
   FROM captain_sessions
   WHERE captain_id = ?
   AND (
@@ -82,8 +82,26 @@ const [[sessions]] = await db.query(`
       )
 `, [captainId]);
 
-const totalHours = Number(sessions.total_minutes || 0) / 60;
+/* جلسة مفتوحة حالياً؟ */
+const [[openSession]] = await db.query(`
+  SELECT login_time
+  FROM captain_sessions
+  WHERE captain_id = ?
+  AND logout_time IS NULL
+  LIMIT 1
+`, [captainId]);
 
+res.json({
+  success: true,
+  stats: {
+    total_orders,
+    net_profit,
+    avg_rating,
+    total_seconds: sessions.total_seconds || 0,
+    is_online: !!openSession,
+    current_session_start: openSession?.login_time || null
+  }
+});
     /* =====================================
        5️⃣ حساب متوسط التقييم
     ====================================== */
