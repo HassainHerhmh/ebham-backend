@@ -57,27 +57,32 @@ router.get("/today-stats", auth, async (req, res) => {
 
     const netProfit = deliveryTotal - commissionTotal;
 
-    /* =====================================
-       4️⃣ حساب ساعات العمل اليوم
-       (من أول دخول حتى آخر خروج)
-    ====================================== */
-    const [[sessions]] = await db.query(`
-      SELECT 
-        COALESCE(
-          SUM(
-            TIMESTAMPDIFF(
-              MINUTE,
-              login_time,
-              IFNULL(logout_time, NOW())
-            )
-          ),
-        0) AS total_minutes
-      FROM captain_sessions
-      WHERE captain_id = ?
-      AND DATE(login_time) = CURDATE()
-    `, [captainId]);
+   /* =====================================
+   4️⃣ حساب ساعات العمل اليوم (دقيق)
+====================================== */
+const [[sessions]] = await db.query(`
+  SELECT 
+    COALESCE(
+      SUM(
+        TIMESTAMPDIFF(
+          MINUTE,
+          GREATEST(login_time, CURDATE()),
+          LEAST(
+            IFNULL(logout_time, NOW()),
+            DATE_ADD(CURDATE(), INTERVAL 1 DAY)
+          )
+        )
+      ),
+    0) AS total_minutes
+  FROM captain_sessions
+  WHERE captain_id = ?
+  AND (
+        login_time < DATE_ADD(CURDATE(), INTERVAL 1 DAY)
+        AND IFNULL(logout_time, NOW()) > CURDATE()
+      )
+`, [captainId]);
 
-    const totalHours = (Number(sessions.total_minutes || 0) / 60);
+const totalHours = Number(sessions.total_minutes || 0) / 60;
 
     /* =====================================
        5️⃣ حساب متوسط التقييم
