@@ -214,6 +214,7 @@ router.delete("/:id", async (req, res) => {
    PUT /captains/:id/status
 ========================= */
 router.put("/:id/status", async (req, res) => {
+
   const { status } = req.body;
   const valid = ["available", "busy", "offline", "inactive"];
 
@@ -225,18 +226,59 @@ router.put("/:id/status", async (req, res) => {
   }
 
   try {
+
+    const captainId = req.params.id;
+    const branchId  = req.user.branch_id;
+
+    // تحديث الحالة
     await db.query(
       "UPDATE captains SET status=? WHERE id=?",
-      [status, req.params.id]
+      [status, captainId]
     );
 
+    /* ===============================
+       إذا أصبح متصل → افتح جلسة
+    =============================== */
+    if (status === "available") {
+
+      // تأكد ما فيه جلسة مفتوحة
+      const [[openSession]] = await db.query(`
+        SELECT id FROM captain_sessions
+        WHERE captain_id = ?
+        AND logout_time IS NULL
+        LIMIT 1
+      `, [captainId]);
+
+      if (!openSession) {
+        await db.query(`
+          INSERT INTO captain_sessions
+          (captain_id, branch_id, login_time)
+          VALUES (?, ?, NOW())
+        `, [captainId, branchId]);
+      }
+    }
+
+    /* ===============================
+       إذا أصبح أوفلاين → أغلق الجلسة
+    =============================== */
+    if (status === "offline") {
+
+      await db.query(`
+        UPDATE captain_sessions
+        SET logout_time = NOW()
+        WHERE captain_id = ?
+        AND logout_time IS NULL
+      `, [captainId]);
+    }
+
     res.json({ success: true });
+
   } catch (err) {
     console.error("UPDATE CAPTAIN STATUS ERROR:", err);
-    res.status(500).json({ success: false, message: "فشل في تحديث الحالة" });
+    res.status(500).json({ success: false });
   }
-});
 
+});
 /* =========================
    POST /captains/fcm-token
    حفظ FCM Token للكابتن
