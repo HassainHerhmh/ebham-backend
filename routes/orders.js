@@ -536,6 +536,8 @@ io.emit("admin_notification", {
       : `👨‍💼 المستخدم ${creatorName} أنشأ طلب للعميل ${customer?.name} رقم #${orderId}`
 });
 
+
+
     res.json({ success: true, order_id: orderId, total: grandTotal });
 
   } catch (err) {
@@ -942,6 +944,7 @@ router.put("/:id/status", async (req, res) => {
       const [[orderContacts]] = await conn.query(`
         SELECT 
           o.id, 
+            o.captain_id,   -- ✅ أضف هذا السطر
           c.fcm_token AS customer_token, 
           cap.fcm_token AS captain_token,
           c.name AS customer_name,
@@ -981,13 +984,24 @@ router.put("/:id/status", async (req, res) => {
         /* =========================
            إشعار لوحة التحكم (Socket.io)
         ========================= */
-        const io = req.app.get("io");
-        io.emit("admin_notification", {
-          type: "order_status_updated",
-          order_id: orderId,
-          message: `📦 المستخدم ${orderContacts.user_name || "غير معروف"} حدث طلب #${orderId} للعميل ${orderContacts.customer_name} إلى (${status})`
-        });
-      }
+const io = req.app.get("io");
+
+/* إشعار لوحة التحكم */
+io.emit("admin_notification", {
+  type: "order_status_updated",
+  order_id: orderId,
+  message: `📦 المستخدم ${orderContacts.user_name || "غير معروف"} حدث طلب #${orderId} للعميل ${orderContacts.customer_name} إلى (${status})`
+});
+
+/* 🔔 إشعار مباشر للكابتن */
+if (orderContacts.captain_id) {
+  io.to("captain_" + orderContacts.captain_id).emit("new_notification", {
+    message: `📦 تحديث الطلب #${orderId} إلى (${status})`,
+    createdAt: new Date()
+  });
+}
+
+      
     } catch (fcmErr) {
       console.error("FCM NOTIFICATION ERROR:", fcmErr.message);
       // لا نوقف العملية إذا فشل الإشعار
@@ -1076,6 +1090,11 @@ router.post("/:id/assign", async (req, res) => {
         `🚀 وصلك طلب رقم #${orderId} للعميل ${customerName} — عجل عليه يا وحش`
 
     });
+
+    io.to("captain_" + captain_id).emit("new_notification", {
+  message: `🚀 وصلك طلب رقم #${orderId} للعميل ${customerName}`,
+  createdAt: new Date()
+});
 
     console.log("📡 realtime sent to captain:", captain_id);
 
