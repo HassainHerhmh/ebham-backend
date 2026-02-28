@@ -370,10 +370,10 @@ router.post("/fcm-token", async (req, res) => {
    رفع صورة الكابتن
 ========================= */
 router.put(
-   console.log("REQ USER:", req.user);
   "/profile-image",
   upload.single("image"),
   async (req, res) => {
+    console.log("REQ USER:", req.user);
 
     try {
 
