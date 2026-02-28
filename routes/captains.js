@@ -373,11 +373,22 @@ router.put(
   "/profile-image",
   upload.single("image"),
   async (req, res) => {
-    console.log("REQ USER:", req.user);
 
     try {
 
-      const captainId = req.user.id;
+      console.log("REQ USER:", req.user);
+
+      // 🔥 دعم أكثر من نوع توكن
+      const captainId =
+        req.user?.id ||
+        req.user?.captain_id;
+
+      if (!captainId) {
+        return res.status(401).json({
+          success: false,
+          message: "غير مصرح"
+        });
+      }
 
       if (!req.file) {
         return res.json({
@@ -386,15 +397,15 @@ router.put(
         });
       }
 
-      // جلب الصورة القديمة (لحذفها)
+      // جلب الصورة القديمة
       const [[captain]] = await db.query(
         "SELECT image_url FROM captains WHERE id=?",
         [captainId]
       );
 
-      // حذف الصورة القديمة إذا موجودة
+      // حذف الصورة القديمة إن وجدت
       if (captain?.image_url) {
-        const oldPath = captain.image_url.replace("/",""); 
+        const oldPath = captain.image_url.replace(/^\/+/, "");
         if (fs.existsSync(oldPath)) {
           fs.unlinkSync(oldPath);
         }
