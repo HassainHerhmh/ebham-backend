@@ -1000,7 +1000,7 @@ if (orderContacts.captain_id) {
     createdAt: new Date()
   });
 }
-
+ }
       
     } catch (fcmErr) {
       console.error("FCM NOTIFICATION ERROR:", fcmErr.message);
