@@ -181,7 +181,77 @@ router.post("/", async (req, res) => {
     res.status(500).json({ success: false, message: "فشل في إضافة الكابتن" });
   }
 });
+/* =========================
+   PUT /captains/profile-image
+   رفع صورة الكابتن
+========================= */
+router.put(
+  "/profile-image",
+  upload.single("image"),
+  async (req, res) => {
 
+    try {
+
+      console.log("REQ USER:", req.user);
+
+      // 🔥 دعم أكثر من نوع توكن
+      const captainId =
+        req.user?.id ||
+        req.user?.captain_id;
+
+      if (!captainId) {
+        return res.status(401).json({
+          success: false,
+          message: "غير مصرح"
+        });
+      }
+
+      if (!req.file) {
+        return res.json({
+          success: false,
+          message: "لم يتم رفع صورة"
+        });
+      }
+
+      // جلب الصورة القديمة
+      const [[captain]] = await db.query(
+        "SELECT image_url FROM captains WHERE id=?",
+        [captainId]
+      );
+
+      // حذف الصورة القديمة إن وجدت
+      if (captain?.image_url) {
+        const oldPath = captain.image_url.replace(/^\/+/, "");
+        if (fs.existsSync(oldPath)) {
+          fs.unlinkSync(oldPath);
+        }
+      }
+
+      const imageUrl = `/uploads/captains/${req.file.filename}`;
+
+      await db.query(
+        "UPDATE captains SET image_url=? WHERE id=?",
+        [imageUrl, captainId]
+      );
+
+      res.json({
+        success: true,
+        image_url: imageUrl
+      });
+
+    } catch (err) {
+
+      console.error("UPLOAD CAPTAIN IMAGE ERROR:", err);
+
+      res.status(500).json({
+        success: false,
+        message: "فشل رفع الصورة"
+      });
+
+    }
+
+  }
+);
 /* =========================
    PUT /captains/:id
 ========================= */
@@ -365,75 +435,5 @@ router.post("/fcm-token", async (req, res) => {
   }
 
 });
-/* =========================
-   PUT /captains/profile-image
-   رفع صورة الكابتن
-========================= */
-router.put(
-  "/profile-image",
-  upload.single("image"),
-  async (req, res) => {
 
-    try {
-
-      console.log("REQ USER:", req.user);
-
-      // 🔥 دعم أكثر من نوع توكن
-      const captainId =
-        req.user?.id ||
-        req.user?.captain_id;
-
-      if (!captainId) {
-        return res.status(401).json({
-          success: false,
-          message: "غير مصرح"
-        });
-      }
-
-      if (!req.file) {
-        return res.json({
-          success: false,
-          message: "لم يتم رفع صورة"
-        });
-      }
-
-      // جلب الصورة القديمة
-      const [[captain]] = await db.query(
-        "SELECT image_url FROM captains WHERE id=?",
-        [captainId]
-      );
-
-      // حذف الصورة القديمة إن وجدت
-      if (captain?.image_url) {
-        const oldPath = captain.image_url.replace(/^\/+/, "");
-        if (fs.existsSync(oldPath)) {
-          fs.unlinkSync(oldPath);
-        }
-      }
-
-      const imageUrl = `/uploads/captains/${req.file.filename}`;
-
-      await db.query(
-        "UPDATE captains SET image_url=? WHERE id=?",
-        [imageUrl, captainId]
-      );
-
-      res.json({
-        success: true,
-        image_url: imageUrl
-      });
-
-    } catch (err) {
-
-      console.error("UPLOAD CAPTAIN IMAGE ERROR:", err);
-
-      res.status(500).json({
-        success: false,
-        message: "فشل رفع الصورة"
-      });
-
-    }
-
-  }
-);
 export default router;
