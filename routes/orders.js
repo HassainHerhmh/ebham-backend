@@ -3,6 +3,21 @@ import db from "../db.js";
 import auth from "../middlewares/auth.js";
 import admin from "firebase-admin";
 
+
+function getStatusLabel(status) {
+  switch (status) {
+    case "pending": return "قيد الانتظار";
+    case "scheduled": return "مجدول";
+    case "processing": return "قيد التحضير";
+    case "confirmed": return "تم التأكيد";
+    case "ready": return "جاهز";
+    case "delivering": return "قيد التوصيل";
+    case "completed": return "مكتمل";
+    case "cancelled": return "ملغي";
+    default: return status;
+  }
+}
+
 const router = express.Router();
 
 
@@ -968,7 +983,11 @@ router.put("/:id/status", async (req, res) => {
 
         // إرسال للعميل
         if (body && orderContacts.customer_token) {
-          await sendFCMNotification(orderContacts.customer_token, title, body, { orderId: String(orderId), status });
+          await sendFCMNotification(orderContacts.customer_token, title, body,
+          { 
+  orderId: String(orderId), 
+  status,
+  status_label: getStatusLabel(status)});
         }
 
         // إرسال للكابتن (تنبيه بالاستلام عند الجاهزية)
@@ -990,13 +1009,13 @@ const io = req.app.get("io");
 io.emit("admin_notification", {
   type: "order_status_updated",
   order_id: orderId,
-  message: `📦 المستخدم ${orderContacts.user_name || "غير معروف"} حدث طلب #${orderId} للعميل ${orderContacts.customer_name} إلى (${status})`
+message: `📦 المستخدم ${orderContacts.user_name || "غير معروف"} حدّث طلب #${orderId} للعميل ${orderContacts.customer_name} إلى (${getStatusLabel(status)})`
 });
 
 /* 🔔 إشعار مباشر للكابتن */
 if (orderContacts.captain_id) {
   io.to("captain_" + orderContacts.captain_id).emit("new_notification", {
-    message: `📦 تحديث الطلب #${orderId} إلى (${status})`,
+message: `📦 تحديث الطلب #${orderId} إلى (${getStatusLabel(status)})`,
     createdAt: new Date()
   });
 }
