@@ -1,6 +1,42 @@
 import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
+
+/* =========================
+   إعداد تخزين الصور
+========================= */
+
+const uploadDir = "uploads/captains";
+
+// إنشاء المجلد لو غير موجود
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const fileName = "captain_" + Date.now() + ext;
+    cb(null, fileName);
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype.startsWith("image/")) {
+      cb(new Error("يسمح فقط بالصور"));
+    }
+    cb(null, true);
+  }
+});
 
 const router = express.Router();
 
@@ -329,5 +365,63 @@ router.post("/fcm-token", async (req, res) => {
   }
 
 });
+/* =========================
+   PUT /captains/profile-image
+   رفع صورة الكابتن
+========================= */
+router.put(
+  "/profile-image",
+  upload.single("image"),
+  async (req, res) => {
 
+    try {
+
+      const captainId = req.user.id;
+
+      if (!req.file) {
+        return res.json({
+          success: false,
+          message: "لم يتم رفع صورة"
+        });
+      }
+
+      // جلب الصورة القديمة (لحذفها)
+      const [[captain]] = await db.query(
+        "SELECT image_url FROM captains WHERE id=?",
+        [captainId]
+      );
+
+      // حذف الصورة القديمة إذا موجودة
+      if (captain?.image_url) {
+        const oldPath = captain.image_url.replace("/",""); 
+        if (fs.existsSync(oldPath)) {
+          fs.unlinkSync(oldPath);
+        }
+      }
+
+      const imageUrl = `/uploads/captains/${req.file.filename}`;
+
+      await db.query(
+        "UPDATE captains SET image_url=? WHERE id=?",
+        [imageUrl, captainId]
+      );
+
+      res.json({
+        success: true,
+        image_url: imageUrl
+      });
+
+    } catch (err) {
+
+      console.error("UPLOAD CAPTAIN IMAGE ERROR:", err);
+
+      res.status(500).json({
+        success: false,
+        message: "فشل رفع الصورة"
+      });
+
+    }
+
+  }
+);
 export default router;
