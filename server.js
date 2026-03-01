@@ -521,6 +521,13 @@ import dashboardRoutes from "./routes/dashboard.js";
 
 app.use("/api/dashboard", dashboardRoutes);
 
+
+/* =========================
+   الإشعارات
+========================= */
+import notificationsRoutes from "./routes/notifications.js";
+
+app.use("/api/notifications", auth, notificationsRoutes);
 /* =========================
    Start Server + Socket.IO
 ========================= */
