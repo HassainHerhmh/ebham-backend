@@ -1014,24 +1014,8 @@ message: `📦 المستخدم ${orderContacts.user_name || "غير معروف"
 
 /* 🔔 إشعار مباشر للكابتن */
 if (orderContacts.captain_id) {
-
-  const notifMessage =
-    `📦 تحديث الطلب #${orderId} إلى (${getStatusLabel(status)})`;
-
-  /* 1️⃣ تخزين في قاعدة البيانات */
-  await conn.query(`
-    INSERT INTO captain_notifications
-    (captain_id, order_id, message)
-    VALUES (?, ?, ?)
-  `, [
-    orderContacts.captain_id,
-    orderId,
-    notifMessage
-  ]);
-
-  /* 2️⃣ إرسال realtime مثل ما كان */
   io.to("captain_" + orderContacts.captain_id).emit("new_notification", {
-    message: notifMessage,
+message: `📦 تحديث الطلب #${orderId} إلى (${getStatusLabel(status)})`,
     createdAt: new Date()
   });
 }
@@ -1125,19 +1109,6 @@ router.post("/:id/assign", async (req, res) => {
         `🚀 وصلك طلب رقم #${orderId} للعميل ${customerName} — عجل عليه يا وحش`
 
     });
-/* 🔔 تخزين إشعار تعيين الطلب */
-const assignMessage =
-  `🚀 وصلك طلب رقم #${orderId} للعميل ${customerName}`;
-
-await db.query(`
-  INSERT INTO captain_notifications
-  (captain_id, order_id, message)
-  VALUES (?, ?, ?)
-`, [
-  captain_id,
-  orderId,
-  assignMessage
-]);
 
     io.to("captain_" + captain_id).emit("new_notification", {
   message: `🚀 وصلك طلب رقم #${orderId} للعميل ${customerName}`,
@@ -1642,57 +1613,4 @@ async function sendFCMNotification(token, title, body, data = {}) {
     console.error("❌ FCM Error:", err.message);
   }
 }
-
-/* =========================
-   GET /captain/notifications/count
-========================= */
-router.get("/captain/notifications/count", async (req, res) => {
-  try {
-
-    const captainId = req.user.id;
-
-    const [[row]] = await db.query(`
-      SELECT COUNT(*) AS unread_count
-      FROM captain_notifications
-      WHERE captain_id = ?
-      AND is_read = 0
-    `, [captainId]);
-
-    res.json({
-      success: true,
-      count: row.unread_count
-    });
-
-  } catch (err) {
-    console.error(err);
-    res.json({ success: false, count: 0 });
-  }
-});
-
-/* =========================
-   GET /captain/notifications
-========================= */
-router.get("/captain/notifications", async (req, res) => {
-  try {
-
-    const captainId = req.user.id;
-
-    const [rows] = await db.query(`
-      SELECT *
-      FROM captain_notifications
-      WHERE captain_id = ?
-      ORDER BY id DESC
-      LIMIT 50
-    `, [captainId]);
-
-    res.json({
-      success: true,
-      notifications: rows
-    });
-
-  } catch (err) {
-    console.error(err);
-    res.json({ success: false, notifications: [] });
-  }
-});
 export default router;
