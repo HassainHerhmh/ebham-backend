@@ -73,12 +73,14 @@ router.put("/read/:id", async (req, res) => {
   try {
 
     const id = req.params.id;
+    const captainId = req.user.id;
 
     await db.query(
       `UPDATE notifications
        SET is_read = 1
-       WHERE id = ?`,
-      [id]
+       WHERE id = ?
+       AND captain_id = ?`,
+      [id, captainId]
     );
 
     res.json({ success: true });
@@ -87,5 +89,27 @@ router.put("/read/:id", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+/* =========================
+   PUT /notifications/read-all
+========================= */
+router.put("/read-all", async (req, res) => {
+  try {
 
+    const captainId = req.user.id;
+
+    await db.query(
+      `UPDATE notifications
+       SET is_read = 1
+       WHERE captain_id = ?
+       AND is_read = 0`,
+      [captainId]
+    );
+
+    res.json({ success: true });
+
+  } catch (err) {
+    console.error("Read All Error:", err);
+    res.status(500).json({ success: false });
+  }
+});
 export default router;
