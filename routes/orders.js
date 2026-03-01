@@ -1014,8 +1014,24 @@ message: `📦 المستخدم ${orderContacts.user_name || "غير معروف"
 
 /* 🔔 إشعار مباشر للكابتن */
 if (orderContacts.captain_id) {
+
+  // 🔔 حفظ الإشعار في الداتابيز
+  await db.query(
+    `INSERT INTO notifications
+     (captain_id, title, message, type, reference_id)
+     VALUES (?,?,?,?,?)`,
+    [
+      orderContacts.captain_id,
+      "تحديث حالة الطلب",
+      `📦 تحديث الطلب #${orderId} إلى (${getStatusLabel(status)})`,
+      "order_status",
+      orderId
+    ]
+  );
+
+  // 🚀 realtime
   io.to("captain_" + orderContacts.captain_id).emit("new_notification", {
-message: `📦 تحديث الطلب #${orderId} إلى (${getStatusLabel(status)})`,
+    message: `📦 تحديث الطلب #${orderId} إلى (${getStatusLabel(status)})`,
     createdAt: new Date()
   });
 }
@@ -1096,26 +1112,43 @@ router.post("/:id/assign", async (req, res) => {
 
     const customerName = order?.customer_name || "غير معروف";
 
-    /* =========================
-       realtime للكابتن
-    ========================= */
-    io.to("captain_" + captain_id).emit("new_order_assigned", {
+/* =========================
+   🔔 حفظ الإشعار في الداتابيز
+========================= */
+await db.query(
+  `INSERT INTO notifications
+   (captain_id, title, message, type, reference_id)
+   VALUES (?,?,?,?,?)`,
+  [
+    captain_id,
+    "طلب جديد",
+    `🚀 وصلك طلب رقم #${orderId} للعميل ${customerName}`,
+    "new_order",
+    orderId
+  ]
+);
 
-      type: "new_order",
+/* =========================
+   realtime للكابتن
+========================= */
+io.to("captain_" + captain_id).emit("new_order_assigned", {
 
-      order_id: orderId,
+  type: "new_order",
 
-      message:
-        `🚀 وصلك طلب رقم #${orderId} للعميل ${customerName} — عجل عليه يا وحش`
+  order_id: orderId,
 
-    });
+  message:
+    `🚀 وصلك طلب رقم #${orderId} للعميل ${customerName} — عجل عليه يا وحش`
 
-    io.to("captain_" + captain_id).emit("new_notification", {
+});
+
+io.to("captain_" + captain_id).emit("new_notification", {
   message: `🚀 وصلك طلب رقم #${orderId} للعميل ${customerName}`,
   createdAt: new Date()
 });
 
-    console.log("📡 realtime sent to captain:", captain_id);
+console.log("📡 realtime + DB notification saved for captain:", captain_id);
+    
 
     /* =========================
        Push Notification للكابتن
@@ -1543,7 +1576,37 @@ router.put("/:id/cancel", async (req, res) => {
     );
 
 await conn.commit();
+/* =========================
+   🔔 حفظ إشعار إلغاء للكابتن
+========================= */
 
+const [[orderData]] = await db.query(
+  "SELECT captain_id FROM orders WHERE id=?",
+  [orderId]
+);
+
+if (orderData?.captain_id) {
+
+  await db.query(
+    `INSERT INTO notifications
+     (captain_id, title, message, type, reference_id)
+     VALUES (?,?,?,?,?)`,
+    [
+      orderData.captain_id,
+      "تم إلغاء الطلب",
+      `❌ تم إلغاء الطلب رقم #${orderId}`,
+      "cancel_order",
+      orderId
+    ]
+  );
+
+  const io = req.app.get("io");
+
+  io.to("captain_" + orderData.captain_id).emit("new_notification", {
+    message: `❌ تم إلغاء الطلب رقم #${orderId}`,
+    createdAt: new Date()
+  });
+}
     /* =========================
        🚀 إرسال إشعار الإلغاء
     ========================= */
