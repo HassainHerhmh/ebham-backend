@@ -470,7 +470,12 @@ app.use("/api/agents", agents);
 import agentgroups from "./routes/agent-groups.js";
 
 app.use("/api/agent-groups", agentgroups);
+/* =========================
+   الحملات التسويقية
+========================= */
+import campaignsRoutes from "./routes/campaigns.js";
 
+app.use("/api/campaigns", campaignsRoutes);
 
 /* =========================
     معلومات  الوكلاء
