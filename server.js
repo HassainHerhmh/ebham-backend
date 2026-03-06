@@ -162,13 +162,14 @@ const corsOptions = {
 
   },
 
+
   credentials: true,
 
   methods: [
     "GET",
     "POST",
     "PUT",
-     "PATCH",
+    "PATCH",
     "DELETE",
     "OPTIONS"
   ],
@@ -177,8 +178,7 @@ const corsOptions = {
     "Content-Type",
     "Authorization",
     "x-branch-id"
-  ],
-
+  ]
 };
 
 // استخدام cors
