@@ -168,6 +168,7 @@ const corsOptions = {
     "GET",
     "POST",
     "PUT",
+     "PATCH",
     "DELETE",
     "OPTIONS"
   ],
@@ -590,4 +591,4 @@ io.on("connection", (socket) => {
 
 httpServer.listen(PORT, () => {
   console.log(`🚀 Server running with Socket.IO on ${PORT}`);
-});;
+});
