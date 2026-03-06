@@ -477,6 +477,9 @@ import campaignsRoutes from "./routes/campaigns.js";
 
 app.use("/api/campaigns", campaignsRoutes);
 
+import adsRoutes from "./routes/ads.js";
+
+app.use("/api/ads", adsRoutes);
 /* =========================
     معلومات  الوكلاء
 ========================= */
