@@ -265,5 +265,26 @@ router.post("/:id/click", async (req, res) => {
 
 });
 
+router.patch("/:id/status", async (req,res)=>{
 
+  try{
+
+    const { id } = req.params
+    const { status } = req.body
+
+    await pool.query(
+      "UPDATE ads SET status=? WHERE id=?",
+      [status,id]
+    )
+
+    res.json({success:true})
+
+  }catch(err){
+
+    console.error(err)
+    res.status(500).json({error:"update failed"})
+
+  }
+
+})
 export default router;
