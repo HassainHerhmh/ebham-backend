@@ -144,6 +144,18 @@ router.put("/:id", async (req, res) => {
       status
     } = req.body;
 
+    // تحويل التاريخ إلى صيغة MySQL
+    const formatDate = (date) => {
+      if (!date) return null;
+      return new Date(date)
+        .toISOString()
+        .slice(0, 19)
+        .replace("T", " ");
+    };
+
+    const startDate = formatDate(start_date);
+    const endDate = formatDate(end_date);
+
     await db.query(`
       UPDATE ads SET
       name=?,
@@ -160,13 +172,13 @@ router.put("/:id", async (req, res) => {
     `, [
       name,
       type,
-      image_url,
-      restaurant_id,
-      category_id,
-      product_id,
-      discount_percent,
-      start_date,
-      end_date,
+      image_url || null,
+      restaurant_id || null,
+      category_id || null,
+      product_id || null,
+      discount_percent || null,
+      startDate,
+      endDate,
       status,
       id
     ]);
@@ -181,7 +193,6 @@ router.put("/:id", async (req, res) => {
   }
 
 });
-
 
 /* =====================================
    حذف إعلان
