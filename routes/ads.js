@@ -272,7 +272,7 @@ router.patch("/:id/status", async (req,res)=>{
     const { id } = req.params
     const { status } = req.body
 
-    await pool.query(
+    await db.query(
       "UPDATE ads SET status=? WHERE id=?",
       [status,id]
     )
