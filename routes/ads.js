@@ -181,20 +181,20 @@ router.put("/:id", async (req, res) => {
     const startDate = formatDate(start_date);
     const endDate = formatDate(end_date);
 
-    await db.query(`
-      UPDATE ads SET
-      name=?,
-      description=?,
-      type=?,
-      image_url=?,
-      restaurant_id=?,
-      category_id=?,
-      discount_percent=?,
-      start_date=?,
-      end_date=?,
-      status=?
-      WHERE id=?
-    `,[
+ await db.query(`
+  UPDATE ads SET
+  name=?,
+  description=?,
+  type=?,
+  image_url=?,
+  restaurant_id=?,
+  category_id=?,
+  discount_percent=?,
+  start_date=?,
+  end_date=?,
+  status = COALESCE(?, status)
+  WHERE id=?
+`,[
       name,
       description || null,
       type,
