@@ -481,6 +481,11 @@ app.use("/api/campaigns", campaignsRoutes);
 import adsRoutes from "./routes/ads.js";
 
 app.use("/api/ads", adsRoutes);
+
+import couponsRouter from "./routes/coupons.js"
+
+app.use("/api/coupons", couponsRouter)
+
 /* =========================
     معلومات  الوكلاء
 ========================= */
@@ -537,6 +542,8 @@ app.use("/api/dashboard", dashboardRoutes);
 import notificationsRoutes from "./routes/notifications.js";
 
 app.use("/api/notifications", auth, notificationsRoutes);
+
+
 /* =========================
    Start Server + Socket.IO
 ========================= */
