@@ -12,12 +12,16 @@ router.get("/", async (req, res) => {
   try {
 
     const [rows] = await db.query(`
-      SELECT *
+      SELECT 
+        ads.*,
+        restaurants.name AS restaurant_name
       FROM ads
-      WHERE status = 'active'
-      AND (start_date IS NULL OR start_date <= NOW())
-      AND (end_date IS NULL OR end_date >= NOW())
-      ORDER BY id DESC
+      LEFT JOIN restaurants
+        ON ads.restaurant_id = restaurants.id
+      WHERE ads.status = 'active'
+      AND (ads.start_date IS NULL OR ads.start_date <= NOW())
+      AND (ads.end_date IS NULL OR ads.end_date >= NOW())
+      ORDER BY ads.id DESC
     `);
 
     res.json(rows);
@@ -30,7 +34,6 @@ router.get("/", async (req, res) => {
   }
 
 });
-
 
 /* =====================================
    جلب جميع الإعلانات للوحة التحكم
