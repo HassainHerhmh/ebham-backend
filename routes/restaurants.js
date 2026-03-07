@@ -158,23 +158,30 @@ router.get("/app", async (req, res) => {
   }
 });
 /* ======================================================
-   🟢 جلب المطاعم للوحة التسويق (بدون auth)
+   🟢 جلب مطاعم الفرع فقط (للتسويق)
 ====================================================== */
 
 router.get("/list", async (req, res) => {
   try {
 
+    const branchId = req.headers["x-branch-id"];
+
+    if(!branchId){
+      return res.json([]);
+    }
+
     const [rows] = await db.query(`
       SELECT id, name
       FROM restaurants
+      WHERE branch_id = ?
       ORDER BY name ASC
-    `);
+    `,[branchId]);
 
     res.json(rows);
 
   } catch (err) {
 
-    console.error(err);
+    console.error("LIST RESTAURANTS ERROR:", err);
     res.status(500).json([]);
 
   }
