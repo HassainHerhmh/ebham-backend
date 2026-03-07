@@ -157,7 +157,28 @@ router.get("/app", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+/* ======================================================
+   🟢 جلب المطاعم للوحة التسويق (بدون auth)
+====================================================== */
 
+router.get("/list", async (req, res) => {
+  try {
+
+    const [rows] = await db.query(`
+      SELECT id, name
+      FROM restaurants
+      ORDER BY name ASC
+    `);
+
+    res.json(rows);
+
+  } catch (err) {
+
+    console.error(err);
+    res.status(500).json([]);
+
+  }
+});
 /* =========================
    حماية كل المسارات
 ========================= */
