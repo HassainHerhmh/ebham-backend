@@ -40,6 +40,38 @@ router.get("/:id/children", async (req, res) => {
   }
 });
 
+/* ======================================================
+   🟢 (Public) جلب منتجات فئة معينة للخصومات
+====================================================== */
+
+router.get("/by-category/:categoryId", async (req, res) => {
+
+  try{
+
+    const categoryId = req.params.categoryId
+
+    const [rows] = await db.query(`
+      SELECT 
+        p.id,
+        p.name,
+        p.price
+      FROM products p
+      INNER JOIN product_categories pc
+        ON pc.product_id = p.id
+      WHERE pc.category_id = ?
+      ORDER BY p.name ASC
+    `,[categoryId])
+
+    res.json(rows)
+
+  }catch(err){
+
+    console.error("GET PRODUCTS BY CATEGORY ERROR:",err)
+    res.status(500).json([])
+
+  }
+
+})
 /* =========================
    🔐 حماية المسارات التالية (لوحة التحكم)
 ========================= */
