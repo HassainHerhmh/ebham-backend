@@ -66,52 +66,67 @@ router.post("/", async (req, res) => {
 
   try {
 
-const {
-  name,
-  description,
-  type,
-  image_url,
-  restaurant_id,
-  category_id,
-  product_id,
-  discount_percent,
-  start_date,
-  end_date
-} = req.body;
+    const {
+      name,
+      description,
+      type,
+      image_url,
+      restaurant_id,
+      category_id,
+      product_ids,
+      discount_percent,
+      start_date,
+      end_date
+    } = req.body;
 
     const [result] = await db.query(`
-  INSERT INTO ads
-(
-  name,
-  description,
-  type,
-  image_url,
-  restaurant_id,
-  category_id,
-  product_id,
-  discount_percent,
-  start_date,
-  end_date,
-  status
-)
-VALUES (?,?,?,?,?,?,?,?,?,?,?)
-    `, [
-  name,
-  description || null,
-  type,
-  image_url || null,
-  restaurant_id || null,
-  category_id || null,
-  product_id || null,
-  discount_percent || null,
-  start_date || null,
-  end_date || null,
-  "active"
+      INSERT INTO ads
+      (
+        name,
+        description,
+        type,
+        image_url,
+        restaurant_id,
+        category_id,
+        discount_percent,
+        start_date,
+        end_date,
+        status
+      )
+      VALUES (?,?,?,?,?,?,?,?,?,?)
+    `,[
+      name,
+      description || null,
+      type,
+      image_url || null,
+      restaurant_id || null,
+      category_id || null,
+      discount_percent || null,
+      start_date || null,
+      end_date || null,
+      "active"
     ]);
 
+    const adId = result.insertId;
+
+    /* حفظ المنتجات المرتبطة بالإعلان */
+
+    if(product_ids && product_ids.length){
+
+      for(const productId of product_ids){
+
+        await db.query(
+          "INSERT INTO ad_products (ad_id,product_id) VALUES (?,?)",
+          [adId,productId]
+        );
+
+      }
+
+    }
+
     res.json({
-      success: true,
-      id: result.insertId
+      success:true,
+      id:adId
     });
 
   } catch (err) {
@@ -136,24 +151,24 @@ router.put("/:id", async (req, res) => {
 
     const {
       name,
+      description,
       type,
       image_url,
       restaurant_id,
       category_id,
-      product_id,
+      product_ids,
       discount_percent,
       start_date,
       end_date,
       status
     } = req.body;
 
-    // تحويل التاريخ إلى صيغة MySQL
     const formatDate = (date) => {
       if (!date) return null;
       return new Date(date)
         .toISOString()
-        .slice(0, 19)
-        .replace("T", " ");
+        .slice(0,19)
+        .replace("T"," ");
     };
 
     const startDate = formatDate(start_date);
@@ -162,23 +177,23 @@ router.put("/:id", async (req, res) => {
     await db.query(`
       UPDATE ads SET
       name=?,
+      description=?,
       type=?,
       image_url=?,
       restaurant_id=?,
       category_id=?,
-      product_id=?,
       discount_percent=?,
       start_date=?,
       end_date=?,
       status=?
       WHERE id=?
-    `, [
+    `,[
       name,
+      description || null,
       type,
       image_url || null,
       restaurant_id || null,
       category_id || null,
-      product_id || null,
       discount_percent || null,
       startDate,
       endDate,
@@ -186,16 +201,39 @@ router.put("/:id", async (req, res) => {
       id
     ]);
 
-    res.json({ success: true });
+    /* حذف المنتجات القديمة */
+
+    await db.query(
+      "DELETE FROM ad_products WHERE ad_id=?",
+      [id]
+    );
+
+    /* حفظ المنتجات الجديدة */
+
+    if(product_ids && product_ids.length){
+
+      for(const productId of product_ids){
+
+        await db.query(
+          "INSERT INTO ad_products (ad_id,product_id) VALUES (?,?)",
+          [id,productId]
+        );
+
+      }
+
+    }
+
+    res.json({ success:true });
 
   } catch (err) {
 
     console.error(err);
-    res.status(500).json({ error: "فشل تعديل الإعلان" });
+    res.status(500).json({ error:"فشل تعديل الإعلان" });
 
   }
 
 });
+
 
 /* =====================================
    حذف إعلان
@@ -208,16 +246,21 @@ router.delete("/:id", async (req, res) => {
     const { id } = req.params;
 
     await db.query(
+      "DELETE FROM ad_products WHERE ad_id=?",
+      [id]
+    );
+
+    await db.query(
       "DELETE FROM ads WHERE id=?",
       [id]
     );
 
-    res.json({ success: true });
+    res.json({ success:true });
 
   } catch (err) {
 
     console.error(err);
-    res.status(500).json({ error: "فشل حذف الإعلان" });
+    res.status(500).json({ error:"فشل حذف الإعلان" });
 
   }
 
@@ -238,14 +281,14 @@ router.post("/:id/view", async (req, res) => {
       UPDATE ads
       SET views = views + 1
       WHERE id=?
-    `, [id]);
+    `,[id]);
 
-    res.json({ success: true });
+    res.json({ success:true });
 
   } catch (err) {
 
     console.error(err);
-    res.status(500).json({ error: "فشل تسجيل المشاهدة" });
+    res.status(500).json({ error:"فشل تسجيل المشاهدة" });
 
   }
 
@@ -266,18 +309,23 @@ router.post("/:id/click", async (req, res) => {
       UPDATE ads
       SET clicks = clicks + 1
       WHERE id=?
-    `, [id]);
+    `,[id]);
 
-    res.json({ success: true });
+    res.json({ success:true });
 
   } catch (err) {
 
     console.error(err);
-    res.status(500).json({ error: "فشل تسجيل النقرة" });
+    res.status(500).json({ error:"فشل تسجيل النقرة" });
 
   }
 
 });
+
+
+/* =====================================
+   تغيير حالة الإعلان
+===================================== */
 
 router.patch("/:id/status", async (req,res)=>{
 
@@ -301,4 +349,5 @@ router.patch("/:id/status", async (req,res)=>{
   }
 
 })
+
 export default router;
