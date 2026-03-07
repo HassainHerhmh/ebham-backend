@@ -44,9 +44,13 @@ router.get("/admin", async (req, res) => {
   try {
 
     const [rows] = await db.query(`
-      SELECT *
+      SELECT 
+        ads.*,
+        restaurants.name AS restaurant_name
       FROM ads
-      ORDER BY id DESC
+      LEFT JOIN restaurants
+        ON ads.restaurant_id = restaurants.id
+      ORDER BY ads.id DESC
     `);
 
     res.json(rows);
