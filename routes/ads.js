@@ -66,44 +66,47 @@ router.post("/", async (req, res) => {
 
   try {
 
-    const {
-      name,
-      type,
-      image_url,
-      restaurant_id,
-      category_id,
-      product_id,
-      discount_percent,
-      start_date,
-      end_date
-    } = req.body;
+const {
+  name,
+  description,
+  type,
+  image_url,
+  restaurant_id,
+  category_id,
+  product_id,
+  discount_percent,
+  start_date,
+  end_date
+} = req.body;
 
     const [result] = await db.query(`
-      INSERT INTO ads
-      (
-        name,
-        type,
-        image_url,
-        restaurant_id,
-        category_id,
-        product_id,
-        discount_percent,
-        start_date,
-        end_date,
-        status
-      )
-      VALUES (?,?,?,?,?,?,?,?,?,?)
+  INSERT INTO ads
+(
+  name,
+  description,
+  type,
+  image_url,
+  restaurant_id,
+  category_id,
+  product_id,
+  discount_percent,
+  start_date,
+  end_date,
+  status
+)
+VALUES (?,?,?,?,?,?,?,?,?,?,?)
     `, [
-      name,
-      type,
-      image_url || null,
-      restaurant_id || null,
-      category_id || null,
-      product_id || null,
-      discount_percent || null,
-      start_date || null,
-      end_date || null,
-      "active"
+  name,
+  description || null,
+  type,
+  image_url || null,
+  restaurant_id || null,
+  category_id || null,
+  product_id || null,
+  discount_percent || null,
+  start_date || null,
+  end_date || null,
+  "active"
     ]);
 
     res.json({
