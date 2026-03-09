@@ -3,6 +3,18 @@ import db from "../db.js";
 
 const router = express.Router();
 
+
+router.get("/", async (req,res)=>{
+
+const [rows] = await db.query(`
+SELECT *
+FROM coupon_codes
+ORDER BY id DESC
+`);
+
+res.json(rows);
+
+});
 /* =====================================
    إنشاء كود خصم
 ===================================== */
