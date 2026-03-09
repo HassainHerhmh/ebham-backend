@@ -249,5 +249,64 @@ error:"فشل تحميل الكوبونات"
 }
 
 });
+/* =====================================
+   تعديل / تفعيل / إيقاف كود الخصم
+===================================== */
 
+router.put("/:id", async (req,res)=>{
+
+try{
+
+const { id } = req.params;
+
+const {
+code,
+discount_percent,
+discount_amount,
+apply_on,
+start_date,
+end_date,
+max_uses,
+status
+} = req.body;
+
+await db.query(`
+UPDATE coupon_codes
+SET
+code=?,
+discount_percent=?,
+discount_amount=?,
+apply_on=?,
+start_date=?,
+end_date=?,
+max_uses=?,
+status=?
+WHERE id=?
+`,[
+code,
+discount_percent,
+discount_amount,
+apply_on,
+start_date,
+end_date,
+max_uses,
+status,
+id
+]);
+
+res.json({
+success:true
+});
+
+}catch(err){
+
+console.error(err);
+
+res.status(500).json({
+success:false
+});
+
+}
+
+});
 export default router;
