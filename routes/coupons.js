@@ -252,7 +252,6 @@ error:"فشل تحميل الكوبونات"
 /* =====================================
    تعديل / تفعيل / إيقاف كود الخصم
 ===================================== */
-
 router.put("/:id", async (req,res)=>{
 
 try{
@@ -283,14 +282,14 @@ max_uses=?,
 status=?
 WHERE id=?
 `,[
-code,
-discount_percent,
-discount_amount,
-apply_on,
-start_date,
-end_date,
-max_uses,
-status,
+code || null,
+discount_percent || 0,
+discount_amount || 0,
+apply_on || "total",
+start_date || null,
+end_date || null,
+max_uses || 100,
+status || "active",
 id
 ]);
 
@@ -300,13 +299,15 @@ success:true
 
 }catch(err){
 
-console.error(err);
+console.error("UPDATE COUPON ERROR:",err);
 
 res.status(500).json({
-success:false
+success:false,
+message:"فشل تحديث الكوبون"
 });
 
 }
 
 });
+
 export default router;
