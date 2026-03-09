@@ -4,6 +4,15 @@ import db from "../db.js";
 const router = express.Router();
 
 
+function formatDate(date){
+if(!date) return null;
+
+return new Date(date)
+.toISOString()
+.slice(0,19)
+.replace("T"," ");
+}
+
 router.get("/", async (req,res)=>{
 
 const [rows] = await db.query(`
@@ -258,7 +267,7 @@ try{
 
 const { id } = req.params;
 
-const {
+let {
 code,
 discount_percent,
 discount_amount,
@@ -268,6 +277,11 @@ end_date,
 max_uses,
 status
 } = req.body;
+
+function formatDate(date){
+if(!date) return null;
+return new Date(date).toISOString().slice(0,19).replace("T"," ");
+}
 
 await db.query(`
 UPDATE coupon_codes
@@ -282,28 +296,25 @@ max_uses=?,
 status=?
 WHERE id=?
 `,[
-code || null,
+code,
 discount_percent || 0,
 discount_amount || 0,
 apply_on || "total",
-start_date || null,
-end_date || null,
+formatDate(start_date),
+formatDate(end_date),
 max_uses || 100,
 status || "active",
 id
 ]);
 
-res.json({
-success:true
-});
+res.json({ success:true });
 
 }catch(err){
 
 console.error("UPDATE COUPON ERROR:",err);
 
 res.status(500).json({
-success:false,
-message:"فشل تحديث الكوبون"
+success:false
 });
 
 }
