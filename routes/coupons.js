@@ -117,7 +117,11 @@ router.post("/check", async (req,res)=>{
 
 try{
 
-const { code, user_id } = req.body;
+const { code:rawCode, user_id } = req.body;
+
+/* تنظيف الكود */
+
+const code = rawCode?.trim();
 
 if(!code){
 return res.json({
@@ -126,14 +130,16 @@ message:"أدخل كود الخصم"
 });
 }
 
-/* البحث عن الكود */
+/* البحث عن الكوبون */
 
 const [rows] = await db.query(`
 SELECT *
 FROM coupon_codes
-WHERE code=?
+WHERE LOWER(code)=LOWER(?)
+AND status='active'
 AND (start_date IS NULL OR start_date <= NOW())
 AND (end_date IS NULL OR end_date >= NOW())
+LIMIT 1
 `,[code]);
 
 if(!rows.length){
@@ -147,7 +153,7 @@ const coupon = rows[0];
 
 /* التحقق من عدد الاستخدام */
 
-if(coupon.used_count >= coupon.max_uses){
+if(coupon.max_uses && coupon.used_count >= coupon.max_uses){
 
 return res.json({
 success:false,
@@ -159,14 +165,14 @@ message:"انتهى عدد استخدام الكود"
 /* التحقق من المستخدم */
 
 const [users] = await db.query(`
-SELECT *
+SELECT user_id
 FROM coupon_users
 WHERE coupon_id=?
 `,[coupon.id]);
 
 if(users.length){
 
-const allowed = users.find(u=>u.user_id === user_id);
+const allowed = users.find(u=>Number(u.user_id) === Number(user_id));
 
 if(!allowed){
 
@@ -179,6 +185,8 @@ message:"الكود غير مخصص لك"
 
 }
 
+/* الكوبون صالح */
+
 res.json({
 success:true,
 coupon
@@ -186,7 +194,7 @@ coupon
 
 }catch(err){
 
-console.error(err);
+console.error("CHECK COUPON ERROR:",err);
 
 res.status(500).json({
 success:false,
@@ -196,7 +204,6 @@ message:"خطأ في التحقق من الكود"
 }
 
 });
-
 
 /* =====================================
    تسجيل استخدام الكود
