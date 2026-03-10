@@ -396,8 +396,8 @@ const {
     const storeIds = [...new Set(products.map((p) => p.restaurant_id))];
     const storesCount = storeIds.length;
     const mainRestaurantId = storeIds[0];
-const userId = user.role === "customer" ? null : user.id;
-     
+const userId = user.role === "customer" ? null : (user.id || null);
+
     const headerBranch = req.headers["x-branch-id"];
     let branchId = headerBranch ? Number(headerBranch) : user.branch_id || null;
 
@@ -478,13 +478,13 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   customer_id,
   address_id,
   mainRestaurantId,
-   userId,   // created_by
-  userId,   // updated_by
+  user.id || null,   // created_by
+  user.id || null,   // updated_by
   note || null,
   gps_link || null,
   storesCount,
   branchId,
-  userId,
+  userId,            // user_id
   deliveryFee,
   extraStoreFee,
   payment_method || null,
