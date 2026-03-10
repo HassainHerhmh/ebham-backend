@@ -244,7 +244,7 @@ router.get("/", async (req, res) => {
         u.name AS user_name,
         u1.name AS creator_name,
         u2.name AS updater_name,
-        o.status, o.note, o.total_amount, o.delivery_fee, o.extra_store_fee, o.stores_count, o.created_at,
+        o.status, o.note, o.total_amount, o.discount_amount,o.coupon_code,o.delivery_fee, o.extra_store_fee, o.stores_count, o.created_at,
         cap.name AS captain_name, o.captain_id, -- ✅ مهم للكابتن
         o.payment_method, b.name AS branch_name,
         CASE o.payment_method
