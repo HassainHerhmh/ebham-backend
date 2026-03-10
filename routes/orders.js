@@ -560,6 +560,9 @@ p.quantity
 
 let discount = 0;
 
+console.log("COUPON FROM APP:", coupon_code);
+
+
 if (coupon_code) {
 
   const [[coupon]] = await db.query(
