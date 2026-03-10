@@ -488,7 +488,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   userId,            // user_id
   deliveryFee,
   extraStoreFee,
-discount || 0,
+0,
 coupon_code || null,
   payment_method || null,
   bank_id || null,
