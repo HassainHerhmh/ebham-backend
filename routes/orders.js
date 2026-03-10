@@ -497,30 +497,44 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 );
 
 
-    const orderId = result.insertId;
-    let total = 0;
+const orderId = result.insertId;
+let total = 0;
 
-    /* 2. التعديل الثاني: التحقق الآمن من المنتجات (السطر الذي كان يسبب الخطأ 500)
-    */
-    for (const p of products) {
-      const [rows] = await db.query("SELECT name, price FROM products WHERE id=?", [p.product_id]);
+/* ===== التحسين الجديد ===== */
 
-      // فحص هل المنتج موجود فعلاً؟ (هذا يمنع الانهيار إذا كان الـ ID خطأ)
-      if (!rows || rows.length === 0) {
-        console.error(`❌ المنتج رقم ${p.product_id} غير موجود في الداتابيز`);
-        continue; // تخطى هذا المنتج وأكمل البقية
-      }
+const productIds = products.map(p => p.product_id);
 
-      const prod = rows[0];
-      const subtotal = Number(prod.price) * Number(p.quantity);
-      total += subtotal;
+const [dbProducts] = await db.query(
+"SELECT id, name, price FROM products WHERE id IN (?)",
+[productIds]
+);
 
-      await db.query(
-        `INSERT INTO order_items (order_id, product_id, restaurant_id, name, price, quantity)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [orderId, p.product_id, p.restaurant_id, prod.name, prod.price, p.quantity]
-      );
-    }
+const productMap = {};
+dbProducts.forEach(p=>{
+productMap[p.id] = p;
+});
+
+/* ===== نهاية التحسين ===== */
+
+for (const p of products) {
+
+const prod = productMap[p.product_id];
+
+if (!prod) {
+console.error(`❌ المنتج رقم ${p.product_id} غير موجود`);
+continue;
+}
+
+const subtotal = Number(prod.price) * Number(p.quantity);
+total += subtotal;
+
+await db.query(
+`INSERT INTO order_items (order_id, product_id, restaurant_id, name, price, quantity)
+VALUES (?, ?, ?, ?, ?, ?)`,
+[orderId, p.product_id, p.restaurant_id, prod.name, prod.price, p.quantity]
+);
+
+}
 
     // تحديث إجمالي المبلغ النهائي
     const grandTotal = total + deliveryFee + extraStoreFee;
