@@ -578,48 +578,39 @@ LIMIT 1`,
 
 console.log("COUPON FROM DB:", coupon);
 
-  if (coupon) {
+ if (coupon) {
 
-    // التحقق من الحد الأقصى للاستخدام
-    if (coupon.max_uses && coupon.used_count >= coupon.max_uses) {
-      return res.json({
-        success:false,
-        message:"تم استهلاك الكوبون"
-      });
+  if (coupon.max_uses && coupon.used_count >= coupon.max_uses) {
+    return res.json({
+      success:false,
+      message:"تم استهلاك الكوبون"
+    });
+  }
+
+  /* خصم على الطلب */
+  if (coupon.apply_on === "order" || coupon.apply_on === "total") {
+
+    console.log("APPLY ON:", coupon.apply_on);
+
+    if (Number(coupon.discount_percent) > 0) {
+      discount = (Number(total) * Number(coupon.discount_percent)) / 100;
     }
 
-    /* ======================
-       خصم على الطلب
-    ====================== */
+    if (Number(coupon.discount_amount) > 0) {
+      discount = Number(coupon.discount_amount);
+    }
 
-    if (coupon.apply_on === "order" || coupon.apply_on === "total") {
-console.log("APPLY ON:", coupon.apply_on);
-console.log("DISCOUNT PERCENT:", coupon.discount_percent);
-     if (Number(coupon.discount_percent) > 0) {
-if (Number(coupon.discount_percent) > 0) {
-discount = (Number(total) * Number(coupon.discount_percent)) / 100;
-}
+  }
 
-if (Number(coupon.discount_amount) > 0) {
-discount = Number(coupon.discount_amount);
-}
+  /* خصم على التوصيل */
+  if (coupon.apply_on === "delivery") {
 
-}
+    if (Number(coupon.discount_percent) > 0) {
+      discount = (Number(deliveryFee) * Number(coupon.discount_percent)) / 100;
+    }
 
-    /* ======================
-       خصم على التوصيل
-    ====================== */
-
-    if (coupon.apply_on === "delivery") {
-
-      if (coupon.discount_percent) {
-        discount = (deliveryFee * Number(coupon.discount_percent)) / 100;
-      }
-
-      if (coupon.discount_amount) {
-        discount = Number(coupon.discount_amount);
-      }
-
+    if (Number(coupon.discount_amount) > 0) {
+      discount = Number(coupon.discount_amount);
     }
 
   }
