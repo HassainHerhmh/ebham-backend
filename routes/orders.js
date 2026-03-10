@@ -659,7 +659,52 @@ coupon_code || null,
 orderId
 ]
 );
+/* =========================
+   قيد خصم الكوبون
+========================= */
 
+if (discount > 0) {
+
+const [[settings]] = await db.query(`
+SELECT coupon_discount_account
+FROM settings
+WHERE id = 1
+LIMIT 1
+`);
+
+const discountAccount = settings?.coupon_discount_account;
+
+if (discountAccount) {
+
+/* مدين حساب التسويق */
+
+await db.query(`
+INSERT INTO journal_lines
+(order_id, account_id, debit, credit, description)
+VALUES (?, ?, ?, 0, ?)
+`,[
+orderId,
+discountAccount,
+discount,
+`خصم كوبون الطلب #${orderId}`
+]);
+
+/* دائن حساب الكابتن */
+
+await db.query(`
+INSERT INTO journal_lines
+(order_id, account_id, debit, credit, description)
+VALUES (?, ?, 0, ?, ?)
+`,[
+orderId,
+captain_account_id,
+discount,
+`تعويض خصم الكوبون للكابتن`
+]);
+
+}
+
+}
  /* =========================
    إشعارات إنشاء الطلب
 ========================= */
