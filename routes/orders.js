@@ -566,7 +566,7 @@ const [[coupon]] = await db.query(
 `SELECT *
 FROM coupon_codes
 WHERE code=?
-AND status='active'
+AND is_active=1
 AND (start_date IS NULL OR start_date <= NOW())
 AND (end_date IS NULL OR end_date >= NOW())
 LIMIT 1`,
@@ -584,7 +584,7 @@ message:"تم استهلاك الكوبون"
 
 }
 
-if (coupon.apply_on === "order") {
+if (coupon.apply_on === "order" || coupon.apply_on === "total")
 
 if (coupon.discount_percent) {
 discount = (total * Number(coupon.discount_percent)) / 100;
