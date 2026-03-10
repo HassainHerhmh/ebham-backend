@@ -29,7 +29,7 @@ router.post("/calc-fees", async (req, res) => {
      
     const { address_id, restaurants } = req.body;
     const user = req.user || {};
-
+    console.log("ORDER BODY:", req.body);
     if (!restaurants || !restaurants.length) {
       return res.json({ success: false });
     }
