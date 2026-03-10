@@ -616,7 +616,7 @@ console.log("COUPON FROM DB:", coupon);
   }
 
 }
-}
+
 
 
 /* =========================
@@ -861,6 +861,8 @@ router.get("/:id", async (req, res) => {
         o.delivery_fee,
         o.extra_store_fee,
         o.total_amount,
+         o.discount_amount,   -- ✅ أضف هذا
+  o.coupon_code,       -- ✅ وأضف هذا
         o.payment_method,
         o.bank_id
       FROM orders o
