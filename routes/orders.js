@@ -576,6 +576,8 @@ LIMIT 1`,
 [coupon_code]
 );
 
+console.log("COUPON FROM DB:", coupon);
+
   if (coupon) {
 
     // التحقق من الحد الأقصى للاستخدام
@@ -591,16 +593,18 @@ LIMIT 1`,
     ====================== */
 
     if (coupon.apply_on === "order" || coupon.apply_on === "total") {
+console.log("APPLY ON:", coupon.apply_on);
+console.log("DISCOUNT PERCENT:", coupon.discount_percent);
+     if (Number(coupon.discount_percent) > 0) {
+if (Number(coupon.discount_percent) > 0) {
+discount = (Number(total) * Number(coupon.discount_percent)) / 100;
+}
 
-      if (coupon.discount_percent) {
-        discount = (total * Number(coupon.discount_percent)) / 100;
-      }
+if (Number(coupon.discount_amount) > 0) {
+discount = Number(coupon.discount_amount);
+}
 
-      if (coupon.discount_amount) {
-        discount = Number(coupon.discount_amount);
-      }
-
-    }
+}
 
     /* ======================
        خصم على التوصيل
