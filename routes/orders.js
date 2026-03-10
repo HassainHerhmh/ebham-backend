@@ -565,16 +565,16 @@ console.log("COUPON FROM APP:", coupon_code);
 
 if (coupon_code) {
 
-  const [[coupon]] = await db.query(
-    `SELECT *
-     FROM coupon_codes
-     WHERE code=?
-     AND is_active=1
-     AND (start_date IS NULL OR start_date <= NOW())
-     AND (end_date IS NULL OR end_date >= NOW())
-     LIMIT 1`,
-    [coupon_code]
-  );
+const [[coupon]] = await db.query(
+`SELECT *
+FROM coupon_codes
+WHERE TRIM(LOWER(code)) = TRIM(LOWER(?))
+AND status='active'
+AND (start_date IS NULL OR start_date <= NOW())
+AND (end_date IS NULL OR end_date >= NOW())
+LIMIT 1`,
+[coupon_code]
+);
 
   if (coupon) {
 
