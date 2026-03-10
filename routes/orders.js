@@ -562,54 +562,62 @@ let discount = 0;
 
 if (coupon_code) {
 
-const [[coupon]] = await db.query(
-`SELECT *
-FROM coupon_codes
-WHERE code=?
-AND is_active=1
-AND (start_date IS NULL OR start_date <= NOW())
-AND (end_date IS NULL OR end_date >= NOW())
-LIMIT 1`,
-[coupon_code]
-);
+  const [[coupon]] = await db.query(
+    `SELECT *
+     FROM coupon_codes
+     WHERE code=?
+     AND is_active=1
+     AND (start_date IS NULL OR start_date <= NOW())
+     AND (end_date IS NULL OR end_date >= NOW())
+     LIMIT 1`,
+    [coupon_code]
+  );
 
-if (coupon) {
+  if (coupon) {
 
-if (coupon.max_uses && coupon.used_count >= coupon.max_uses) {
+    // التحقق من الحد الأقصى للاستخدام
+    if (coupon.max_uses && coupon.used_count >= coupon.max_uses) {
+      return res.json({
+        success:false,
+        message:"تم استهلاك الكوبون"
+      });
+    }
 
-return res.json({
-success:false,
-message:"تم استهلاك الكوبون"
-});
+    /* ======================
+       خصم على الطلب
+    ====================== */
+
+    if (coupon.apply_on === "order" || coupon.apply_on === "total") {
+
+      if (coupon.discount_percent) {
+        discount = (total * Number(coupon.discount_percent)) / 100;
+      }
+
+      if (coupon.discount_amount) {
+        discount = Number(coupon.discount_amount);
+      }
+
+    }
+
+    /* ======================
+       خصم على التوصيل
+    ====================== */
+
+    if (coupon.apply_on === "delivery") {
+
+      if (coupon.discount_percent) {
+        discount = (deliveryFee * Number(coupon.discount_percent)) / 100;
+      }
+
+      if (coupon.discount_amount) {
+        discount = Number(coupon.discount_amount);
+      }
+
+    }
+
+  }
 
 }
-
-if (coupon.apply_on === "order" || coupon.apply_on === "total")
-
-if (coupon.discount_percent) {
-discount = (total * Number(coupon.discount_percent)) / 100;
-}
-
-if (coupon.discount_amount) {
-discount = Number(coupon.discount_amount);
-}
-
-}
-
-if (coupon.apply_on === "delivery") {
-
-if (coupon.discount_percent) {
-discount = (deliveryFee * Number(coupon.discount_percent)) / 100;
-}
-
-if (coupon.discount_amount) {
-discount = Number(coupon.discount_amount);
-}
-
-}
-
-}
-
 
 
 
@@ -623,6 +631,17 @@ deliveryFee +
 extraStoreFee -
 discount;
 
+
+/* =========================
+   DEBUG الكوبون
+========================= */
+
+console.log("ORDER TOTAL:", total);
+console.log("DELIVERY FEE:", deliveryFee);
+console.log("EXTRA STORE FEE:", extraStoreFee);
+console.log("DISCOUNT:", discount);
+console.log("FINAL TOTAL:", grandTotal);
+console.log("COUPON:", coupon_code);
 
 /* =========================
    تحديث إجمالي الطلب
