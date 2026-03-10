@@ -350,14 +350,16 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
 const {
-  customer_id,
-  address_id,
-  restaurants,
-  payment_method,
-  bank_id,
-  note,
-  gps_link,
-  scheduled_at // ✅ جديد
+customer_id,
+address_id,
+restaurants,
+payment_method,
+bank_id,
+note,
+gps_link,
+scheduled_at,
+discount_amount,
+coupon_code
 } = req.body;
 
 
@@ -452,28 +454,28 @@ if (scheduled_at) {
     // إنشاء رأس الطلب (Order Header)
     const [result] = await db.query(
   `
- INSERT INTO orders (
-  customer_id,
-  address_id,
-  restaurant_id,
-   created_by,
-  updated_by,
-  note,
-  gps_link,
-  stores_count,
-  branch_id,
-  user_id,
-  delivery_fee,
-  extra_store_fee,
-  payment_method,
-  bank_id,
-  scheduled_at,   -- ✅
-  status          -- ✅
+INSERT INTO orders (
+customer_id,
+address_id,
+restaurant_id,
+created_by,
+updated_by,
+note,
+gps_link,
+stores_count,
+branch_id,
+user_id,
+delivery_fee,
+extra_store_fee,
+discount_amount,
+coupon_code,
+payment_method,
+bank_id,
+scheduled_at,
+status
 )
-
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-
-  `,
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ `,
 [
   customer_id,
   address_id,
@@ -487,6 +489,8 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   userId,            // user_id
   deliveryFee,
   extraStoreFee,
+  discount_amount || 0,
+coupon_code || null,
   payment_method || null,
   bank_id || null,
 
