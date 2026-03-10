@@ -668,7 +668,7 @@ if (discount > 0) {
 const [[settings]] = await db.query(`
 SELECT coupon_discount_account
 FROM settings
-WHERE id = 1
+WHERE id=1
 LIMIT 1
 `);
 
@@ -679,7 +679,7 @@ if (discountAccount) {
 /* مدين حساب التسويق */
 
 await db.query(`
-INSERT INTO journal_lines
+INSERT INTO journal_entries
 (order_id, account_id, debit, credit, description)
 VALUES (?, ?, ?, 0, ?)
 `,[
@@ -689,17 +689,18 @@ discount,
 `خصم كوبون الطلب #${orderId}`
 ]);
 
+
 /* دائن حساب الكابتن */
 
 await db.query(`
-INSERT INTO journal_lines
+INSERT INTO journal_entries
 (order_id, account_id, debit, credit, description)
 VALUES (?, ?, 0, ?, ?)
 `,[
 orderId,
 captain_account_id,
 discount,
-`تعويض خصم الكوبون للكابتن`
+`تعويض خصم الكوبون`
 ]);
 
 }
