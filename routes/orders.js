@@ -564,7 +564,7 @@ if (coupon_code) {
 
 const [[coupon]] = await db.query(
 `SELECT *
-FROM coupons
+FROM coupon_codes
 WHERE code=?
 AND status='active'
 AND (start_date IS NULL OR start_date <= NOW())
