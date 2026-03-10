@@ -588,19 +588,23 @@ console.log("COUPON FROM DB:", coupon);
   }
 
   /* خصم على الطلب */
-  if (coupon.apply_on === "order" || coupon.apply_on === "total") {
+if (coupon.apply_on === "order" || coupon.apply_on === "total") {
 
-    console.log("APPLY ON:", coupon.apply_on);
+  const orderTotal =
+    Number(total) +
+    Number(deliveryFee) +
+    Number(extraStoreFee);
 
-    if (Number(coupon.discount_percent) > 0) {
-      discount = (Number(total) * Number(coupon.discount_percent)) / 100;
-    }
-
-    if (Number(coupon.discount_amount) > 0) {
-      discount = Number(coupon.discount_amount);
-    }
-
+  if (Number(coupon.discount_percent) > 0) {
+    discount =
+      (orderTotal * Number(coupon.discount_percent)) / 100;
   }
+
+  if (Number(coupon.discount_amount) > 0) {
+    discount = Number(coupon.discount_amount);
+  }
+
+}
 
   /* خصم على التوصيل */
   if (coupon.apply_on === "delivery") {
@@ -617,6 +621,7 @@ console.log("COUPON FROM DB:", coupon);
 
 }
 }
+
 
 
 /* =========================
