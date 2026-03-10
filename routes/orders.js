@@ -610,7 +610,7 @@ discount = Number(coupon.discount_amount);
 
 }
 
-}
+
 
 
 /* =========================
