@@ -29,7 +29,7 @@ router.post("/calc-fees", async (req, res) => {
      
     const { address_id, restaurants } = req.body;
     const user = req.user || {};
-    console.log("ORDER BODY:", req.body);
+
     if (!restaurants || !restaurants.length) {
       return res.json({ success: false });
     }
@@ -396,7 +396,7 @@ const {
     const storeIds = [...new Set(products.map((p) => p.restaurant_id))];
     const storesCount = storeIds.length;
     const mainRestaurantId = storeIds[0];
-    const userId = user.id; // تسجيل الموظف الذي أنشأ الطلب
+const userId = user.role === "customer" ? null : user.id;
      
     const headerBranch = req.headers["x-branch-id"];
     let branchId = headerBranch ? Number(headerBranch) : user.branch_id || null;
