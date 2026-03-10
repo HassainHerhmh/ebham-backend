@@ -52,7 +52,7 @@ router.post("/calc-fees", async (req, res) => {
 
     let deliveryFee = 0;
     let extraStoreFee = 0;
-
+        
     if (branchId) {
       const [settingsRows] = await db.query(
         "SELECT * FROM branch_delivery_settings WHERE branch_id=? LIMIT 1",
@@ -358,7 +358,6 @@ bank_id,
 note,
 gps_link,
 scheduled_at,
-discount_amount,
 coupon_code
 } = req.body;
 
@@ -489,7 +488,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   userId,            // user_id
   deliveryFee,
   extraStoreFee,
-  discount_amount || 0,
+discount || 0,
 coupon_code || null,
   payment_method || null,
   bank_id || null,
@@ -502,9 +501,11 @@ coupon_code || null,
 
 
 const orderId = result.insertId;
-let total = 0;
+/* =========================
+   حساب المنتجات مرة واحدة
+========================= */
 
-/* ===== التحسين الجديد ===== */
+let total = 0;
 
 const productIds = products.map(p => p.product_id);
 
@@ -518,7 +519,10 @@ dbProducts.forEach(p=>{
 productMap[p.id] = p;
 });
 
-/* ===== نهاية التحسين ===== */
+
+/* =========================
+   إضافة المنتجات للطلب
+========================= */
 
 for (const p of products) {
 
@@ -530,19 +534,109 @@ continue;
 }
 
 const subtotal = Number(prod.price) * Number(p.quantity);
+
 total += subtotal;
 
 await db.query(
-`INSERT INTO order_items (order_id, product_id, restaurant_id, name, price, quantity)
+`INSERT INTO order_items 
+(order_id, product_id, restaurant_id, name, price, quantity)
 VALUES (?, ?, ?, ?, ?, ?)`,
-[orderId, p.product_id, p.restaurant_id, prod.name, prod.price, p.quantity]
+[
+orderId,
+p.product_id,
+p.restaurant_id,
+prod.name,
+prod.price,
+p.quantity
+]
 );
 
 }
 
-    // تحديث إجمالي المبلغ النهائي
-    const grandTotal = total + deliveryFee + extraStoreFee;
-    await db.query("UPDATE orders SET total_amount=? WHERE id=?", [grandTotal, orderId]);
+
+/* =========================
+   حساب الكوبون من السيرفر
+========================= */
+
+let discount = 0;
+
+if (coupon_code) {
+
+const [[coupon]] = await db.query(
+`SELECT *
+FROM coupons
+WHERE code=?
+AND status='active'
+AND (start_date IS NULL OR start_date <= NOW())
+AND (end_date IS NULL OR end_date >= NOW())
+LIMIT 1`,
+[coupon_code]
+);
+
+if (coupon) {
+
+if (coupon.max_uses && coupon.used_count >= coupon.max_uses) {
+
+return res.json({
+success:false,
+message:"تم استهلاك الكوبون"
+});
+
+}
+
+if (coupon.apply_on === "order") {
+
+if (coupon.discount_percent) {
+discount = (total * Number(coupon.discount_percent)) / 100;
+}
+
+if (coupon.discount_amount) {
+discount = Number(coupon.discount_amount);
+}
+
+}
+
+if (coupon.apply_on === "delivery") {
+
+if (coupon.discount_percent) {
+discount = (deliveryFee * Number(coupon.discount_percent)) / 100;
+}
+
+if (coupon.discount_amount) {
+discount = Number(coupon.discount_amount);
+}
+
+}
+
+}
+
+}
+
+
+/* =========================
+   حساب الإجمالي النهائي
+========================= */
+
+const grandTotal =
+total +
+deliveryFee +
+extraStoreFee -
+discount;
+
+
+/* =========================
+   تحديث إجمالي الطلب
+========================= */
+
+await db.query(
+"UPDATE orders SET total_amount=?, discount_amount=?, coupon_code=? WHERE id=?",
+[
+grandTotal,
+discount || 0,
+coupon_code || null,
+orderId
+]
+);
 
  /* =========================
    إشعارات إنشاء الطلب
