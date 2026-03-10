@@ -13,17 +13,17 @@ GET /settings/transit-accounts
 router.get("/", async (req, res) => {
   try {
     const [rows] = await db.query(`
-      SELECT
-        commission_income_account,
-        courier_commission_account,
-        transfer_guarantee_account,
-        currency_exchange_account,
-        customer_guarantee_account,   -- 🆕
-            customer_credit_account     -- 🆕
-
-      FROM settings
-      WHERE id = 1
-      LIMIT 1
+SELECT
+  commission_income_account,
+  courier_commission_account,
+  transfer_guarantee_account,
+  currency_exchange_account,
+  customer_guarantee_account,
+  customer_credit_account,
+  coupon_discount_account
+FROM settings
+WHERE id = 1
+LIMIT 1
     `);
 
     // إذا ما فيه صف، نرجع قيم فاضية
@@ -36,7 +36,7 @@ router.get("/", async (req, res) => {
         currency_exchange_account: null,
         customer_guarantee_account: null, // 🆕
             customer_credit_account: null, // 🆕
-
+           coupon_discount_account: null,
       },
     });
   } catch (err) {
@@ -51,15 +51,15 @@ POST /settings/transit-accounts
 */
 router.post("/", async (req, res) => {
   try {
-    const {
-      commission_income_account,
-      courier_commission_account,
-      transfer_guarantee_account,
-      currency_exchange_account,
-      customer_guarantee_account, // 🆕
-        customer_credit_account, // 🆕
-
-    } = req.body;
+const {
+  commission_income_account,
+  courier_commission_account,
+  transfer_guarantee_account,
+  currency_exchange_account,
+  customer_guarantee_account,
+  customer_credit_account,
+  coupon_discount_account
+} = req.body;
 
     // نتأكد هل السجل موجود
     const [exists] = await db.query(
@@ -70,52 +70,52 @@ router.post("/", async (req, res) => {
       // إنشاء السجل لأول مرة
       await db.query(
         `
-        INSERT INTO settings
-        (
-          id,
-          commission_income_account,
-          courier_commission_account,
-          transfer_guarantee_account,
-          currency_exchange_account,
-          customer_guarantee_account,
-            customer_credit_account
-
-        )
-        VALUES (1, ?, ?, ?,?, ?, ?)
+     INSERT INTO settings
+(
+  id,
+  commission_income_account,
+  courier_commission_account,
+  transfer_guarantee_account,
+  currency_exchange_account,
+  customer_guarantee_account,
+  customer_credit_account,
+  coupon_discount_account
+)
+VALUES (1, ?, ?, ?, ?, ?, ?, ?)
         `,
-        [
-          commission_income_account || null,
-          courier_commission_account || null,
-          transfer_guarantee_account || null,
-          currency_exchange_account || null,
-          customer_guarantee_account || null,
-            customer_credit_account || null, // 🆕
-
-        ]
+   [
+  commission_income_account || null,
+  courier_commission_account || null,
+  transfer_guarantee_account || null,
+  currency_exchange_account || null,
+  customer_guarantee_account || null,
+  customer_credit_account || null,
+  coupon_discount_account || null
+]
       );
     } else {
       // تحديث السجل الموجود
       await db.query(
         `
-        UPDATE settings SET
-          commission_income_account = ?,
-          courier_commission_account = ?,
-          transfer_guarantee_account = ?,
-          currency_exchange_account = ?,
-          customer_guarantee_account = ?,
-            customer_credit_account = ?
-
-        WHERE id = 1
+ UPDATE settings SET
+  commission_income_account = ?,
+  courier_commission_account = ?,
+  transfer_guarantee_account = ?,
+  currency_exchange_account = ?,
+  customer_guarantee_account = ?,
+  customer_credit_account = ?,
+  coupon_discount_account = ?
+WHERE id = 1
         `,
-        [
-          commission_income_account || null,
-          courier_commission_account || null,
-          transfer_guarantee_account || null,
-          currency_exchange_account || null,
-          customer_guarantee_account || null,
-            customer_credit_account || null, // 🆕
-
-        ]
+   [
+  commission_income_account || null,
+  courier_commission_account || null,
+  transfer_guarantee_account || null,
+  currency_exchange_account || null,
+  customer_guarantee_account || null,
+  customer_credit_account || null,
+  coupon_discount_account || null
+]
       );
     }
 
