@@ -60,6 +60,23 @@ router.get("/app/:id/products", async (req, res) => {
   try {
     const restaurantId = req.params.id;
 
+    /* جلب خصم الإعلان للمطعم */
+    const [[ad]] = await db.query(
+      `
+      SELECT discount_percent
+      FROM ads
+      WHERE type='discount'
+      AND restaurant_id=?
+      AND status='active'
+      AND (start_date IS NULL OR start_date <= NOW())
+      AND (end_date IS NULL OR end_date >= NOW())
+      LIMIT 1
+      `,
+      [restaurantId]
+    );
+
+    const discount = Number(ad?.discount_percent || 0);
+
     const [rows] = await db.query(
       `
       SELECT 
@@ -69,7 +86,7 @@ router.get("/app/:id/products", async (req, res) => {
         p.notes,
         p.image_url,
         p.restaurant_id,
-         (p.is_parent + 0) AS is_parent, 
+        (p.is_parent + 0) AS is_parent,
         GROUP_CONCAT(pc.category_id) AS category_ids
       FROM products p
       LEFT JOIN product_categories pc
@@ -81,10 +98,30 @@ router.get("/app/:id/products", async (req, res) => {
       [restaurantId]
     );
 
+    /* حساب السعر النهائي */
+    const products = rows.map(p => {
+
+      let finalPrice = Number(p.price);
+
+      if (discount > 0) {
+        finalPrice = Math.round(
+          p.price - (p.price * discount / 100)
+        );
+      }
+
+      return {
+        ...p,
+        discount_percent: discount,
+        final_price: finalPrice
+      };
+
+    });
+
     res.json({
       success: true,
-      products: rows,
+      products
     });
+
   } catch (err) {
     console.error("APP GET RESTAURANT PRODUCTS ERROR:", err);
     res.status(500).json({ success: false, products: [] });
