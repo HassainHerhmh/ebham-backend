@@ -58,73 +58,62 @@ router.get("/app/:id/categories", async (req, res) => {
 
 router.get("/app/:id/products", async (req, res) => {
   try {
+
     const restaurantId = req.params.id;
 
-    /* جلب خصم الإعلان للمطعم */
-    const [[ad]] = await db.query(
-      `
-      SELECT discount_percent
-      FROM ads
-      WHERE type='discount'
-      AND restaurant_id=?
-      AND status='active'
-      AND (start_date IS NULL OR start_date <= NOW())
-      AND (end_date IS NULL OR end_date >= NOW())
-      LIMIT 1
-      `,
-      [restaurantId]
-    );
+    const [rows] = await db.query(`
+SELECT 
 
-    const discount = Number(ad?.discount_percent || 0);
+p.id,
+p.name,
+p.price,
+p.notes,
+p.image_url,
+p.restaurant_id,
+(p.is_parent + 0) AS is_parent,
+GROUP_CONCAT(pc.category_id) AS category_ids,
 
-    const [rows] = await db.query(
-      `
-      SELECT 
-        p.id,
-        p.name,
-        p.price,
-        p.notes,
-        p.image_url,
-        p.restaurant_id,
-        (p.is_parent + 0) AS is_parent,
-        GROUP_CONCAT(pc.category_id) AS category_ids
-      FROM products p
-      LEFT JOIN product_categories pc
-        ON pc.product_id = p.id
-      WHERE p.restaurant_id = ?
-      GROUP BY p.id
-      ORDER BY p.id DESC
-      `,
-      [restaurantId]
-    );
+ads.discount_percent,
 
-    /* حساب السعر النهائي */
-    const products = rows.map(p => {
+IFNULL(
+  ROUND(p.price - (p.price * ads.discount_percent / 100)),
+  p.price
+) AS final_price
 
-      let finalPrice = Number(p.price);
+FROM products p
 
-      if (discount > 0) {
-        finalPrice = Math.round(
-          p.price - (p.price * discount / 100)
-        );
-      }
+LEFT JOIN product_categories pc
+  ON pc.product_id = p.id
 
-      return {
-        ...p,
-        discount_percent: discount,
-        final_price: finalPrice
-      };
+LEFT JOIN ad_products ap
+  ON ap.product_id = p.id
 
-    });
+LEFT JOIN ads
+  ON ads.id = ap.ad_id
+  AND ads.status='active'
+  AND (ads.start_date IS NULL OR ads.start_date <= NOW())
+  AND (ads.end_date IS NULL OR ads.end_date >= NOW())
+
+WHERE p.restaurant_id = ?
+
+GROUP BY p.id
+ORDER BY p.id DESC
+`,[restaurantId]);
 
     res.json({
-      success: true,
-      products
+      success:true,
+      products:rows
     });
 
-  } catch (err) {
-    console.error("APP GET RESTAURANT PRODUCTS ERROR:", err);
-    res.status(500).json({ success: false, products: [] });
+  } catch(err){
+
+    console.error("APP GET RESTAURANT PRODUCTS ERROR:",err);
+
+    res.status(500).json({
+      success:false,
+      products:[]
+    });
+
   }
 });
 
