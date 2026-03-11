@@ -659,53 +659,7 @@ coupon_code || null,
 orderId
 ]
 );
-/* =========================
-   قيد خصم الكوبون
-========================= */
 
-if (discount > 0) {
-
-const [[settings]] = await db.query(`
-SELECT coupon_discount_account
-FROM settings
-WHERE id=1
-LIMIT 1
-`);
-
-const discountAccount = settings?.coupon_discount_account;
-
-if (discountAccount) {
-
-/* مدين حساب التسويق */
-
-await db.query(`
-INSERT INTO journal_entries
-(order_id, account_id, debit, credit, description)
-VALUES (?, ?, ?, 0, ?)
-`,[
-orderId,
-discountAccount,
-discount,
-`خصم كوبون الطلب #${orderId}`
-]);
-
-
-/* دائن حساب الكابتن */
-
-await db.query(`
-INSERT INTO journal_entries
-(order_id, account_id, debit, credit, description)
-VALUES (?, ?, 0, ?, ?)
-`,[
-orderId,
-captain_account_id,
-discount,
-`تعويض خصم الكوبون`
-]);
-
-}
-
-}
  /* =========================
    إشعارات إنشاء الطلب
 ========================= */
@@ -1087,6 +1041,40 @@ router.put("/:id/status", async (req, res) => {
         else if (pMethod === "bank") mainDebitAccount = order.bank_account_id || 10;
         else mainDebitAccount = settings.customer_guarantee_account || 51;
       }
+
+       /* =========================
+   قيد خصم الكوبون
+========================= */
+
+if (order.discount_amount > 0 && settings.coupon_discount_account) {
+
+const discount = Number(order.discount_amount);
+
+await insertJournalEntry(
+  conn,
+  journalTypeId,
+  orderId,
+  baseCur.id,
+  settings.coupon_discount_account,
+  discount,
+  0,
+  `دعم كوبون طلب #${orderId}`,
+  req
+);
+
+await insertJournalEntry(
+  conn,
+  journalTypeId,
+  orderId,
+  baseCur.id,
+  order.cap_acc_id,
+  0,
+  discount,
+  `تعويض خصم الكوبون للكابتن #${orderId}`,
+  req
+);
+
+}
 
       const [restaurantItems] = await conn.query(`
         SELECT 
