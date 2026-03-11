@@ -1180,7 +1180,7 @@ await insertJournalEntry(
   }
 
 }
-
+} 
     await conn.commit();
 
     /* =========================
