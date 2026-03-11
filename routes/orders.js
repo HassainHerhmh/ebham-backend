@@ -1125,18 +1125,31 @@ await insertJournalEntry(
   if (res.res_acc_id && res.net_amount > 0) {
 
     /* حساب نسبة الخصم */
-    let discountText = "";
+let discountText = "";
 
-    if (order.discount_amount > 0) {
+const [original] = await conn.query(
+`
+SELECT 
+SUM(p.price * oi.quantity) AS original_total
+FROM order_items oi
+JOIN products p ON p.id = oi.product_id
+WHERE oi.order_id=? AND oi.restaurant_id=?
+`,
+[orderId, res.restaurant_id]
+);
 
-   const beforeDiscount = Number(res.net_amount) + 
-  (Number(order.discount_amount) / restaurantItems.length);
+const originalTotal = Number(original[0]?.original_total || 0);
 
-      const percent =
-        Math.floor((Number(order.discount_amount) / beforeDiscount) * 100);
+if (originalTotal > res.net_amount) {
 
-      discountText = ` عرض خصم ${percent}%`;
-    }
+const diff = originalTotal - res.net_amount;
+
+const percent =
+Math.round((diff / originalTotal) * 100);
+
+discountText = ` عرض خصم ${percent}%`;
+
+}
 
     const foodNote =
       `قيمة وجبات من ${res.restaurant_name} طلب #${orderId}${discountText}`;
