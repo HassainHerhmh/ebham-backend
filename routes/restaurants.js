@@ -610,18 +610,39 @@ router.get("/:id/products", async (req, res) => {
 
     const [rows] = await db.query(
       `
-      SELECT 
-        p.id,
-        p.name,
-        p.price,
-        p.notes,
-        GROUP_CONCAT(pc.category_id) AS category_ids
-      FROM products p
-      LEFT JOIN product_categories pc
-        ON pc.product_id = p.id
-      WHERE p.restaurant_id = ?
-      GROUP BY p.id
-      ORDER BY p.id DESC
+SELECT 
+
+p.id,
+p.name,
+p.price,
+p.notes,
+GROUP_CONCAT(pc.category_id) AS category_ids,
+
+ads.discount_percent,
+
+IFNULL(
+  ROUND(p.price - (p.price * ads.discount_percent / 100)),
+  p.price
+) AS final_price
+
+FROM products p
+
+LEFT JOIN product_categories pc
+  ON pc.product_id = p.id
+
+LEFT JOIN ad_products ap
+  ON ap.product_id = p.id
+
+LEFT JOIN ads
+  ON ads.id = ap.ad_id
+  AND ads.status='active'
+  AND (ads.start_date IS NULL OR ads.start_date <= NOW())
+  AND (ads.end_date IS NULL OR ads.end_date >= NOW())
+
+WHERE p.restaurant_id = ?
+
+GROUP BY p.id
+ORDER BY p.id DESC
       `,
       [restaurantId]
     );
