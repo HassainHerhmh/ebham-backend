@@ -85,11 +85,8 @@ FROM products p
 LEFT JOIN product_categories pc
   ON pc.product_id = p.id
 
-LEFT JOIN ad_products ap
-  ON ap.product_id = p.id
-
 LEFT JOIN ads
-  ON ads.id = ap.ad_id
+  ON ads.restaurant_id = p.restaurant_id
   AND ads.status='active'
   AND (ads.start_date IS NULL OR ads.start_date <= NOW())
   AND (ads.end_date IS NULL OR ads.end_date >= NOW())
@@ -630,11 +627,8 @@ FROM products p
 LEFT JOIN product_categories pc
   ON pc.product_id = p.id
 
-LEFT JOIN ad_products ap
-  ON ap.product_id = p.id
-
 LEFT JOIN ads
-  ON ads.id = ap.ad_id
+  ON ads.restaurant_id = p.restaurant_id
   AND ads.status='active'
   AND (ads.start_date IS NULL OR ads.start_date <= NOW())
   AND (ads.end_date IS NULL OR ads.end_date >= NOW())
