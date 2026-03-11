@@ -510,7 +510,7 @@ let total = 0;
 const productIds = products.map(p => p.product_id);
 
 const [dbProducts] = await db.query(
-"SELECT id, name, price, discount_price FROM products WHERE id IN (?)",
+"SELECT id, name, price FROM products WHERE id IN (?)",
 [productIds]
 );
 
@@ -533,8 +533,7 @@ console.error(`❌ المنتج رقم ${p.product_id} غير موجود`);
 continue;
 }
 
-const price =
-  Number(prod.discount_price || prod.price);
+const price = Number(prod.price);
 
 const subtotal = price * Number(p.quantity);
 total += subtotal;
@@ -1096,31 +1095,91 @@ await insertJournalEntry(
         GROUP BY oi.restaurant_id
       `, [orderId]);
 
-      for (const res of restaurantItems) {
-        if (res.res_acc_id && res.net_amount > 0) {
-          await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, mainDebitAccount, res.net_amount, 0, `قيمة وجبات من ${res.restaurant_name} طلب #${orderId}`, req);
-          await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, res.res_acc_id, 0, res.net_amount, `صافي مبيعات طلب #${orderId}`, req);
+  for (const res of restaurantItems) {
 
-          if (settings.commission_income_account && res.res_comm_val > 0) {
-            let resComm = (res.res_comm_type === 'percent') ? (res.net_amount * Number(res.res_comm_val)) / 100 : Number(res.res_comm_val);
-            await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, res.res_acc_id, resComm, 0, `خصم عمولة ${res.restaurant_name} طلب #${orderId}`, req);
-            await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, settings.commission_income_account, 0, resComm, `إيراد عمولة مطعم #${orderId}`, req);
-          }
-        }
-      }
+  if (res.res_acc_id && res.net_amount > 0) {
 
-      const deliveryTotal = Number(order.delivery_fee || 0) + Number(order.extra_store_fee || 0);
-      if (deliveryTotal > 0 && order.cap_acc_id) {
-        await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, mainDebitAccount, deliveryTotal, 0, `إجمالي رسوم توصيل طلب #${orderId}`, req);
-        await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, order.cap_acc_id, 0, deliveryTotal, `إيراد توصيل كابتن طلب #${orderId}`, req);
+    /* حساب نسبة الخصم */
+    let discountText = "";
 
-        if (settings.courier_commission_account && order.cap_comm_val > 0) {
-          let capComm = (order.cap_comm_type === 'percent') ? (deliveryTotal * Number(order.cap_comm_val)) / 100 : Number(order.cap_comm_val);
-          await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, order.cap_acc_id, capComm, 0, `خصم عمولة شركة من الكابتن طلب #${orderId}`, req);
-          await insertJournalEntry(conn, journalTypeId, orderId, baseCur.id, settings.courier_commission_account, 0, capComm, `إيراد عمولة كابتن #${orderId}`, req);
-        }
-      }
+    if (order.discount_amount > 0) {
+
+   const beforeDiscount = Number(res.net_amount) + 
+  (Number(order.discount_amount) / restaurantItems.length);
+
+      const percent =
+        Math.floor((Number(order.discount_amount) / beforeDiscount) * 100);
+
+      discountText = ` عرض خصم ${percent}%`;
     }
+
+    const foodNote =
+      `قيمة وجبات من ${res.restaurant_name} طلب #${orderId}${discountText}`;
+
+    const salesNote =
+      `صافي مبيعات طلب #${orderId}${discountText}`;
+
+
+    await insertJournalEntry(
+      conn,
+      journalTypeId,
+      orderId,
+      baseCur.id,
+      mainDebitAccount,
+      res.net_amount,
+      0,
+      foodNote,
+      req
+    );
+
+    await insertJournalEntry(
+      conn,
+      journalTypeId,
+      orderId,
+      baseCur.id,
+      res.res_acc_id,
+      0,
+      res.net_amount,
+      salesNote,
+      req
+    );
+
+
+    if (settings.commission_income_account && res.res_comm_val > 0) {
+
+      let resComm =
+        (res.res_comm_type === 'percent')
+          ? (res.net_amount * Number(res.res_comm_val)) / 100
+          : Number(res.res_comm_val);
+
+      await insertJournalEntry(
+        conn,
+        journalTypeId,
+        orderId,
+        baseCur.id,
+        res.res_acc_id,
+        resComm,
+        0,
+        `خصم عمولة ${res.restaurant_name} طلب #${orderId}`,
+        req
+      );
+
+      await insertJournalEntry(
+        conn,
+        journalTypeId,
+        orderId,
+        baseCur.id,
+        settings.commission_income_account,
+        0,
+        resComm,
+        `إيراد عمولة مطعم #${orderId}`,
+        req
+      );
+    }
+
+  }
+
+}
 
     await conn.commit();
 
