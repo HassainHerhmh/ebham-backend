@@ -510,7 +510,7 @@ let total = 0;
 const productIds = products.map(p => p.product_id);
 
 const [dbProducts] = await db.query(
-"SELECT id, name, price FROM products WHERE id IN (?)",
+"SELECT id, name, price, offer_price FROM products WHERE id IN (?)",
 [productIds]
 );
 
@@ -533,7 +533,7 @@ console.error(`❌ المنتج رقم ${p.product_id} غير موجود`);
 continue;
 }
 
-const price = Number(prod.price);
+const price = Number(prod.offer_price || prod.price);
 
 const subtotal = price * Number(p.quantity);
 total += subtotal;
