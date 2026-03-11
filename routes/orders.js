@@ -510,7 +510,32 @@ let total = 0;
 const productIds = products.map(p => p.product_id);
 
 const [dbProducts] = await db.query(
-"SELECT id, name, price, offer_price FROM products WHERE id IN (?)",
+`
+SELECT 
+
+p.id,
+p.name,
+p.price,
+
+MAX(ads.discount_percent) AS discount_percent,
+
+ROUND(
+p.price - (p.price * MAX(ads.discount_percent) / 100)
+) AS final_price
+
+FROM products p
+
+LEFT JOIN ads
+ON ads.restaurant_id = p.restaurant_id
+AND ads.type='discount'
+AND ads.status='active'
+AND (ads.start_date IS NULL OR ads.start_date <= NOW())
+AND (ads.end_date IS NULL OR ads.end_date >= NOW())
+
+WHERE p.id IN (?)
+
+GROUP BY p.id
+`,
 [productIds]
 );
 
@@ -533,7 +558,7 @@ console.error(`❌ المنتج رقم ${p.product_id} غير موجود`);
 continue;
 }
 
-const price = Number(prod.offer_price || prod.price);
+const price = Number(prod.final_price || prod.price);
 
 const subtotal = price * Number(p.quantity);
 total += subtotal;
