@@ -154,6 +154,7 @@ router.get("/app", async (req, res) => {
     const [orders] = await db.query(`
       SELECT
         id,
+        restaurant_id,
         status,
         total_amount,
         created_at
@@ -174,7 +175,7 @@ router.get("/app", async (req, res) => {
     const orderIds = orders.map(o => o.id);
 
     /* =========================
-       جلب المطاعم لكل الطلبات
+       جلب المطاعم من order_items
     ========================= */
 
     const [restaurants] = await db.query(`
@@ -182,16 +183,12 @@ router.get("/app", async (req, res) => {
         oi.order_id,
         r.id,
         r.name,
-        r.image_url
+        r.image_url AS image
       FROM order_items oi
       JOIN restaurants r ON r.id = oi.restaurant_id
       WHERE oi.order_id IN (?)
       GROUP BY oi.order_id, r.id
     `,[orderIds]);
-
-    /* =========================
-       بناء المطاعم داخل الطلب
-    ========================= */
 
     const map = {};
 
@@ -204,18 +201,59 @@ router.get("/app", async (req, res) => {
       map[r.order_id].push({
         id: r.id,
         name: r.name,
-        image: r.image_url
+        image: r.image
       });
 
     });
 
+    /* =========================
+       دعم الطلبات اليدوية
+    ========================= */
+
+    const restaurantIds = orders
+      .map(o => o.restaurant_id)
+      .filter(Boolean);
+
+    if (restaurantIds.length) {
+
+      const [manualRestaurants] = await db.query(`
+        SELECT
+          id,
+          name,
+          image_url AS image
+        FROM restaurants
+        WHERE id IN (?)
+      `,[restaurantIds]);
+
+      const manualMap = {};
+
+      manualRestaurants.forEach(r => {
+        manualMap[r.id] = r;
+      });
+
+      orders.forEach(o => {
+
+        if (!map[o.id] && manualMap[o.restaurant_id]) {
+
+          map[o.id] = [{
+            id: manualMap[o.restaurant_id].id,
+            name: manualMap[o.restaurant_id].name,
+            image: manualMap[o.restaurant_id].image
+          }];
+
+        }
+
+      });
+
+    }
+
+    /* =========================
+       تركيب المطاعم داخل الطلب
+    ========================= */
+
     orders.forEach(o => {
       o.restaurants = map[o.id] || [];
     });
-
-    /* =========================
-       النتيجة
-    ========================= */
 
     res.json({
       success:true,
@@ -235,8 +273,6 @@ router.get("/app", async (req, res) => {
   }
 
 });
-
-
 /* =========================
    GET /orders (تم الإصلاح)
 ========================= */
