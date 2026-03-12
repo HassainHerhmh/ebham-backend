@@ -73,12 +73,13 @@ p.restaurant_id,
 (p.is_parent + 0) AS is_parent,
 GROUP_CONCAT(pc.category_id) AS category_ids,
 
-ads.discount_percent,
+COALESCE(ads.discount_percent,0) AS discount_percent,
 
-IFNULL(
-  ROUND(p.price - (p.price * ads.discount_percent / 100)),
-  p.price
-) AS final_price
+CASE
+  WHEN ads.discount_percent IS NOT NULL
+  THEN ROUND(p.price - (p.price * ads.discount_percent / 100))
+  ELSE p.price
+END AS final_price
 
 FROM products p
 
@@ -113,9 +114,6 @@ ORDER BY p.id DESC
 
   }
 });
-
-
-
 /* ======================================================
    🟢 جلب كل المحلات للتطبيق (حسب الفرع)
 ====================================================== */
