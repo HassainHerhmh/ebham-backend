@@ -1300,6 +1300,7 @@ if (deliveryTotal > 0 && order.cap_comm_val > 0) {
 
 
 await conn.commit();
+}  
 
     /* =========================
        إشعارات FCM (للعميل والكابتن)
