@@ -1120,36 +1120,40 @@ await insertJournalEntry(
         GROUP BY oi.restaurant_id
       `, [orderId]);
 
-  for (const res of restaurantItems) {
+/* =========================
+   قيود المطاعم
+========================= */
+
+for (const res of restaurantItems) {
 
   if (res.res_acc_id && res.net_amount > 0) {
 
     /* حساب نسبة الخصم */
-let discountText = "";
+    let discountText = "";
 
-const [original] = await conn.query(
-`
-SELECT 
-SUM(p.price * oi.quantity) AS original_total
-FROM order_items oi
-JOIN products p ON p.id = oi.product_id
-WHERE oi.order_id=? AND oi.restaurant_id=?
-`,
-[orderId, res.restaurant_id]
-);
+    const [original] = await conn.query(
+    `
+    SELECT 
+    SUM(p.price * oi.quantity) AS original_total
+    FROM order_items oi
+    JOIN products p ON p.id = oi.product_id
+    WHERE oi.order_id=? AND oi.restaurant_id=?
+    `,
+    [orderId, res.restaurant_id]
+    );
 
-const originalTotal = Number(original[0]?.original_total || 0);
+    const originalTotal = Number(original[0]?.original_total || 0);
 
-if (originalTotal > res.net_amount) {
+    if (originalTotal > res.net_amount) {
 
-const diff = originalTotal - res.net_amount;
+      const diff = originalTotal - res.net_amount;
 
-const percent =
-Math.round((diff / originalTotal) * 100);
+      const percent =
+      Math.round((diff / originalTotal) * 100);
 
-discountText = ` عرض خصم ${percent}%`;
+      discountText = ` عرض خصم ${percent}%`;
 
-}
+    }
 
     const foodNote =
       `قيمة وجبات من ${res.restaurant_name} طلب #${orderId}${discountText}`;
@@ -1158,6 +1162,7 @@ discountText = ` عرض خصم ${percent}%`;
       `صافي مبيعات طلب #${orderId}${discountText}`;
 
 
+    /* قيد المبيعات */
     await insertJournalEntry(
       conn,
       journalTypeId,
@@ -1182,6 +1187,10 @@ discountText = ` عرض خصم ${percent}%`;
       req
     );
 
+
+    /* =========================
+       عمولة المطعم
+    ========================= */
 
     if (settings.commission_income_account && res.res_comm_val > 0) {
 
@@ -1213,13 +1222,56 @@ discountText = ` عرض خصم ${percent}%`;
         `إيراد عمولة مطعم #${orderId}`,
         req
       );
+
     }
 
   }
 
 }
-} 
-    await conn.commit();
+
+
+/* =========================
+   قيد رسوم التوصيل
+========================= */
+
+const deliveryTotal =
+Number(order.delivery_fee || 0) +
+Number(order.extra_store_fee || 0);
+
+if (deliveryTotal > 0) {
+
+  await insertJournalEntry(
+  conn,
+  journalTypeId,
+  orderId,
+  baseCur.id,
+  mainDebitAccount,
+  deliveryTotal,
+  0,
+  `إجمالي رسوم توصيل طلب #${orderId}`,
+  req
+  );
+
+  await insertJournalEntry(
+  conn,
+  journalTypeId,
+  orderId,
+  baseCur.id,
+  order.cap_acc_id,
+  0,
+  deliveryTotal,
+  `إيراد توصيل كابتن طلب #${orderId}`,
+  req
+  );
+
+}
+
+
+/* =========================
+   حفظ القيود
+========================= */
+
+await conn.commit();
 
     /* =========================
        إشعارات FCM (للعميل والكابتن)
