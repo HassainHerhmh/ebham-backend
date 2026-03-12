@@ -124,76 +124,116 @@ router.use(auth);
 ========================*/
 router.get("/app", async (req, res) => {
 
-   console.log("APP ORDERS USER:", req.user);
+  console.log("APP ORDERS USER:", req.user);
 
   try {
+
     const user = req.user;
 
-    if (!user.customer_id) {
+    if (user.role !== "customer") {
       return res.status(403).json({
         success: false,
-        message: "حساب ليس عميل",
+        message: "ليس حساب عميل"
       });
     }
 
-    if (!user.branch_id) {
+    const customerId = user.id;
+    const branchId = user.branch_id;
+
+    if (!branchId) {
       return res.status(400).json({
-        success: false,
-        message: "لم يتم تحديد فرع",
+        success:false,
+        message:"لم يتم تحديد الفرع"
       });
     }
 
-  const [orders] = await db.query(
-  `
-SELECT 
-  o.id,
-  o.status,
-  o.total_amount,
-  o.created_at,
-  b.name AS branch_name,
+    /* =========================
+       جلب الطلبات
+    ========================= */
 
-  GROUP_CONCAT(DISTINCT r.id)   AS restaurant_ids,
-  GROUP_CONCAT(DISTINCT r.name) AS restaurant_names,
-  GROUP_CONCAT(DISTINCT r.image_url) AS restaurant_images
+    const [orders] = await db.query(`
+      SELECT
+        id,
+        status,
+        total_amount,
+        created_at
+      FROM orders
+      WHERE customer_id = ?
+      AND branch_id = ?
+      ORDER BY id DESC
+      LIMIT 100
+    `,[customerId, branchId]);
 
-FROM orders o
+    if (!orders.length) {
+      return res.json({
+        success:true,
+        orders:[]
+      });
+    }
 
-JOIN order_items oi
-  ON oi.order_id = o.id
+    const orderIds = orders.map(o => o.id);
 
-JOIN restaurants r
-  ON r.id = oi.restaurant_id
+    /* =========================
+       جلب المطاعم لكل الطلبات
+    ========================= */
 
-JOIN branches b
-  ON b.id = o.branch_id
+    const [restaurants] = await db.query(`
+      SELECT
+        oi.order_id,
+        r.id,
+        r.name,
+        r.image_url
+      FROM order_items oi
+      JOIN restaurants r ON r.id = oi.restaurant_id
+      WHERE oi.order_id IN (?)
+      GROUP BY oi.order_id, r.id
+    `,[orderIds]);
 
-WHERE 
-  o.customer_id = ?
-  AND o.branch_id = ?
+    /* =========================
+       بناء المطاعم داخل الطلب
+    ========================= */
 
-GROUP BY o.id
+    const map = {};
 
-ORDER BY o.id DESC
-  `,
-  [
-    user.customer_id,
-    user.branch_id,
-  ]
-);
+    restaurants.forEach(r => {
 
-    res.json({
-      success: true,
-      orders,
+      if (!map[r.order_id]) {
+        map[r.order_id] = [];
+      }
+
+      map[r.order_id].push({
+        id: r.id,
+        name: r.name,
+        image: r.image_url
+      });
+
     });
 
-  } catch (err) {
+    orders.forEach(o => {
+      o.restaurants = map[o.id] || [];
+    });
+
+    /* =========================
+       النتيجة
+    ========================= */
+
+    res.json({
+      success:true,
+      orders
+    });
+
+  }
+  catch(err){
+
     console.error("APP ORDERS ERROR:", err);
 
     res.status(500).json({
-      success: false,
-      orders: [],
+      success:false,
+      orders:[]
     });
+
   }
+
 });
 
 
