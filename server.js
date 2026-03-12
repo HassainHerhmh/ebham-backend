@@ -525,7 +525,7 @@ app.use("/api/wassel-orders", wasselOrders);
 
 import manualOrdersRouter from "./routes/manual_orders.js";
 // ...
-app.use("/api/wassel-orders/manual", manualOrdersRouter);
+app.use("/api/manual-orders", manualOrdersRouter);
 
 /*==================
 داش بورد
