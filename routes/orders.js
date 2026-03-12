@@ -183,7 +183,7 @@ router.get("/app", async (req, res) => {
         oi.order_id,
         r.id,
         r.name,
-        r.image_url AS image
+        r.image_url
       FROM order_items oi
       JOIN restaurants r ON r.id = oi.restaurant_id
       WHERE oi.order_id IN (?)
@@ -201,7 +201,8 @@ router.get("/app", async (req, res) => {
       map[r.order_id].push({
         id: r.id,
         name: r.name,
-        image: r.image
+        image: r.image_url,
+        restaurant_image: r.image_url
       });
 
     });
@@ -210,9 +211,13 @@ router.get("/app", async (req, res) => {
        دعم الطلبات اليدوية
     ========================= */
 
-    const restaurantIds = orders
-      .map(o => o.restaurant_id)
-      .filter(Boolean);
+    const restaurantIds = [
+      ...new Set(
+        orders
+          .map(o => o.restaurant_id)
+          .filter(Boolean)
+      )
+    ];
 
     if (restaurantIds.length) {
 
@@ -220,7 +225,7 @@ router.get("/app", async (req, res) => {
         SELECT
           id,
           name,
-          image_url AS image
+          image_url
         FROM restaurants
         WHERE id IN (?)
       `,[restaurantIds]);
@@ -235,10 +240,13 @@ router.get("/app", async (req, res) => {
 
         if (!map[o.id] && manualMap[o.restaurant_id]) {
 
+          const r = manualMap[o.restaurant_id];
+
           map[o.id] = [{
-            id: manualMap[o.restaurant_id].id,
-            name: manualMap[o.restaurant_id].name,
-            image: manualMap[o.restaurant_id].image
+            id: r.id,
+            name: r.name,
+            image: r.image_url,
+            restaurant_image: r.image_url
           }];
 
         }
