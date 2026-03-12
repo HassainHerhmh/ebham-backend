@@ -614,12 +614,13 @@ p.id,
 p.name,
 p.price,
 p.notes,
+
 GROUP_CONCAT(pc.category_id) AS category_ids,
 
-MAX(ads.discount_percent),
+MAX(ads.discount_percent) AS discount_percent,
 
 IFNULL(
-  ROUND(p.price - (p.price * ads.discount_percent / 100)),
+  ROUND(p.price - (p.price * MAX(ads.discount_percent) / 100)),
   p.price
 ) AS final_price
 
