@@ -72,44 +72,51 @@ p.image_url,
 p.restaurant_id,
 (p.is_parent + 0) AS is_parent,
 
-GROUP_CONCAT(pc.category_id) AS category_ids,
+/* الفئات */
+(
+  SELECT GROUP_CONCAT(category_id)
+  FROM product_categories
+  WHERE product_id = p.id
+) AS category_ids,
 
-MAX(ads.discount_percent) AS discount_percent,
+/* نسبة الخصم */
+IFNULL(ads.discount_percent,0) AS discount_percent,
 
-IFNULL(
-  ROUND(p.price - (p.price * MAX(ads.discount_percent) / 100)),
-  p.price
+/* السعر بعد الخصم */
+ROUND(
+  p.price - (p.price * IFNULL(ads.discount_percent,0) / 100)
 ) AS final_price
 
 FROM products p
 
-LEFT JOIN product_categories pc
-  ON pc.product_id = p.id
-
-LEFT JOIN ads
-  ON ads.restaurant_id = p.restaurant_id
-  AND ads.status='active'
-  AND (ads.start_date IS NULL OR ads.start_date <= NOW())
-  AND (ads.end_date IS NULL OR ads.end_date >= NOW())
+/* إعلان المطعم */
+LEFT JOIN (
+  SELECT restaurant_id, MAX(discount_percent) AS discount_percent
+  FROM ads
+  WHERE status='active'
+  AND (start_date IS NULL OR start_date <= NOW())
+  AND (end_date IS NULL OR end_date >= NOW())
+  GROUP BY restaurant_id
+) ads
+ON ads.restaurant_id = p.restaurant_id
 
 WHERE p.restaurant_id = ?
 
-GROUP BY p.id
 ORDER BY p.id DESC
-`,[restaurantId]);
+`, [restaurantId]);
 
     res.json({
-      success:true,
-      products:rows
+      success: true,
+      products: rows
     });
 
-  } catch(err){
+  } catch (err) {
 
-    console.error("APP GET RESTAURANT PRODUCTS ERROR:",err);
+    console.error("APP GET RESTAURANT PRODUCTS ERROR:", err);
 
     res.status(500).json({
-      success:false,
-      products:[]
+      success: false,
+      products: []
     });
 
   }
