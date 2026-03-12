@@ -71,12 +71,13 @@ p.notes,
 p.image_url,
 p.restaurant_id,
 (p.is_parent + 0) AS is_parent,
+
 GROUP_CONCAT(pc.category_id) AS category_ids,
 
-ads.discount_percent,
+MAX(ads.discount_percent) AS discount_percent,
 
 IFNULL(
-  ROUND(p.price - (p.price * ads.discount_percent / 100)),
+  ROUND(p.price - (p.price * MAX(ads.discount_percent) / 100)),
   p.price
 ) AS final_price
 
@@ -615,7 +616,7 @@ p.price,
 p.notes,
 GROUP_CONCAT(pc.category_id) AS category_ids,
 
-ads.discount_percent,
+MAX(ads.discount_percent),
 
 IFNULL(
   ROUND(p.price - (p.price * ads.discount_percent / 100)),
