@@ -969,32 +969,44 @@ router.get("/:id", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 /* =====================================================
-   PUT /orders/:id/status
-   تحديث حالة الطلب وتوليد القيود المحاسبية
+   PUT /orders/:id/status
+   تحديث حالة الطلب وتوليد القيود المحاسبية + إشعارات FCM و Socket.io
 ===================================================== */
-
 router.put("/:id/status", async (req, res) => {
-
   const conn = await db.getConnection();
-
   try {
-
-    const { status } = req.body;
+    const { status } = req.body; 
     const orderId = req.params.id;
+    const updated_by = req.user.id;
 
-    if (!status) {
-      return res.status(400).json({ success:false, message:"الحالة غير محددة" });
-    }
+    if (!status) return res.status(400).json({ success: false, message: "الحالة غير محددة" });
 
     await conn.beginTransaction();
 
-    /* =========================
-       تحديث الحالة
-    ========================= */
+    // منع اعتماد الطلب المجدول قبل وقته
+    if (status === "confirmed" || status === "processing") {
+      const [[row]] = await conn.query(
+        "SELECT scheduled_at FROM orders WHERE id=?",
+        [orderId]
+      );
 
+      if (row?.scheduled_at) {
+        const now = new Date();
+        const sch = new Date(row.scheduled_at);
+
+        if (now < sch) {
+          return res.status(400).json({
+            success: false,
+            message: "⏰ لا يمكن اعتماد الطلب قبل وقت الجدولة"
+          });
+        }
+      }
+    }
+
+    // 1. تحديث حالة الطلب
     let timeField = null;
-
     if (status === "confirmed" || status === "preparing") timeField = "processing_at";
     if (status === "ready") timeField = "ready_at";
     if (status === "delivering") timeField = "delivering_at";
@@ -1002,329 +1014,215 @@ router.put("/:id/status", async (req, res) => {
     if (status === "cancelled") timeField = "cancelled_at";
 
     if (timeField) {
-
       await conn.query(
-        `UPDATE orders
+        `UPDATE orders 
          SET status=?,
-         ${timeField}=NOW(),
-         updated_by=?
+             ${timeField}=NOW(),
+             scheduled_at=NULL,
+             updated_by=?
          WHERE id=?`,
         [status, req.user.id, orderId]
       );
-
     } else {
-
       await conn.query(
-        `UPDATE orders
+        `UPDATE orders 
          SET status=?, updated_by=?
          WHERE id=?`,
         [status, req.user.id, orderId]
       );
-
     }
 
-
-    /* ===================================================
-       إنشاء القيود عند حالة قيد التوصيل
-    =================================================== */
-
+    // 2. توليد القيود عند الانتقال لحالة "قيد التوصيل"
     if (status === "delivering") {
-
-      const [[settings]] = await conn.query(
-        "SELECT * FROM settings LIMIT 1"
-      );
-
-      const [[baseCur]] = await conn.query(
-        "SELECT id FROM currencies WHERE is_local=1 LIMIT 1"
-      );
-
-      const journalTypeId = 5;
-
+      const [[settings]] = await conn.query("SELECT * FROM settings LIMIT 1");
+      const [[baseCur]] = await conn.query("SELECT id FROM currencies WHERE is_local=1 LIMIT 1");
+      const journalTypeId = 5; 
 
       const [orderRows] = await conn.query(`
         SELECT 
-        o.*,
-        pm.account_id AS bank_account_id,
-        cg.type AS guarantee_type,
-        cg.account_id AS direct_acc_id,
-
-        c_comm.agent_account_id AS cap_acc_id,
-        c_comm.commission_type AS cap_comm_type,
-        c_comm.commission_value AS cap_comm_val
-
+          o.*,
+          pm.account_id AS bank_account_id,
+          cap.name AS captain_name,
+          cg.type AS guarantee_type, cg.account_id AS direct_acc_id,
+          c_comm.agent_account_id AS cap_acc_id, 
+          c_comm.commission_type AS cap_comm_type, 
+          c_comm.commission_value AS cap_comm_val
         FROM orders o
-
-        LEFT JOIN customer_guarantees cg
-        ON cg.customer_id = o.customer_id
-
-        LEFT JOIN payment_methods pm
-        ON o.bank_id = pm.id
-
-        LEFT JOIN commissions c_comm
-        ON (c_comm.account_id = o.captain_id
-        AND c_comm.account_type='captain'
-        AND c_comm.is_active=1)
-
-        WHERE o.id=?
-      `,[orderId]);
+        LEFT JOIN customer_guarantees cg ON cg.customer_id = o.customer_id
+        LEFT JOIN payment_methods pm ON o.bank_id = pm.id
+        LEFT JOIN captains cap ON cap.id = o.captain_id
+        LEFT JOIN commissions c_comm ON (c_comm.account_id = o.captain_id AND c_comm.account_type = 'captain' AND c_comm.is_active = 1)
+        WHERE o.id = ?
+      `, [orderId]);
 
       const order = orderRows[0];
-
-
-      /* =========================
-         حساب حساب المدين الرئيسي
-      ========================= */
+      if (!order) throw new Error("الطلب غير موجود");
 
       let mainDebitAccount = null;
-
-      if (order.guarantee_type === "account" && order.direct_acc_id) {
-
+      if (order.guarantee_type === 'account' && order.direct_acc_id) {
         mainDebitAccount = order.direct_acc_id;
-
       } else {
-
         const pMethod = String(order.payment_method).toLowerCase();
-
         if (pMethod === "cod") mainDebitAccount = order.cap_acc_id;
         else if (pMethod === "bank") mainDebitAccount = order.bank_account_id || 10;
         else mainDebitAccount = settings.customer_guarantee_account || 51;
-
       }
 
+       /* =========================
+   قيد خصم الكوبون
+========================= */
 
-      /* =========================
-         قيد خصم الكوبون
-      ========================= */
+if (order.discount_amount > 0 && settings.coupon_discount_account) {
 
-      if (order.discount_amount > 0 && settings.coupon_discount_account) {
+const discount = Number(order.discount_amount);
 
-        const discount = Number(order.discount_amount);
+await insertJournalEntry(
+  conn,
+  journalTypeId,
+  orderId,
+  baseCur.id,
+  settings.coupon_discount_account,
+  discount,
+  0,
+  `دعم كوبون طلب #${orderId}`,
+  req
+);
 
-        await insertJournalEntry(
-          conn,
-          journalTypeId,
-          orderId,
-          baseCur.id,
-          settings.coupon_discount_account,
-          discount,
-          0,
-          `دعم كوبون طلب #${orderId}`,
-          req
-        );
+await insertJournalEntry(
+  conn,
+  journalTypeId,
+  orderId,
+  baseCur.id,
+  order.cap_acc_id,
+  0,
+  discount,
+  `تعويض خصم الكوبون للكابتن #${orderId}`,
+  req
+);
 
-        await insertJournalEntry(
-          conn,
-          journalTypeId,
-          orderId,
-          baseCur.id,
-          order.cap_acc_id,
-          0,
-          discount,
-          `تعويض خصم الكوبون للكابتن #${orderId}`,
-          req
-        );
-
-      }
-
-
-      /* =========================
-         قيود المطاعم
-      ========================= */
+}
 
       const [restaurantItems] = await conn.query(`
         SELECT 
-        oi.restaurant_id,
-        MAX(r.name) AS restaurant_name,
-
-        MAX(r_comm.agent_account_id) AS res_acc_id,
-        MAX(r_comm.commission_type) AS res_comm_type,
-        MAX(r_comm.commission_value) AS res_comm_val,
-
-        SUM(oi.price*oi.quantity) AS net_amount
-
+          oi.restaurant_id, 
+          MAX(r.name) AS restaurant_name,
+          MAX(r_comm.agent_account_id) AS res_acc_id, 
+          MAX(r_comm.commission_type) AS res_comm_type, 
+          MAX(r_comm.commission_value) AS res_comm_val,
+          SUM(oi.price * oi.quantity) AS net_amount
         FROM order_items oi
-
-        JOIN restaurants r
-        ON oi.restaurant_id = r.id
-
-        LEFT JOIN commissions r_comm
-        ON (r_comm.account_id = r.agent_id
-        AND r_comm.account_type='agent'
-        AND r_comm.is_active=1)
-
-        WHERE oi.order_id=?
-
+        JOIN restaurants r ON oi.restaurant_id = r.id
+        LEFT JOIN commissions r_comm 
+          ON (r_comm.account_id = r.agent_id 
+              AND r_comm.account_type = 'agent' 
+              AND r_comm.is_active = 1)
+        WHERE oi.order_id = ?
         GROUP BY oi.restaurant_id
-      `,[orderId]);
+      `, [orderId]);
+
+  for (const res of restaurantItems) {
+
+  if (res.res_acc_id && res.net_amount > 0) {
+
+    /* حساب نسبة الخصم */
+let discountText = "";
+
+const [original] = await conn.query(
+`
+SELECT 
+SUM(p.price * oi.quantity) AS original_total
+FROM order_items oi
+JOIN products p ON p.id = oi.product_id
+WHERE oi.order_id=? AND oi.restaurant_id=?
+`,
+[orderId, res.restaurant_id]
+);
+
+const originalTotal = Number(original[0]?.original_total || 0);
+
+if (originalTotal > res.net_amount) {
+
+const diff = originalTotal - res.net_amount;
+
+const percent =
+Math.round((diff / originalTotal) * 100);
+
+discountText = ` عرض خصم ${percent}%`;
+
+}
+
+    const foodNote =
+      `قيمة وجبات من ${res.restaurant_name} طلب #${orderId}${discountText}`;
+
+    const salesNote =
+      `صافي مبيعات طلب #${orderId}${discountText}`;
 
 
-      for (const res of restaurantItems) {
+    await insertJournalEntry(
+      conn,
+      journalTypeId,
+      orderId,
+      baseCur.id,
+      mainDebitAccount,
+      res.net_amount,
+      0,
+      foodNote,
+      req
+    );
 
-        if (res.res_acc_id && res.net_amount > 0) {
-
-          await insertJournalEntry(
-            conn,
-            journalTypeId,
-            orderId,
-            baseCur.id,
-            mainDebitAccount,
-            res.net_amount,
-            0,
-            `قيمة وجبات من ${res.restaurant_name} طلب #${orderId}`,
-            req
-          );
-
-          await insertJournalEntry(
-            conn,
-            journalTypeId,
-            orderId,
-            baseCur.id,
-            res.res_acc_id,
-            0,
-            res.net_amount,
-            `صافي مبيعات طلب #${orderId}`,
-            req
-          );
+    await insertJournalEntry(
+      conn,
+      journalTypeId,
+      orderId,
+      baseCur.id,
+      res.res_acc_id,
+      0,
+      res.net_amount,
+      salesNote,
+      req
+    );
 
 
-          if (settings.commission_income_account && res.res_comm_val > 0) {
+    if (settings.commission_income_account && res.res_comm_val > 0) {
 
-            let resComm =
-            (res.res_comm_type === "percent")
-            ? (res.net_amount * Number(res.res_comm_val))/100
-            : Number(res.res_comm_val);
+      let resComm =
+        (res.res_comm_type === 'percent')
+          ? (res.net_amount * Number(res.res_comm_val)) / 100
+          : Number(res.res_comm_val);
 
-            await insertJournalEntry(
-              conn,
-              journalTypeId,
-              orderId,
-              baseCur.id,
-              res.res_acc_id,
-              resComm,
-              0,
-              `خصم عمولة ${res.restaurant_name}`,
-              req
-            );
+      await insertJournalEntry(
+        conn,
+        journalTypeId,
+        orderId,
+        baseCur.id,
+        res.res_acc_id,
+        resComm,
+        0,
+        `خصم عمولة ${res.restaurant_name} طلب #${orderId}`,
+        req
+      );
 
-            await insertJournalEntry(
-              conn,
-              journalTypeId,
-              orderId,
-              baseCur.id,
-              settings.commission_income_account,
-              0,
-              resComm,
-              `إيراد عمولة مطعم`,
-              req
-            );
-
-          }
-
-        }
-
-      }
-
-
-      /* =========================
-         قيد التوصيل
-      ========================= */
-
-      const deliveryTotal =
-      Number(order.delivery_fee || 0) +
-      Number(order.extra_store_fee || 0);
-
-
-      if (deliveryTotal > 0 && order.cap_acc_id) {
-
-        await insertJournalEntry(
-          conn,
-          journalTypeId,
-          orderId,
-          baseCur.id,
-          mainDebitAccount,
-          deliveryTotal,
-          0,
-          `إجمالي رسوم توصيل طلب #${orderId}`,
-          req
-        );
-
-        await insertJournalEntry(
-          conn,
-          journalTypeId,
-          orderId,
-          baseCur.id,
-          order.cap_acc_id,
-          0,
-          deliveryTotal,
-          `إيراد توصيل كابتن طلب #${orderId}`,
-          req
-        );
-
-
-        if (settings.courier_commission_account && order.cap_comm_val > 0) {
-
-          let capComm =
-          (order.cap_comm_type === "percent")
-          ? (deliveryTotal * Number(order.cap_comm_val))/100
-          : Number(order.cap_comm_val);
-
-          await insertJournalEntry(
-            conn,
-            journalTypeId,
-            orderId,
-            baseCur.id,
-            order.cap_acc_id,
-            capComm,
-            0,
-            `خصم عمولة شركة من الكابتن`,
-            req
-          );
-
-          await insertJournalEntry(
-            conn,
-            journalTypeId,
-            orderId,
-            baseCur.id,
-            settings.courier_commission_account,
-            0,
-            capComm,
-            `إيراد عمولة كابتن`,
-            req
-          );
-
-        }
-
-      }
-
+      await insertJournalEntry(
+        conn,
+        journalTypeId,
+        orderId,
+        baseCur.id,
+        settings.commission_income_account,
+        0,
+        resComm,
+        `إيراد عمولة مطعم #${orderId}`,
+        req
+      );
     }
+
+  }
+
+}
+} 
 
 
     await conn.commit();
 
-    res.json({ success:true });
-
-  }
-
-  catch(err){
-
-    await conn.rollback();
-
-    console.error(err);
-
-    res.status(500).json({
-      success:false,
-      message:err.message
-    });
-
-  }
-
-  finally{
-
-    conn.release();
-
-  }
-
-});
     /* =========================
        إشعارات FCM (للعميل والكابتن)
     ========================= */
