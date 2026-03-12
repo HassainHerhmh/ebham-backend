@@ -1034,6 +1034,20 @@ router.put("/:id/status", async (req, res) => {
 
     // 2. توليد القيود عند الانتقال لحالة "قيد التوصيل"
     if (status === "delivering") {
+      // منع تكرار القيود لنفس الطلب
+const [[existsEntry]] = await conn.query(
+`SELECT id FROM journal_entries 
+ WHERE reference_type='order' 
+ AND reference_id=? 
+ LIMIT 1`,
+[orderId]
+);
+
+if (existsEntry) {
+  console.log("⚠️ القيود موجودة مسبقاً للطلب:", orderId);
+  await conn.commit();
+  return res.json({ success:true, message:"تم تنفيذ القيود مسبقاً" });
+}
       const [[settings]] = await conn.query("SELECT * FROM settings LIMIT 1");
       const [[baseCur]] = await conn.query("SELECT id FROM currencies WHERE is_local=1 LIMIT 1");
       const journalTypeId = 5; 
