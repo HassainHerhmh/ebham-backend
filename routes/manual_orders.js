@@ -905,22 +905,24 @@ router.get("/customer-orders", async (req, res) => {
     const customerId = req.user.id;
 
     const [rows] = await db.query(`
-      SELECT
-        w.id,
-        w.status,
-        w.total_amount,
-        w.delivery_fee,
-        w.payment_method,
-        w.notes,
-        w.created_at,
-        w.processing_at,
-        w.ready_at,
-        w.delivering_at,
-        w.completed_at,
-        w.cancelled_at,
+   SELECT
+  w.id,
+  w.status,
+  w.total_amount,
+  w.delivery_fee,
+  w.payment_method,
+  w.notes,
+  w.created_at,
+  w.processing_at,
+  w.ready_at,
+  w.delivering_at,
+  w.completed_at,
+  w.cancelled_at,
 
-        r.name AS restaurant_name,
-        cap.name AS captain_name
+  r.name AS restaurant_name,
+  r.image_url AS restaurant_image,   -- هذا السطر الجديد
+
+  cap.name AS captain_name
 
       FROM wassel_orders w
 
