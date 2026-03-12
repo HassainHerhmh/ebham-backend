@@ -603,8 +603,7 @@ router.get("/:id/products", async (req, res) => {
   try {
     const restaurantId = req.params.id;
 
-    const [rows] = await db.query(
-      `
+    const [rows] = await db.query(`
 SELECT 
 
 p.id,
@@ -613,12 +612,13 @@ p.price,
 p.notes,
 GROUP_CONCAT(pc.category_id) AS category_ids,
 
-ads.discount_percent,
+COALESCE(ads.discount_percent,0) AS discount_percent,
 
-IFNULL(
-  ROUND(p.price - (p.price * ads.discount_percent / 100)),
-  p.price
-) AS final_price
+CASE
+  WHEN ads.discount_percent IS NOT NULL
+  THEN ROUND(p.price - (p.price * ads.discount_percent / 100))
+  ELSE p.price
+END AS final_price
 
 FROM products p
 
@@ -635,21 +635,18 @@ WHERE p.restaurant_id = ?
 
 GROUP BY p.id
 ORDER BY p.id DESC
-      `,
-      [restaurantId]
-    );
+`, [restaurantId]);
 
     res.json({
       success: true,
       products: rows,
     });
+
   } catch (err) {
     console.error("GET RESTAURANT PRODUCTS ERROR:", err);
     res.status(500).json({ success: false, products: [] });
   }
 });
-
-
 
 
 export default router;
