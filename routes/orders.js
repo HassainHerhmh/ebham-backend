@@ -970,6 +970,8 @@ SELECT
   c.phone AS customer_phone,
 
   a.address AS customer_address,
+  n.name AS neighborhood_name,
+
   a.gps_link AS map_url,
   a.latitude,
   a.longitude,
@@ -983,11 +985,13 @@ SELECT
 
 FROM orders o
 
-JOIN customers c 
-ON c.id = o.customer_id
+JOIN customers c ON c.id = o.customer_id
 
 LEFT JOIN customer_addresses a 
 ON a.id = o.address_id
+
+LEFT JOIN neighborhoods n
+ON n.id = a.district
 
 WHERE o.id=?
 `,[orderId]);
