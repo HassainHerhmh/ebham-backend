@@ -949,9 +949,10 @@ router.get("/:id", async (req, res) => {
 
     const orderId = req.params.id;
 
-    /* =========================
-       1️⃣ البحث في الطلبات العادية
-    ========================= */
+/* =========================
+   1️⃣ البحث في الطلبات العادية
+========================= */
+
 const [rows] = await db.query(`
 SELECT 
   o.id,
@@ -994,126 +995,124 @@ ON n.id = a.district
 
 WHERE o.id=?
 `,[orderId]);
-    /* =========================
-       إذا وجد الطلب العادي
-    ========================= */
 
-    if(rows.length){
 
-      const order = rows[0];
+/* =========================
+   إذا وجد الطلب العادي
+========================= */
 
-      const [items] = await db.query(`
-        SELECT 
-          oi.id,
-          oi.name,
-          oi.price,
-          oi.quantity,
-          oi.restaurant_id,
-          r.name AS restaurant_name,
-          r.image_url AS restaurant_image
-        FROM order_items oi
-        JOIN restaurants r ON r.id = oi.restaurant_id
-        WHERE oi.order_id=?
-      `,[orderId]);
+if(rows.length){
 
-      const restaurants = [];
-      const map = {};
+  const order = rows[0];
 
-      for (const it of items){
+  const [items] = await db.query(`
+    SELECT 
+      oi.id,
+      oi.name,
+      oi.price,
+      oi.quantity,
+      oi.restaurant_id,
+      r.name AS restaurant_name,
+      r.image_url AS restaurant_image
+    FROM order_items oi
+    JOIN restaurants r ON r.id = oi.restaurant_id
+    WHERE oi.order_id=?
+  `,[orderId]);
 
-        if(!map[it.restaurant_id]){
-          map[it.restaurant_id] = {
-            id: it.restaurant_id,
-            name: it.restaurant_name,
-            restaurant_image: it.restaurant_image,
-            items:[],
-            total:0
-          };
+  const restaurants = [];
+  const map = {};
 
-          restaurants.push(map[it.restaurant_id]);
-        }
+  for (const it of items){
 
-        const subtotal = it.price * it.quantity;
+    if(!map[it.restaurant_id]){
+      map[it.restaurant_id] = {
+        id: it.restaurant_id,
+        name: it.restaurant_name,
+        restaurant_image: it.restaurant_image,
+        items:[],
+        total:0
+      };
 
-        map[it.restaurant_id].total += subtotal;
-
-        map[it.restaurant_id].items.push({
-          name: it.name,
-          price: it.price,
-          quantity: it.quantity,
-          subtotal
-        });
-      }
-
-      order.restaurants = restaurants;
-
-      return res.json({ success:true, order });
+      restaurants.push(map[it.restaurant_id]);
     }
 
-    /* =========================
-       2️⃣ البحث في الطلبات اليدوية
-    ========================= */
-const [[manual]] = await db.query(`
-  SELECT
-    w.*,
-   NULL AS neighborhood_name
-    w.to_address AS customer_address,   -- 👈 هذا السطر الجديد
-    w.map_url,                          -- لو موجود
-    w.latitude,
-    w.longitude,
+    const subtotal = it.price * it.quantity;
 
-    r.name AS restaurant_name,
-    r.image_url AS restaurant_image
+    map[it.restaurant_id].total += subtotal;
 
-  FROM wassel_orders w
-
-  LEFT JOIN restaurants r 
-  ON r.id = w.restaurant_id
-
-  WHERE w.id=?
-`,[orderId]);
-    
-    if(!manual){
-      return res.status(404).json({
-        success:false,
-        message:"الطلب غير موجود"
-      });
-    }
-
-    const [items] = await db.query(`
-      SELECT
-        product_name AS name,
-        qty,
-        price,
-        total
-      FROM wassel_order_items
-      WHERE order_id=?
-    `,[orderId]);
-
-    manual.restaurants = [{
-      id: manual.restaurant_id,
-      name: manual.restaurant_name,
-      restaurant_image: manual.restaurant_image,
-      items: items.map(i => ({
-        name: i.name,
-        quantity: i.qty,
-        subtotal: i.total
-      })),
-      total: items.reduce((s,i)=>s + Number(i.total),0)
-    }];
-
-    res.json({
-      success:true,
-      order:manual
+    map[it.restaurant_id].items.push({
+      name: it.name,
+      price: it.price,
+      quantity: it.quantity,
+      subtotal
     });
-
-  } catch(err){
-
-    console.error("ORDER DETAILS ERROR:", err);
-
-    res.status(500).json({ success:false });
-
   }
+
+  order.restaurants = restaurants;
+
+  return res.json({ success:true, order });
+}
+
+
+/* =========================
+   2️⃣ البحث في الطلبات اليدوية
+========================= */
+
+const [[manual]] = await db.query(`
+SELECT
+  w.*,
+
+  w.to_address AS customer_address,
+  NULL AS neighborhood_name,
+
+  w.to_lat AS latitude,
+  w.to_lng AS longitude,
+
+  r.name AS restaurant_name,
+  r.image_url AS restaurant_image
+
+FROM wassel_orders w
+
+LEFT JOIN restaurants r 
+ON r.id = w.restaurant_id
+
+WHERE w.id=?
+`,[orderId]);
+
+
+if(!manual){
+  return res.status(404).json({
+    success:false,
+    message:"الطلب غير موجود"
+  });
+}
+
+const [items] = await db.query(`
+SELECT
+  product_name AS name,
+  qty,
+  price,
+  total
+FROM wassel_order_items
+WHERE order_id=?
+`,[orderId]);
+
+
+manual.restaurants = [{
+  id: manual.restaurant_id,
+  name: manual.restaurant_name,
+  restaurant_image: manual.restaurant_image,
+  items: items.map(i => ({
+    name: i.name,
+    quantity: i.qty,
+    subtotal: i.total
+  })),
+  total: items.reduce((s,i)=>s + Number(i.total),0)
+}];
+
+res.json({
+  success:true,
+  order:manual
 });
 /* =====================================================
    PUT /orders/:id/status
