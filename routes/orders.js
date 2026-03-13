@@ -992,7 +992,7 @@ ON a.id = o.address_id
 LEFT JOIN neighborhoods n
 ON n.id = a.district
 
-WHERE o.id=? AND (o.is_manual IS NULL OR o.is_manual = 0)
+WHERE o.id=?
 `,[orderId]);
     /* =========================
        إذا وجد الطلب العادي
@@ -1056,7 +1056,7 @@ WHERE o.id=? AND (o.is_manual IS NULL OR o.is_manual = 0)
 const [[manual]] = await db.query(`
   SELECT
     w.*,
-
+   NULL AS neighborhood_name
     w.to_address AS customer_address,   -- 👈 هذا السطر الجديد
     w.map_url,                          -- لو موجود
     w.latitude,
