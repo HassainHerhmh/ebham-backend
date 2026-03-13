@@ -952,8 +952,7 @@ router.get("/:id", async (req, res) => {
     /* =========================
        1️⃣ البحث في الطلبات العادية
     ========================= */
-
-   const [rows] = await db.query(`
+const [rows] = await db.query(`
 SELECT 
   o.id,
   o.status,
@@ -993,7 +992,7 @@ ON a.id = o.address_id
 LEFT JOIN neighborhoods n
 ON n.id = a.district
 
-WHERE o.id=?
+WHERE o.id=? AND (o.is_manual IS NULL OR o.is_manual = 0)
 `,[orderId]);
     /* =========================
        إذا وجد الطلب العادي
