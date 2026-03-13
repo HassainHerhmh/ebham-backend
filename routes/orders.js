@@ -1114,6 +1114,18 @@ res.json({
   success:true,
   order:manual
 });
+
+} catch(err){
+
+  console.error("ORDER DETAILS ERROR:", err);
+
+  res.status(500).json({
+    success:false
+  });
+
+}
+
+});
 /* =====================================================
    PUT /orders/:id/status
    تحديث حالة الطلب وتوليد القيود المحاسبية + إشعارات FCM و Socket.io
