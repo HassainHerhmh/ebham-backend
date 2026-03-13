@@ -946,114 +946,146 @@ router.get("/wassel_orders", async (req, res) => {
 //////////////////////////
 router.get("/:id", async (req, res) => {
   try {
+
     const orderId = req.params.id;
 
-    const [rows] = await db.query(
-      `
+    /* =========================
+       1️⃣ البحث في الطلبات العادية
+    ========================= */
+
+    const [rows] = await db.query(`
       SELECT 
         o.id,
-          o.status,          -- ✅ أضف هذا
-
-  o.created_at,      -- ✅ وهذا
-   o.cancel_reason,    -- ✅ أضف هذا
-
-      -- أوقات الحالة
-  o.created_at,
-  o.processing_at,
-  o.ready_at,
-  o.delivering_at,
-  o.completed_at,
-  o.cancelled_at,
-    
-    o.note,    
-        c.name AS customer_name,
-        c.phone AS customer_phone,
-        a.district AS neighborhood_name,
-        a.address AS customer_address,
-        a.gps_link AS map_url, 
-        a.latitude,
-        a.longitude,
+        o.status,
+        o.created_at,
+        o.processing_at,
+        o.ready_at,
+        o.delivering_at,
+        o.completed_at,
+        o.cancelled_at,
+        o.note,
         o.delivery_fee,
         o.extra_store_fee,
         o.total_amount,
-         o.discount_amount,   -- ✅ أضف هذا
-  o.coupon_code,       -- ✅ وأضف هذا
-        o.payment_method,
-        o.bank_id
+        o.discount_amount,
+        o.coupon_code,
+        o.payment_method
       FROM orders o
-      JOIN customers c ON c.id = o.customer_id
-      LEFT JOIN customer_addresses a ON a.id = o.address_id
       WHERE o.id=?
-      `,
-      [orderId]
-    );
+    `,[orderId]);
 
-    if (!rows.length) {
-      return res.status(404).json({ success: false, message: "الطلب غير موجود" });
-    }
+    /* =========================
+       إذا وجد الطلب العادي
+    ========================= */
 
-    const order = rows[0];
+    if(rows.length){
 
-    const [items] = await db.query(
-      `
-      SELECT 
-        oi.id,
-        oi.name,
-            oi.product_id,  
-        oi.price,
-        oi.quantity,
-        oi.restaurant_id,
-        r.name AS restaurant_name,
-            r.image_url AS restaurant_image, 
-        r.phone AS restaurant_phone,
-        r.map_url
-      FROM order_items oi
-      JOIN restaurants r ON r.id = oi.restaurant_id
-      WHERE oi.order_id=?
-      ORDER BY oi.restaurant_id
-      `,
-      [orderId]
-    );
+      const order = rows[0];
 
-    const restaurants = [];
-    const map = {};
+      const [items] = await db.query(`
+        SELECT 
+          oi.id,
+          oi.name,
+          oi.price,
+          oi.quantity,
+          oi.restaurant_id,
+          r.name AS restaurant_name,
+          r.image_url AS restaurant_image
+        FROM order_items oi
+        JOIN restaurants r ON r.id = oi.restaurant_id
+        WHERE oi.order_id=?
+      `,[orderId]);
 
-    for (const it of items) {
-      if (!map[it.restaurant_id]) {
-        map[it.restaurant_id] = {
-          id: it.restaurant_id,
-          name: it.restaurant_name,
-  restaurant_image: it.restaurant_image, // ✅ مهم
-          phone: it.restaurant_phone,
-          map_url: it.map_url,
-          items: [],
-          total: 0,
-        };
-        restaurants.push(map[it.restaurant_id]);
+      const restaurants = [];
+      const map = {};
+
+      for (const it of items){
+
+        if(!map[it.restaurant_id]){
+          map[it.restaurant_id] = {
+            id: it.restaurant_id,
+            name: it.restaurant_name,
+            restaurant_image: it.restaurant_image,
+            items:[],
+            total:0
+          };
+
+          restaurants.push(map[it.restaurant_id]);
+        }
+
+        const subtotal = it.price * it.quantity;
+
+        map[it.restaurant_id].total += subtotal;
+
+        map[it.restaurant_id].items.push({
+          name: it.name,
+          price: it.price,
+          quantity: it.quantity,
+          subtotal
+        });
       }
 
-      const subtotal = it.price * it.quantity;
-      map[it.restaurant_id].total += subtotal;
+      order.restaurants = restaurants;
 
-      map[it.restaurant_id].items.push({
-        id: it.id,
-           product_id: it.product_id, 
-        name: it.name,
-        price: it.price,
-        quantity: it.quantity,
-        subtotal,
+      return res.json({ success:true, order });
+    }
+
+    /* =========================
+       2️⃣ البحث في الطلبات اليدوية
+    ========================= */
+
+    const [[manual]] = await db.query(`
+      SELECT
+        w.*,
+        r.name AS restaurant_name,
+        r.image_url AS restaurant_image
+      FROM wassel_orders w
+      LEFT JOIN restaurants r ON r.id = w.restaurant_id
+      WHERE w.id=?
+    `,[orderId]);
+
+    if(!manual){
+      return res.status(404).json({
+        success:false,
+        message:"الطلب غير موجود"
       });
     }
 
-    order.restaurants = restaurants;
+    const [items] = await db.query(`
+      SELECT
+        product_name AS name,
+        qty,
+        price,
+        total
+      FROM wassel_order_items
+      WHERE order_id=?
+    `,[orderId]);
 
-    res.json({ success: true, order });
-  } catch (err) {
+    manual.restaurants = [{
+      id: manual.restaurant_id,
+      name: manual.restaurant_name,
+      restaurant_image: manual.restaurant_image,
+      items: items.map(i => ({
+        name: i.name,
+        quantity: i.qty,
+        subtotal: i.total
+      })),
+      total: items.reduce((s,i)=>s + Number(i.total),0)
+    }];
+
+    res.json({
+      success:true,
+      order:manual
+    });
+
+  } catch(err){
+
     console.error("ORDER DETAILS ERROR:", err);
-    res.status(500).json({ success: false });
+
+    res.status(500).json({ success:false });
+
   }
 });
-
 /* =====================================================
    PUT /orders/:id/status
    تحديث حالة الطلب وتوليد القيود المحاسبية + إشعارات FCM و Socket.io
