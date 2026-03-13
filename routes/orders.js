@@ -953,27 +953,44 @@ router.get("/:id", async (req, res) => {
        1️⃣ البحث في الطلبات العادية
     ========================= */
 
-    const [rows] = await db.query(`
-      SELECT 
-        o.id,
-        o.status,
-        o.created_at,
-        o.processing_at,
-        o.ready_at,
-        o.delivering_at,
-        o.completed_at,
-        o.cancelled_at,
-        o.note,
-        o.delivery_fee,
-        o.extra_store_fee,
-        o.total_amount,
-        o.discount_amount,
-        o.coupon_code,
-        o.payment_method
-      FROM orders o
-      WHERE o.id=?
-    `,[orderId]);
+   const [rows] = await db.query(`
+SELECT 
+  o.id,
+  o.status,
+  o.created_at,
+  o.processing_at,
+  o.ready_at,
+  o.delivering_at,
+  o.completed_at,
+  o.cancelled_at,
 
+  o.note,
+
+  c.name AS customer_name,
+  c.phone AS customer_phone,
+
+  a.address AS customer_address,
+  a.gps_link AS map_url,
+  a.latitude,
+  a.longitude,
+
+  o.delivery_fee,
+  o.extra_store_fee,
+  o.total_amount,
+  o.discount_amount,
+  o.coupon_code,
+  o.payment_method
+
+FROM orders o
+
+JOIN customers c 
+ON c.id = o.customer_id
+
+LEFT JOIN customer_addresses a 
+ON a.id = o.address_id
+
+WHERE o.id=?
+`,[orderId]);
     /* =========================
        إذا وجد الطلب العادي
     ========================= */
@@ -1033,17 +1050,26 @@ router.get("/:id", async (req, res) => {
     /* =========================
        2️⃣ البحث في الطلبات اليدوية
     ========================= */
+const [[manual]] = await db.query(`
+  SELECT
+    w.*,
 
-    const [[manual]] = await db.query(`
-      SELECT
-        w.*,
-        r.name AS restaurant_name,
-        r.image_url AS restaurant_image
-      FROM wassel_orders w
-      LEFT JOIN restaurants r ON r.id = w.restaurant_id
-      WHERE w.id=?
-    `,[orderId]);
+    w.to_address AS customer_address,   -- 👈 هذا السطر الجديد
+    w.map_url,                          -- لو موجود
+    w.latitude,
+    w.longitude,
 
+    r.name AS restaurant_name,
+    r.image_url AS restaurant_image
+
+  FROM wassel_orders w
+
+  LEFT JOIN restaurants r 
+  ON r.id = w.restaurant_id
+
+  WHERE w.id=?
+`,[orderId]);
+    
     if(!manual){
       return res.status(404).json({
         success:false,
