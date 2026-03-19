@@ -543,6 +543,12 @@ import notificationsRoutes from "./routes/notifications.js";
 
 app.use("/api/notifications", auth, notificationsRoutes);
 
+/*======================
+نقاط الولاء
+========================*/
+   import loyaltyRoutes from "./routes/loyalty.js";
+
+app.use("/api", loyaltyRoutes);
 
 /* =========================
    Start Server + Socket.IO
