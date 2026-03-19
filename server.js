@@ -548,7 +548,7 @@ app.use("/api/notifications", auth, notificationsRoutes);
 ========================*/
    import loyaltyRoutes from "./routes/loyalty.js";
 
-app.use("/api", loyaltyRoutes);
+app.use("/api/loyalty", loyaltyRoutes);
 
 /* =========================
    Start Server + Socket.IO
