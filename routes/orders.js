@@ -2,7 +2,7 @@ import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
 import admin from "firebase-admin";
-
+import { addPointsAfterOrder } from "./loyalty.js";
 
 function getStatusLabel(status) {
   switch (status) {
@@ -1179,7 +1179,10 @@ router.put("/:id/status", async (req, res) => {
          WHERE id=?`,
         [status, req.user.id, orderId]
       );
-    } else {
+
+    } 
+    
+    else {
       await conn.query(
         `UPDATE orders 
          SET status=?, updated_by=?
@@ -1187,6 +1190,38 @@ router.put("/:id/status", async (req, res) => {
         [status, req.user.id, orderId]
       );
     }
+
+// ============================
+// ⭐ 2. نقاط الولاء
+// ============================
+if (status === "completed") {
+
+  try {
+
+    const [[orderData]] = await conn.query(
+      `SELECT id, customer_id, total_amount 
+       FROM orders 
+       WHERE id=?`,
+      [orderId]
+    );
+
+    if (orderData && orderData.total_amount > 0) {
+
+      await addPointsAfterOrder(orderData);
+
+      console.log("⭐ Loyalty Added:", {
+        order: orderId,
+        customer: orderData.customer_id,
+        amount: orderData.total_amount
+      });
+
+    }
+
+  } catch (err) {
+    console.error("❌ LOYALTY ERROR:", err.message);
+  }
+
+}
 
     // 2. توليد القيود عند الانتقال لحالة "قيد التوصيل"
     if (status === "delivering") {
