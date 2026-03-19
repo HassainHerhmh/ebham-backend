@@ -12,7 +12,9 @@ async function calculatePoints(amount) {
 
   const settings = rows[0] || { amount_per_point: 100 };
 
-  return Math.floor(amount / settings.amount_per_point);
+  const rate = Number(settings.amount_per_point) || 100;
+
+  return Math.floor(Number(amount) / rate);
 }
 
 
@@ -150,10 +152,10 @@ router.get("/loyalty/:userId/logs", async (req, res) => {
 // =============================
 // الإعدادات
 // =============================
-router.get("/admin/loyalty-settings", async (req, res) => {
 
+// جلب
+router.get("/settings", async (req, res) => {
   try {
-
     const [rows] = await db.query(
       "SELECT * FROM loyalty_settings LIMIT 1"
     );
@@ -164,15 +166,24 @@ router.get("/admin/loyalty-settings", async (req, res) => {
     console.error(err);
     res.json({ success: false });
   }
-
 });
 
-
-router.post("/admin/loyalty-settings", async (req, res) => {
-
+// تعديل
+router.put("/settings", async (req, res) => {
   try {
 
-    const { amount_per_point, point_value } = req.body;
+    let { amount_per_point, point_value } = req.body;
+
+    amount_per_point = Number(amount_per_point);
+    point_value = Number(point_value);
+
+    // 🚫 حماية
+    if (!amount_per_point || amount_per_point <= 0) {
+      return res.json({
+        success: false,
+        message: "amount_per_point لازم يكون أكبر من صفر"
+      });
+    }
 
     await db.query(`
       INSERT INTO loyalty_settings (id, amount_per_point, point_value)
@@ -187,7 +198,6 @@ router.post("/admin/loyalty-settings", async (req, res) => {
     console.error(err);
     res.json({ success: false });
   }
-
 });
 
 
