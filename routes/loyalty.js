@@ -200,7 +200,8 @@ router.put("/settings", async (req, res) => {
   }
 });
 
-router.get("/loyalty/my-points", async (req, res) => {
+router.get("/my-points", async (req, res) => {
+  
   try {
     const userId = req.user?.id; // لو عندك auth middleware
 
