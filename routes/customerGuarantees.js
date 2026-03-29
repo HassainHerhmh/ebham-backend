@@ -232,4 +232,50 @@ router.post("/", async (req, res) => {
   }
 });
 
+/////////////////////
+router.get("/wallet/:customerId", async (req, res) => {
+  try {
+    const { customerId } = req.params;
+
+    // 1. جلب المحفظة
+    const [[g]] = await db.query(
+      "SELECT * FROM customer_guarantees WHERE customer_id=? LIMIT 1",
+      [customerId]
+    );
+
+    if (!g) {
+      return res.json({ success: true, balance: 0, logs: [] });
+    }
+
+    // 2. الرصيد
+    const [[balanceRow]] = await db.query(`
+      SELECT 
+        IFNULL(SUM(amount_base), 0) as balance
+      FROM customer_guarantee_moves
+      WHERE guarantee_id=?
+    `, [g.id]);
+
+    // 3. العمليات
+    const [logs] = await db.query(`
+      SELECT 
+        m.amount_base as amount,
+        m.created_at,
+        'credit' as type,
+        CONCAT('عملية تحويل من نقاط الولاء إلى المحفظة') as description
+      FROM customer_guarantee_moves m
+      WHERE m.guarantee_id=?
+      ORDER BY m.id DESC
+    `, [g.id]);
+
+    res.json({
+      success: true,
+      balance: balanceRow.balance || 0,
+      logs
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.json({ success: false });
+  }
+});
 export default router;
