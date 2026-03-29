@@ -217,21 +217,21 @@ router.get("/my-points", async (req, res) => {
 
     // فحص السجل
  const [logs] = await db.query(`
-SELECT 
-  *,
-  CASE 
-    WHEN type = 'earn' THEN 
-      CONCAT(
-        'لكم ', points, ' نقطة مقابل إنشاء طلب. نقاطك الحالية هي ', balance_after
-      )
-    ELSE 
-      CONCAT(
+  SELECT 
+    *,
+    CASE 
+      WHEN type = 'earn' THEN 
+        CONCAT('لكم ', points, ' نقطة مقابل إنشاء طلب. نقاطك الحالية هي ', 
+          (SELECT points FROM loyalty_points WHERE user_id=?)
+        )
+      ELSE 
+          CONCAT(
         'تم تحويل ', points, ' نقطة إلى رصيد (', amount, '). نقاطك الحالية هي ', balance_after
       )
-  END as description
-FROM loyalty_logs
-WHERE user_id=?
-ORDER BY id DESC
+    END as description
+  FROM loyalty_logs
+  WHERE user_id=?
+  ORDER BY id DESC
 `, [userId, userId, userId]);
 
     console.log("📊 loyalty_logs result:", logs);
