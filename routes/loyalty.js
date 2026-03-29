@@ -216,10 +216,23 @@ router.get("/my-points", async (req, res) => {
     console.log("💰 loyalty_points result:", pointsRows);
 
     // فحص السجل
-    const [logs] = await db.query(
-      "SELECT * FROM loyalty_logs WHERE user_id=?",
-      [userId]
-    );
+ const [logs] = await db.query(`
+  SELECT 
+    *,
+    CASE 
+      WHEN type = 'earn' THEN 
+        CONCAT('لكم ', points, ' نقطة مقابل إنشاء طلب. نقاطك الحالية هي ', 
+          (SELECT points FROM loyalty_points WHERE user_id=?)
+        )
+      ELSE 
+        CONCAT('تم خصم ', points, ' نقطة. نقاطك الحالية هي ', 
+          (SELECT points FROM loyalty_points WHERE user_id=?)
+        )
+    END as description
+  FROM loyalty_logs
+  WHERE user_id=?
+  ORDER BY id DESC
+`, [userId, userId, userId]);
 
     console.log("📊 loyalty_logs result:", logs);
 
