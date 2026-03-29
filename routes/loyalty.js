@@ -204,22 +204,31 @@ router.get("/my-points", async (req, res) => {
   try {
     const userId = req.query.user_id;
 
+    console.log("📥 API CALLED /my-points");
+    console.log("👉 user_id from request:", userId);
+
+    // فحص النقاط
     const [pointsRows] = await db.query(
-      "SELECT points FROM loyalty_points WHERE user_id=?",
+      "SELECT * FROM loyalty_points WHERE user_id=?",
       [userId]
     );
 
-    const [logs] = await db.query(`
-      SELECT 
-        *,
-        CASE 
-          WHEN type = 'earn' THEN CONCAT('لكم ', points, ' نقطة مقابل طلب')
-          ELSE CONCAT('تم خصم ', points, ' نقطة')
-        END as description
-      FROM loyalty_logs
-      WHERE user_id=?
-      ORDER BY id DESC
-    `, [userId]);
+    console.log("💰 loyalty_points result:", pointsRows);
+
+    // فحص السجل
+    const [logs] = await db.query(
+      "SELECT * FROM loyalty_logs WHERE user_id=?",
+      [userId]
+    );
+
+    console.log("📊 loyalty_logs result:", logs);
+
+    // فحص شامل (بدون فلترة)
+    const [allLogs] = await db.query(
+      "SELECT user_id, points FROM loyalty_logs ORDER BY id DESC LIMIT 5"
+    );
+
+    console.log("🧨 ALL LOGS SAMPLE:", allLogs);
 
     res.json({
       success: true,
@@ -228,7 +237,7 @@ router.get("/my-points", async (req, res) => {
     });
 
   } catch (err) {
-    console.error(err);
+    console.error("❌ ERROR:", err);
     res.json({ success: false });
   }
 });
