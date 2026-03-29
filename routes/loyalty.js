@@ -255,4 +255,125 @@ router.get("/my-points", async (req, res) => {
   }
 });
 
+
+
+router.post("/convert", async (req, res) => {
+  const { user_id } = req.body;
+
+  const conn = await db.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    // 1. جلب النقاط
+    const [[lp]] = await conn.query(
+      "SELECT * FROM loyalty_points WHERE user_id=?",
+      [user_id]
+    );
+
+    if (!lp || lp.points <= 0) {
+      throw new Error("لا توجد نقاط للتحويل");
+    }
+
+    // 2. جلب الإعدادات
+    const [[settings]] = await conn.query(
+      "SELECT amount_per_point, point_value FROM loyalty_settings LIMIT 1"
+    );
+
+    const pointValue = Number(settings?.point_value || 1);
+
+    const amount = lp.points * pointValue;
+
+    // 3. جلب حسابات النظام
+    const [[sys]] = await conn.query(`
+      SELECT 
+        customer_guarantee_account,
+        coupon_discount_account
+      FROM settings
+      LIMIT 1
+    `);
+
+    const guaranteeAccount = sys.customer_guarantee_account; // 58
+    const promoAccount = sys.coupon_discount_account; // 67
+
+    if (!guaranteeAccount || !promoAccount) {
+      throw new Error("الحسابات الوسيطة غير معرفة");
+    }
+
+    // 4. جلب محفظة العميل
+    const [[guarantee]] = await conn.query(
+      "SELECT * FROM customer_guarantees WHERE customer_id=? LIMIT 1",
+      [user_id]
+    );
+
+    if (!guarantee) {
+      throw new Error("العميل ما عنده محفظة");
+    }
+
+    const baseAmount = amount;
+
+    // 5. القيد المحاسبي
+    // من وسيط العروض → إلى وسيط التأمين
+
+    await conn.query(`
+      INSERT INTO journal_entries
+      (journal_type_id, journal_date, currency_id, account_id, debit, notes, created_by, branch_id)
+      VALUES (5, NOW(), 1, ?, ?, ?, ?, ?)
+    `, [
+      promoAccount,
+      baseAmount,
+      `تحويل نقاط إلى رصيد عميل #${user_id}`,
+      req.user?.id || 1,
+      req.user?.branch_id || 1
+    ]);
+
+    await conn.query(`
+      INSERT INTO journal_entries
+      (journal_type_id, journal_date, currency_id, account_id, credit, notes, created_by, branch_id)
+      VALUES (5, NOW(), 1, ?, ?, ?, ?, ?)
+    `, [
+      guaranteeAccount,
+      baseAmount,
+      `تحويل نقاط إلى رصيد عميل #${user_id}`,
+      req.user?.id || 1,
+      req.user?.branch_id || 1
+    ]);
+
+    // 6. إضافة رصيد للمحفظة (إذا cash/bank)
+    if (guarantee.type !== "account") {
+      await conn.query(`
+        INSERT INTO customer_guarantee_moves
+        (guarantee_id, currency_id, rate, amount, amount_base)
+        VALUES (?, 1, 1, ?, ?)
+      `, [guarantee.id, amount, amount]);
+    }
+
+    // 7. تصفير النقاط
+    await conn.query(
+      "UPDATE loyalty_points SET points = 0 WHERE user_id=?",
+      [user_id]
+    );
+
+    // 8. تسجيل العملية
+    await conn.query(`
+      INSERT INTO loyalty_logs
+      (user_id, points, amount, type)
+      VALUES (?, ?, ?, 'redeem')
+    `, [user_id, lp.points, amount]);
+
+    await conn.commit();
+
+    res.json({
+      success: true,
+      amount
+    });
+
+  } catch (err) {
+    await conn.rollback();
+    console.error(err);
+    res.json({ success: false, message: err.message });
+  } finally {
+    conn.release();
+  }
+});
 export default router;
