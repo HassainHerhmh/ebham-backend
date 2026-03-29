@@ -201,25 +201,25 @@ router.put("/settings", async (req, res) => {
 });
 
 router.get("/my-points", async (req, res) => {
-  
   try {
-    const userId = req.user?.id; // لو عندك auth middleware
+    const userId = req.query.user_id;
 
-    if (!userId) {
-      return res.json({ success: false, message: "Unauthorized" });
-    }
-
-    // الرصيد
     const [pointsRows] = await db.query(
-      "SELECT * FROM loyalty_points WHERE user_id=?",
+      "SELECT points FROM loyalty_points WHERE user_id=?",
       [userId]
     );
 
-    // السجل
-    const [logs] = await db.query(
-      "SELECT * FROM loyalty_logs WHERE user_id=? ORDER BY id DESC",
-      [userId]
-    );
+    const [logs] = await db.query(`
+      SELECT 
+        *,
+        CASE 
+          WHEN type = 'earn' THEN CONCAT('لكم ', points, ' نقطة مقابل طلب')
+          ELSE CONCAT('تم خصم ', points, ' نقطة')
+        END as description
+      FROM loyalty_logs
+      WHERE user_id=?
+      ORDER BY id DESC
+    `, [userId]);
 
     res.json({
       success: true,
