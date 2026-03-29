@@ -225,9 +225,9 @@ router.get("/my-points", async (req, res) => {
           (SELECT points FROM loyalty_points WHERE user_id=?)
         )
       ELSE 
-          CONCAT(
-        'تم تحويل ', points, ' نقطة إلى رصيد (', amount, '). نقاطك الحالية هي ', balance_after
-      )
+        CONCAT('تم خصم ', points, ' نقطة. نقاطك الحالية هي ', 
+          (SELECT points FROM loyalty_points WHERE user_id=?)
+        )
     END as description
   FROM loyalty_logs
   WHERE user_id=?
