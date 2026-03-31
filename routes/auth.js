@@ -10,6 +10,16 @@ import jwt from "jsonwebtoken";
 import authMiddleware from "../middlewares/auth.js"; // تأكد من استيراد ميدلوير التحقق
 
 const router = express.Router();
+
+// ✅ فحص السيرفر (Health Check)
+router.get("/health", (req, res) => {
+  res.json({
+    success: true,
+    message: "Server is running 🚀",
+    time: new Date(),
+  });
+});
+
 const googleClient = new OAuth2Client();
 
 /* ======================================================
