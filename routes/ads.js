@@ -1,16 +1,75 @@
 import express from "express";
 import db from "../db.js";
+import auth from "../middlewares/auth.js";
+
+import { body, validationResult } from "express-validator";
+import rateLimit from "express-rate-limit";
 
 const router = express.Router();
 
 /* =====================================
-   جلب الإعلانات
+   Rate Limit (منع السبام)
 ===================================== */
+const limiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  message: "طلبات كثيرة، حاول لاحقاً",
+});
 
+/* =====================================
+   Validation قوي
+===================================== */
+const validateAd = [
+  body("name")
+    .isLength({ min: 3, max: 100 })
+    .withMessage("اسم الإعلان غير صالح"),
+
+  body("type")
+    .isIn(["discount", "offer", "banner"])
+    .withMessage("نوع الإعلان غير صحيح"),
+
+  body("discount_percent")
+    .optional()
+    .isFloat({ min: 0, max: 100 })
+    .withMessage("نسبة الخصم غير صحيحة"),
+
+  body("image_url")
+    .optional()
+    .isURL()
+    .withMessage("رابط الصورة غير صحيح"),
+
+  body("start_date")
+    .optional()
+    .isISO8601()
+    .withMessage("تاريخ البداية غير صحيح"),
+
+  body("end_date")
+    .optional()
+    .isISO8601()
+    .withMessage("تاريخ النهاية غير صحيح"),
+];
+
+const checkValidation = (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      errors: errors.array(),
+    });
+  }
+};
+
+/* تنظيف البيانات */
+const clean = (text) => {
+  if (!text) return text;
+  return text.replace(/[<>$;]/g, "").trim();
+};
+
+/* =====================================
+   جلب الإعلانات (مفتوح)
+===================================== */
 router.get("/", async (req, res) => {
-
   try {
-
     const [rows] = await db.query(`
       SELECT 
         ads.*,
@@ -25,55 +84,48 @@ router.get("/", async (req, res) => {
     `);
 
     res.json(rows);
-
   } catch (err) {
-
     console.error(err);
     res.status(500).json({ error: "فشل جلب الإعلانات" });
-
   }
-
 });
 
 /* =====================================
-   جلب جميع الإعلانات للوحة التحكم
+   جلب admin (محمي)
 ===================================== */
-
-router.get("/admin", async (req, res) => {
-
+router.get("/admin", auth, async (req, res) => {
   try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ error: "غير مصرح" });
+    }
 
     const [rows] = await db.query(`
-      SELECT 
-        ads.*,
-        restaurants.name AS restaurant_name
+      SELECT ads.*, restaurants.name AS restaurant_name
       FROM ads
       LEFT JOIN restaurants
-        ON ads.restaurant_id = restaurants.id
+      ON ads.restaurant_id = restaurants.id
       ORDER BY ads.id DESC
     `);
 
     res.json(rows);
-
   } catch (err) {
-
-    console.error(err);
     res.status(500).json({ error: "فشل تحميل الإعلانات" });
-
   }
-
 });
 
-
 /* =====================================
-   إنشاء إعلان جديد
+   إنشاء إعلان (محمي + validation)
 ===================================== */
-
-router.post("/", async (req, res) => {
-
+router.post("/", limiter, auth, validateAd, async (req, res) => {
   try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ error: "غير مصرح" });
+    }
 
-    const {
+    const validationError = checkValidation(req, res);
+    if (validationError) return;
+
+    let {
       name,
       description,
       type,
@@ -86,20 +138,27 @@ router.post("/", async (req, res) => {
       end_date
     } = req.body;
 
+    // تنظيف
+    name = clean(name);
+    description = clean(description);
+
+    // منع spam (أرقام فقط)
+    if (/^\d+$/.test(name)) {
+      return res.status(400).json({
+        error: "اسم الإعلان غير منطقي",
+      });
+    }
+
+    // تحقق التواريخ
+    if (start_date && end_date && new Date(start_date) > new Date(end_date)) {
+      return res.status(400).json({
+        error: "تاريخ البداية أكبر من النهاية",
+      });
+    }
+
     const [result] = await db.query(`
       INSERT INTO ads
-      (
-        name,
-        description,
-        type,
-        image_url,
-        restaurant_id,
-        category_id,
-        discount_percent,
-        start_date,
-        end_date,
-        status
-      )
+      (name,description,type,image_url,restaurant_id,category_id,discount_percent,start_date,end_date,status)
       VALUES (?,?,?,?,?,?,?,?,?,?)
     `,[
       name,
@@ -116,47 +175,37 @@ router.post("/", async (req, res) => {
 
     const adId = result.insertId;
 
-    /* حفظ المنتجات المرتبطة بالإعلان */
-
-    if(product_ids && product_ids.length){
-
-      for(const productId of product_ids){
-
+    if(product_ids?.length){
+      for(const p of product_ids){
         await db.query(
           "INSERT INTO ad_products (ad_id,product_id) VALUES (?,?)",
-          [adId,productId]
+          [adId,p]
         );
-
       }
-
     }
 
-    res.json({
-      success:true,
-      id:adId
-    });
+    res.json({ success:true, id:adId });
 
   } catch (err) {
-
     console.error(err);
     res.status(500).json({ error: "فشل إنشاء الإعلان" });
-
   }
-
 });
 
-
 /* =====================================
-   تعديل إعلان
+   تعديل (محمي + validation)
 ===================================== */
-
-router.put("/:id", async (req, res) => {
-
+router.put("/:id", limiter, auth, validateAd, async (req, res) => {
   try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ error: "غير مصرح" });
+    }
+
+    const validationError = checkValidation(req, res);
+    if (validationError) return;
 
     const { id } = req.params;
-
-    const {
+    let {
       name,
       description,
       type,
@@ -170,31 +219,17 @@ router.put("/:id", async (req, res) => {
       status
     } = req.body;
 
-    const formatDate = (date) => {
-      if (!date) return null;
-      return new Date(date)
-        .toISOString()
-        .slice(0,19)
-        .replace("T"," ");
-    };
+    name = clean(name);
+    description = clean(description);
 
-    const startDate = formatDate(start_date);
-    const endDate = formatDate(end_date);
+    const formatDate = (d) =>
+      d ? new Date(d).toISOString().slice(0,19).replace("T"," ") : null;
 
- await db.query(`
-  UPDATE ads SET
-  name=?,
-  description=?,
-  type=?,
-  image_url=?,
-  restaurant_id=?,
-  category_id=?,
-  discount_percent=?,
-  start_date=?,
-  end_date=?,
-  status = COALESCE(?, status)
-  WHERE id=?
-`,[
+    await db.query(`
+      UPDATE ads SET
+      name=?,description=?,type=?,image_url=?,restaurant_id=?,category_id=?,discount_percent=?,start_date=?,end_date=?,status=COALESCE(?,status)
+      WHERE id=?
+    `,[
       name,
       description || null,
       type,
@@ -202,159 +237,83 @@ router.put("/:id", async (req, res) => {
       restaurant_id || null,
       category_id || null,
       discount_percent || null,
-      startDate,
-      endDate,
+      formatDate(start_date),
+      formatDate(end_date),
       status,
       id
     ]);
 
-    /* حذف المنتجات القديمة */
+    await db.query("DELETE FROM ad_products WHERE ad_id=?", [id]);
 
-    await db.query(
-      "DELETE FROM ad_products WHERE ad_id=?",
-      [id]
-    );
-
-    /* حفظ المنتجات الجديدة */
-
-    if(product_ids && product_ids.length){
-
-      for(const productId of product_ids){
-
+    if(product_ids?.length){
+      for(const p of product_ids){
         await db.query(
           "INSERT INTO ad_products (ad_id,product_id) VALUES (?,?)",
-          [id,productId]
+          [id,p]
         );
-
       }
-
     }
 
     res.json({ success:true });
 
   } catch (err) {
-
-    console.error(err);
     res.status(500).json({ error:"فشل تعديل الإعلان" });
-
   }
-
 });
 
-
 /* =====================================
-   حذف إعلان
+   حذف (محمي)
 ===================================== */
-
-router.delete("/:id", async (req, res) => {
-
+router.delete("/:id", auth, async (req, res) => {
   try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ error: "غير مصرح" });
+    }
 
     const { id } = req.params;
 
-    await db.query(
-      "DELETE FROM ad_products WHERE ad_id=?",
-      [id]
-    );
-
-    await db.query(
-      "DELETE FROM ads WHERE id=?",
-      [id]
-    );
+    await db.query("DELETE FROM ad_products WHERE ad_id=?", [id]);
+    await db.query("DELETE FROM ads WHERE id=?", [id]);
 
     res.json({ success:true });
 
-  } catch (err) {
-
-    console.error(err);
+  } catch {
     res.status(500).json({ error:"فشل حذف الإعلان" });
-
   }
-
 });
 
-
 /* =====================================
-   تسجيل مشاهدة الإعلان
+   view + click (مفتوح)
 ===================================== */
-
 router.post("/:id/view", async (req, res) => {
-
-  try {
-
-    const { id } = req.params;
-
-    await db.query(`
-      UPDATE ads
-      SET views = views + 1
-      WHERE id=?
-    `,[id]);
-
-    res.json({ success:true });
-
-  } catch (err) {
-
-    console.error(err);
-    res.status(500).json({ error:"فشل تسجيل المشاهدة" });
-
-  }
-
+  await db.query("UPDATE ads SET views=views+1 WHERE id=?", [req.params.id]);
+  res.json({ success:true });
 });
-
-
-/* =====================================
-   تسجيل نقرة الإعلان
-===================================== */
 
 router.post("/:id/click", async (req, res) => {
-
-  try {
-
-    const { id } = req.params;
-
-    await db.query(`
-      UPDATE ads
-      SET clicks = clicks + 1
-      WHERE id=?
-    `,[id]);
-
-    res.json({ success:true });
-
-  } catch (err) {
-
-    console.error(err);
-    res.status(500).json({ error:"فشل تسجيل النقرة" });
-
-  }
-
+  await db.query("UPDATE ads SET clicks=clicks+1 WHERE id=?", [req.params.id]);
+  res.json({ success:true });
 });
 
-
 /* =====================================
-   تغيير حالة الإعلان
+   تغيير الحالة (محمي)
 ===================================== */
-
-router.patch("/:id/status", async (req,res)=>{
-
+router.patch("/:id/status", auth, async (req,res)=>{
   try{
-
-    const { id } = req.params
-    const { status } = req.body
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ error: "غير مصرح" });
+    }
 
     await db.query(
       "UPDATE ads SET status=? WHERE id=?",
-      [status,id]
-    )
+      [req.body.status, req.params.id]
+    );
 
-    res.json({success:true})
+    res.json({success:true});
 
-  }catch(err){
-
-    console.error(err)
-    res.status(500).json({error:"update failed"})
-
+  }catch{
+    res.status(500).json({error:"update failed"});
   }
-
-})
+});
 
 export default router;
