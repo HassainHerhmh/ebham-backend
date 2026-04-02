@@ -550,6 +550,13 @@ app.use("/api/notifications", auth, notificationsRoutes);
 
 app.use("/api/loyalty", loyaltyRoutes);
 
+/*======================
+بروفايل تطبيق العملاء 
+========================*/
+import profileRoutes from "./routes/profile.js";
+
+app.use("/api/profile", profileRoutes);
+
 /* =========================
    Start Server + Socket.IO
 ========================= */
