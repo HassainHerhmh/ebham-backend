@@ -31,7 +31,7 @@ router.get("/", auth, async (req, res) => {
 
     /* ===== النقاط ===== */
     const [[pointsRow]] = await db.query(
-      "SELECT points FROM loyalty WHERE user_id = ?",
+      "SELECT points FROM loyalty_points WHERE user_id = ? LIMIT 1",
       [userId]
     );
 
