@@ -8,46 +8,49 @@ const router = express.Router();
    📊 احصائيات المستخدم
 ========================= */
 router.get("/", auth, async (req, res) => {
-   try {
+  try {
     const userId = req.user.id;
 
-    /* ======================
-       الرصيد
-    ====================== */
-    const [walletRows] = await db.query(
-      "SELECT balance FROM customer_guarantees WHERE user_id = ?",
+    /* ===== الرصيد ===== */
+    const [[g]] = await db.query(
+      "SELECT id FROM customer_guarantees WHERE customer_id=? LIMIT 1",
       [userId]
     );
 
-    /* ======================
-       النقاط
-    ====================== */
-    const [pointsRows] = await db.query(
+    let balance = 0;
+
+    if (g) {
+      const [[row]] = await db.query(`
+        SELECT IFNULL(SUM(amount_base), 0) as balance
+        FROM customer_guarantee_moves
+        WHERE guarantee_id=?
+      `, [g.id]);
+
+      balance = row.balance || 0;
+    }
+
+    /* ===== النقاط ===== */
+    const [[pointsRow]] = await db.query(
       "SELECT points FROM loyalty WHERE user_id = ?",
       [userId]
     );
 
-    /* ======================
-       عدد الطلبات
-    ====================== */
-    const [ordersRows] = await db.query(
+    /* ===== الطلبات ===== */
+    const [[ordersRow]] = await db.query(
       "SELECT COUNT(*) AS total FROM orders WHERE customer_id = ?",
       [userId]
     );
 
     return res.json({
       success: true,
-      balance: walletRows[0]?.balance || 0,
-      points: pointsRows[0]?.points || 0,
-      orders: ordersRows[0]?.total || 0,
+      balance,
+      points: pointsRow?.points || 0,
+      orders: ordersRow?.total || 0,
     });
 
   } catch (err) {
-    console.error("PROFILE API ERROR:", err);
-    res.status(500).json({
-      success: false,
-      message: "خطأ في السيرفر",
-    });
+    console.error("PROFILE ERROR:", err);
+    res.status(500).json({ success: false });
   }
 });
 
