@@ -7,8 +7,8 @@ const router = express.Router();
 /* =========================
    📊 احصائيات المستخدم
 ========================= */
-router.get("/profile", auth, async (req, res) => {
-  try {
+router.get("/", auth, async (req, res) => {
+   try {
     const userId = req.user.id;
 
     /* ======================
