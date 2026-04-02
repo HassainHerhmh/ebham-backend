@@ -11,35 +11,18 @@ router.get("/stats", auth, async (req, res) => {
   try {
     const userId = req.user.id;
 
-    /* =========================
-       عدد الطلبات
-    ========================= */
-    const [ordersRows] = await db.query(
-      "SELECT COUNT(*) AS total FROM orders WHERE customer_id = ?",
-      [userId]
-    );
-
-    /* =========================
-       الرصيد
-    ========================= */
-    const [balanceRows] = await db.query(
-      "SELECT balance FROM customers WHERE id = ?",
-      [userId]
-    );
-
-    /* =========================
-       النقاط
-    ========================= */
-    const [pointsRows] = await db.query(
-      "SELECT points FROM loyalty WHERE user_id = ?",
-      [userId]
-    );
+    const [rows] = await db.query(`
+      SELECT 
+        (SELECT COUNT(*) FROM orders WHERE customer_id = ?) AS orders,
+        (SELECT balance FROM wallets WHERE user_id = ?) AS balance,
+        (SELECT points FROM loyalty WHERE user_id = ?) AS points
+    `, [userId, userId, userId]);
 
     return res.json({
       success: true,
-      orders: ordersRows[0]?.total || 0,
-      balance: balanceRows[0]?.balance || 0,
-      points: pointsRows[0]?.points || 0,
+      orders: rows[0]?.orders || 0,
+      balance: rows[0]?.balance || 0,
+      points: rows[0]?.points || 0,
     });
 
   } catch (err) {
