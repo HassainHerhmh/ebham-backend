@@ -557,6 +557,13 @@ import profileRoutes from "./routes/profile.js";
 
 app.use("/api/profile", profileRoutes);
 
+
+/*===================
+اللغة
+=====================*/
+import languageRoutes from "./routes/language.routes.js";
+
+app.use("/api/language", languageRoutes);
 /* =========================
    Start Server + Socket.IO
 ========================= */
