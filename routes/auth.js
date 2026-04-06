@@ -366,4 +366,36 @@ router.post("/logout", authMiddleware, async (req, res) => {
   }
 });
 
+
+router.get("/me", authMiddleware, async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT id, name, phone, email, is_profile_complete, created_at, language
+      FROM customers
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [req.user.id]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "المستخدم غير موجود",
+      });
+    }
+
+    return res.json({
+      success: true,
+      customer: rows[0],
+    });
+  } catch (err) {
+    console.error("GET ME ERROR:", err);
+    return res.status(500).json({
+      success: false,
+      message: "SERVER_ERROR",
+    });
+  }
+});
 export default router;
