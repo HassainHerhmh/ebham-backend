@@ -153,69 +153,6 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false, message: "حدث خطأ في جلب البيانات" });
   }
 });
-/* =========================
-   POST /customer-addresses
-   - district يُحفظ كنص (اسم الحي)
-   - الفرع العادي: يُحفظ على فرعه تلقائيًا
-   - الإدارة: يمكن تحديد الفرع من الهيدر
-========================= */
-router.post("/", async (req, res) => {
-  try {
-    const {
-      customer_id,
-      district,        // اسم الحي كنص
-      location_type,
-      address,
-      gps_link,
-      latitude,
-      longitude,
-    } = req.body;
-
-    if (!customer_id || !district) {
-      return res.json({ success: false, message: "العميل والحي مطلوبان" });
-    }
-
-    const { is_admin_branch, branch_id } = req.user;
-    const selectedBranch = req.headers["x-branch-id"];
-
-    let finalBranchId = branch_id;
-
-    if (is_admin_branch && selectedBranch && selectedBranch !== "all") {
-      finalBranchId = Number(selectedBranch);
-    }
-
-    if (!finalBranchId) {
-      return res.json({ success: false, message: "الفرع غير محدد" });
-    }
-let finalGpsLink = gps_link;
-
-if (!finalGpsLink && latitude && longitude) {
-  finalGpsLink = `https://www.google.com/maps?q=${latitude},${longitude}`;
-}
-    await db.query(
-      `
-      INSERT INTO customer_addresses
-      (customer_id, district, location_type, address,     finalGpsLink || null, latitude, longitude, branch_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        customer_id,
-        district,                // اسم الحي
-        location_type || null,
-        address || null,
-        gps_link || null,
-        latitude || null,
-        longitude || null,
-        finalBranchId,
-      ]
-    );
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error("ADD CUSTOMER ADDRESS ERROR:", err);
-    res.status(500).json({ success: false });
-  }
-});
 
 /* =========================
    PUT /customer-addresses/:id
