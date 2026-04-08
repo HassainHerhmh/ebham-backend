@@ -134,7 +134,7 @@ router.get("/my-chat", auth, async (req, res) => {
 
     const chatId = chatRows[0].id;
 
-    await db.query(
+    const [readResult] = await db.query(
       `
       UPDATE support_chat_messages
       SET is_read = 1
@@ -147,6 +147,13 @@ router.get("/my-chat", auth, async (req, res) => {
 
     const chat = await getChatById(chatId);
     const messages = await getChatMessages(chatId);
+
+    if (readResult.affectedRows > 0) {
+      emitSupportEvent(req, "support_chat_updated", {
+        chat_id: chatId,
+        action: "customer_read_admin_messages",
+      });
+    }
 
     return res.json({
       success: true,
@@ -164,6 +171,7 @@ router.get("/my-chat", auth, async (req, res) => {
     });
   }
 });
+
 
 /* =========================================================
    CUSTOMER
