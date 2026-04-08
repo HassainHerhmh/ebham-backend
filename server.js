@@ -564,6 +564,13 @@ app.use("/api/profile", profileRoutes);
 import languageRoutes from "./routes/language.routes.js";
 
 app.use("/api/language", languageRoutes);
+
+/* =========================
+   الدعم والمحادثات
+========================= */
+import supportRoutes from "./routes/support.js";
+
+app.use("/api/support", supportRoutes);
 /* =========================
    Start Server + Socket.IO
 ========================= */
