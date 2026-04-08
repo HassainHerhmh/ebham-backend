@@ -37,6 +37,68 @@ function normalizeMessageStatus(message) {
   return Number(message.is_read) === 1 ? "read" : "sent";
 }
 
+async function getChatById(chatId) {
+  const [rows] = await db.query(
+    `
+    SELECT
+      c.id,
+      c.customer_id,
+      c.customer_name,
+      c.customer_phone,
+      c.branch_id,
+      c.order_id,
+      c.status,
+      c.last_message_at,
+      c.created_at,
+      c.updated_at,
+      (
+        SELECT COUNT(*)
+        FROM support_chat_messages m_unread
+        WHERE m_unread.chat_id = c.id
+          AND m_unread.sender_type = 'customer'
+          AND m_unread.is_read = 0
+      ) AS unread_count,
+      (
+        SELECT m_last.message
+        FROM support_chat_messages m_last
+        WHERE m_last.chat_id = c.id
+        ORDER BY m_last.id DESC
+        LIMIT 1
+      ) AS last_message
+    FROM support_chats c
+    WHERE c.id = ?
+    LIMIT 1
+    `,
+    [chatId]
+  );
+
+  return rows[0] || null;
+}
+
+async function getChatMessages(chatId) {
+  const [messages] = await db.query(
+    `
+    SELECT
+      id,
+      chat_id,
+      sender_type,
+      sender_id,
+      message,
+      is_read,
+      created_at
+    FROM support_chat_messages
+    WHERE chat_id = ?
+    ORDER BY id ASC
+    `,
+    [chatId]
+  );
+
+  return messages.map((msg) => ({
+    ...msg,
+    status: normalizeMessageStatus(msg),
+  }));
+}
+
 /* =========================================================
    CUSTOMER
    GET /support/my-chat
@@ -54,20 +116,10 @@ router.get("/my-chat", auth, async (req, res) => {
 
     const [chatRows] = await db.query(
       `
-      SELECT
-        c.id,
-        c.customer_id,
-        c.customer_name,
-        c.customer_phone,
-        c.branch_id,
-        c.order_id,
-        c.status,
-        c.last_message_at,
-        c.created_at,
-        c.updated_at
-      FROM support_chats c
-      WHERE c.customer_id = ?
-      ORDER BY c.id DESC
+      SELECT id
+      FROM support_chats
+      WHERE customer_id = ?
+      ORDER BY id DESC
       LIMIT 1
       `,
       [customerId]
@@ -80,7 +132,7 @@ router.get("/my-chat", auth, async (req, res) => {
       });
     }
 
-    const chat = chatRows[0];
+    const chatId = chatRows[0].id;
 
     await db.query(
       `
@@ -90,36 +142,17 @@ router.get("/my-chat", auth, async (req, res) => {
         AND sender_type = 'admin'
         AND is_read = 0
       `,
-      [chat.id]
+      [chatId]
     );
 
-    const [messages] = await db.query(
-      `
-      SELECT
-        id,
-        chat_id,
-        sender_type,
-        sender_id,
-        message,
-        is_read,
-        created_at
-      FROM support_chat_messages
-      WHERE chat_id = ?
-      ORDER BY id ASC
-      `,
-      [chat.id]
-    );
-
-    const normalizedMessages = messages.map((msg) => ({
-      ...msg,
-      status: normalizeMessageStatus(msg),
-    }));
+    const chat = await getChatById(chatId);
+    const messages = await getChatMessages(chatId);
 
     return res.json({
       success: true,
       chat: {
         ...chat,
-        messages: normalizedMessages,
+        messages,
       },
     });
   } catch (error) {
@@ -202,25 +235,7 @@ router.post("/chats", auth, async (req, res) => {
       [chatId, customer_id, String(message).trim()]
     );
 
-    const [chatRows] = await db.query(
-      `
-      SELECT
-        id,
-        customer_id,
-        customer_name,
-        customer_phone,
-        branch_id,
-        order_id,
-        status,
-        last_message_at,
-        created_at,
-        updated_at
-      FROM support_chats
-      WHERE id = ?
-      LIMIT 1
-      `,
-      [chatId]
-    );
+    const chat = await getChatById(chatId);
 
     emitSupportEvent(req, "support_chat_created", {
       chat_id: chatId,
@@ -233,7 +248,7 @@ router.post("/chats", auth, async (req, res) => {
     return res.status(201).json({
       success: true,
       message: "تم إنشاء المحادثة بنجاح",
-      chat: chatRows[0],
+      chat,
     });
   } catch (error) {
     console.error("POST /support/chats error:", error);
@@ -268,34 +283,14 @@ router.post("/chats/:id/messages", auth, async (req, res) => {
       });
     }
 
-    const [chatRows] = await db.query(
-      `
-      SELECT
-        id,
-        customer_id,
-        customer_name,
-        customer_phone,
-        branch_id,
-        order_id,
-        status,
-        last_message_at,
-        created_at,
-        updated_at
-      FROM support_chats
-      WHERE id = ?
-      LIMIT 1
-      `,
-      [chatId]
-    );
+    const chat = await getChatById(chatId);
 
-    if (!chatRows.length) {
+    if (!chat) {
       return res.status(404).json({
         success: false,
         message: "المحادثة غير موجودة",
       });
     }
-
-    const chat = chatRows[0];
 
     let senderType = "customer";
     let senderId = req.user?.id || null;
@@ -316,6 +311,8 @@ router.post("/chats/:id/messages", auth, async (req, res) => {
       });
     }
 
+    const cleanMessage = String(message).trim();
+
     const [messageInsert] = await db.query(
       `
       INSERT INTO support_chat_messages
@@ -328,14 +325,21 @@ router.post("/chats/:id/messages", auth, async (req, res) => {
       )
       VALUES (?, ?, ?, ?, ?)
       `,
-      [
-        chatId,
-        senderType,
-        senderId,
-        String(message).trim(),
-        0,
-      ]
+      [chatId, senderType, senderId, cleanMessage, 0]
     );
+
+    if (senderType === "admin") {
+      await db.query(
+        `
+        UPDATE support_chat_messages
+        SET is_read = 1
+        WHERE chat_id = ?
+          AND sender_type = 'customer'
+          AND is_read = 0
+        `,
+        [chatId]
+      );
+    }
 
     await db.query(
       `
@@ -349,27 +353,7 @@ router.post("/chats/:id/messages", auth, async (req, res) => {
       [senderType === "admin" ? "open" : "pending", chatId]
     );
 
-    const [messages] = await db.query(
-      `
-      SELECT
-        id,
-        chat_id,
-        sender_type,
-        sender_id,
-        message,
-        is_read,
-        created_at
-      FROM support_chat_messages
-      WHERE chat_id = ?
-      ORDER BY id ASC
-      `,
-      [chatId]
-    );
-
-    const normalizedMessages = messages.map((msg) => ({
-      ...msg,
-      status: normalizeMessageStatus(msg),
-    }));
+    const messages = await getChatMessages(chatId);
 
     emitSupportEvent(req, "support_chat_message", {
       chat_id: chatId,
@@ -380,7 +364,7 @@ router.post("/chats/:id/messages", auth, async (req, res) => {
     return res.json({
       success: true,
       message: "تم إرسال الرسالة",
-      messages: normalizedMessages,
+      messages,
     });
   } catch (error) {
     console.error("POST /support/chats/:id/messages error:", error);
@@ -498,6 +482,7 @@ router.get("/chats/:id", auth, async (req, res) => {
     }
 
     const chatId = Number(req.params.id);
+
     if (!chatId) {
       return res.status(400).json({
         success: false,
@@ -505,62 +490,22 @@ router.get("/chats/:id", auth, async (req, res) => {
       });
     }
 
-    const [chatRows] = await db.query(
-      `
-      SELECT
-        c.id,
-        c.customer_id,
-        c.customer_name,
-        c.customer_phone,
-        c.branch_id,
-        c.order_id,
-        c.status,
-        c.last_message_at,
-        c.created_at,
-        c.updated_at
-      FROM support_chats c
-      WHERE c.id = ?
-      LIMIT 1
-      `,
-      [chatId]
-    );
+    const chat = await getChatById(chatId);
 
-    if (!chatRows.length) {
+    if (!chat) {
       return res.status(404).json({
         success: false,
         message: "المحادثة غير موجودة",
       });
     }
 
-    const chat = chatRows[0];
-
-    const [messages] = await db.query(
-      `
-      SELECT
-        id,
-        chat_id,
-        sender_type,
-        sender_id,
-        message,
-        is_read,
-        created_at
-      FROM support_chat_messages
-      WHERE chat_id = ?
-      ORDER BY id ASC
-      `,
-      [chatId]
-    );
-
-    const normalizedMessages = messages.map((msg) => ({
-      ...msg,
-      status: normalizeMessageStatus(msg),
-    }));
+    const messages = await getChatMessages(chatId);
 
     return res.json({
       success: true,
       chat: {
         ...chat,
-        messages: normalizedMessages,
+        messages,
       },
     });
   } catch (error) {
@@ -587,6 +532,7 @@ router.post("/chats/:id/release", auth, async (req, res) => {
     }
 
     const chatId = Number(req.params.id);
+
     if (!chatId) {
       return res.status(400).json({
         success: false,
@@ -594,25 +540,16 @@ router.post("/chats/:id/release", auth, async (req, res) => {
       });
     }
 
-    const [chatRows] = await db.query(
-      `
-      SELECT id, status
-      FROM support_chats
-      WHERE id = ?
-      LIMIT 1
-      `,
-      [chatId]
-    );
+    const chat = await getChatById(chatId);
 
-    if (!chatRows.length) {
+    if (!chat) {
       return res.status(404).json({
         success: false,
         message: "المحادثة غير موجودة",
       });
     }
 
-    const currentChat = chatRows[0];
-    const nextStatus = currentChat.status === "closed" ? "closed" : "pending";
+    const nextStatus = chat.status === "closed" ? "closed" : "pending";
 
     await db.query(
       `
@@ -691,25 +628,7 @@ router.patch("/chats/:id/status", auth, async (req, res) => {
       });
     }
 
-    const [rows] = await db.query(
-      `
-      SELECT
-        id,
-        customer_id,
-        customer_name,
-        customer_phone,
-        branch_id,
-        order_id,
-        status,
-        last_message_at,
-        created_at,
-        updated_at
-      FROM support_chats
-      WHERE id = ?
-      LIMIT 1
-      `,
-      [chatId]
-    );
+    const chat = await getChatById(chatId);
 
     emitSupportEvent(req, "support_chat_updated", {
       chat_id: chatId,
@@ -720,7 +639,7 @@ router.patch("/chats/:id/status", auth, async (req, res) => {
     return res.json({
       success: true,
       message: "تم تحديث حالة المحادثة",
-      chat: rows[0],
+      chat,
     });
   } catch (error) {
     console.error("PATCH /support/chats/:id/status error:", error);
@@ -785,4 +704,3 @@ router.patch("/chats/:id/read", auth, async (req, res) => {
 });
 
 export default router;
-
