@@ -81,6 +81,142 @@ router.get("/banks", async (req, res) => {
 });
 
 /* ==============================================
+   2.5️⃣ أنواع طلبات وصل لي
+============================================== */
+
+// جلب الأنواع
+router.get("/types", async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT id, name
+      FROM wassel_order_types
+      ORDER BY id DESC
+    `);
+
+    res.json({
+      success: true,
+      types: rows
+    });
+  } catch (err) {
+    console.error("Get Wassel Types Error:", err);
+    res.status(500).json({
+      success: false,
+      message: "فشل جلب الأنواع"
+    });
+  }
+});
+
+// إضافة نوع
+router.post("/types", async (req, res) => {
+  try {
+    const { name } = req.body;
+    const cleanName = String(name || "").trim();
+
+    if (!cleanName) {
+      return res.status(400).json({
+        success: false,
+        message: "اسم النوع مطلوب"
+      });
+    }
+
+    const [[exists]] = await db.query(
+      `SELECT id FROM wassel_order_types WHERE name = ? LIMIT 1`,
+      [cleanName]
+    );
+
+    if (exists) {
+      return res.status(400).json({
+        success: false,
+        message: "النوع موجود مسبقًا"
+      });
+    }
+
+    const [result] = await db.query(
+      `INSERT INTO wassel_order_types (name, created_at) VALUES (?, NOW())`,
+      [cleanName]
+    );
+
+    res.json({
+      success: true,
+      message: "تمت إضافة النوع",
+      id: result.insertId
+    });
+  } catch (err) {
+    console.error("Create Wassel Type Error:", err);
+    res.status(500).json({
+      success: false,
+      message: "فشل إضافة النوع"
+    });
+  }
+});
+
+// تعديل نوع
+router.put("/types/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+    const cleanName = String(name || "").trim();
+
+    if (!cleanName) {
+      return res.status(400).json({
+        success: false,
+        message: "اسم النوع مطلوب"
+      });
+    }
+
+    const [[exists]] = await db.query(
+      `SELECT id FROM wassel_order_types WHERE name = ? AND id <> ? LIMIT 1`,
+      [cleanName, id]
+    );
+
+    if (exists) {
+      return res.status(400).json({
+        success: false,
+        message: "يوجد نوع آخر بنفس الاسم"
+      });
+    }
+
+    await db.query(
+      `UPDATE wassel_order_types SET name = ? WHERE id = ?`,
+      [cleanName, id]
+    );
+
+    res.json({
+      success: true,
+      message: "تم تعديل النوع"
+    });
+  } catch (err) {
+    console.error("Update Wassel Type Error:", err);
+    res.status(500).json({
+      success: false,
+      message: "فشل تعديل النوع"
+    });
+  }
+});
+
+// حذف نوع
+router.delete("/types/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await db.query(
+      `DELETE FROM wassel_order_types WHERE id = ?`,
+      [id]
+    );
+
+    res.json({
+      success: true,
+      message: "تم حذف النوع"
+    });
+  } catch (err) {
+    console.error("Delete Wassel Type Error:", err);
+    res.status(500).json({
+      success: false,
+      message: "فشل حذف النوع"
+    });
+  }
+});
+/* ==============================================
     3️⃣ جلب جميع الطلبات
 ============================================== */
 router.get("/", async (req, res) => {
