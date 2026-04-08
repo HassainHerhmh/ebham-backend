@@ -40,7 +40,6 @@ function normalizeMessageStatus(message) {
 /* =========================================================
    CUSTOMER
    GET /support/my-chat
-   جلب آخر محادثة للعميل الحالي مع الرسائل
 ========================================================= */
 router.get("/my-chat", auth, async (req, res) => {
   try {
@@ -116,11 +115,6 @@ router.get("/my-chat", auth, async (req, res) => {
       status: normalizeMessageStatus(msg),
     }));
 
-    emitSupportEvent(req, "support_chat_updated", {
-      chat_id: chat.id,
-      action: "customer_read_admin_messages",
-    });
-
     return res.json({
       success: true,
       chat: {
@@ -141,7 +135,6 @@ router.get("/my-chat", auth, async (req, res) => {
 /* =========================================================
    CUSTOMER
    POST /support/chats
-   إنشاء محادثة جديدة من تطبيق العميل
 ========================================================= */
 router.post("/chats", auth, async (req, res) => {
   try {
@@ -255,7 +248,6 @@ router.post("/chats", auth, async (req, res) => {
 /* =========================================================
    CUSTOMER + ADMIN
    POST /support/chats/:id/messages
-   إرسال رسالة داخل المحادثة
 ========================================================= */
 router.post("/chats/:id/messages", auth, async (req, res) => {
   try {
@@ -317,7 +309,6 @@ router.post("/chats/:id/messages", auth, async (req, res) => {
           message: "لا يمكنك الإرسال في هذه المحادثة",
         });
       }
-      senderType = "customer";
     } else {
       return res.status(403).json({
         success: false,
@@ -342,7 +333,7 @@ router.post("/chats/:id/messages", auth, async (req, res) => {
         senderType,
         senderId,
         String(message).trim(),
-        senderType === "admin" ? 0 : 0,
+        0,
       ]
     );
 
@@ -404,7 +395,6 @@ router.post("/chats/:id/messages", auth, async (req, res) => {
 /* =========================================================
    ADMIN
    GET /support/chats
-   جلب قائمة كل المحادثات للوحة التحكم
 ========================================================= */
 router.get("/chats", auth, async (req, res) => {
   try {
@@ -429,7 +419,6 @@ router.get("/chats", auth, async (req, res) => {
         c.last_message_at,
         c.created_at,
         c.updated_at,
-
         (
           SELECT COUNT(*)
           FROM support_chat_messages m_unread
@@ -437,7 +426,6 @@ router.get("/chats", auth, async (req, res) => {
             AND m_unread.sender_type = 'customer'
             AND m_unread.is_read = 0
         ) AS unread_count,
-
         (
           SELECT m_last.message
           FROM support_chat_messages m_last
@@ -475,10 +463,7 @@ router.get("/chats", auth, async (req, res) => {
 
     sql += `
       ORDER BY
-        CASE
-          WHEN c.last_message_at IS NULL THEN 1
-          ELSE 0
-        END,
+        CASE WHEN c.last_message_at IS NULL THEN 1 ELSE 0 END,
         c.last_message_at DESC,
         c.id DESC
     `;
@@ -502,8 +487,6 @@ router.get("/chats", auth, async (req, res) => {
 /* =========================================================
    ADMIN
    GET /support/chats/:id
-   جلب تفاصيل محادثة واحدة للوحة التحكم
-   ملاحظة: الدخول للدردشة لا يثبتها مفتوحة تلقائيًا
 ========================================================= */
 router.get("/chats/:id", auth, async (req, res) => {
   try {
@@ -551,17 +534,6 @@ router.get("/chats/:id", auth, async (req, res) => {
 
     const chat = chatRows[0];
 
-    await db.query(
-      `
-      UPDATE support_chat_messages
-      SET is_read = 1
-      WHERE chat_id = ?
-        AND sender_type = 'customer'
-        AND is_read = 0
-      `,
-      [chatId]
-    );
-
     const [messages] = await db.query(
       `
       SELECT
@@ -584,11 +556,6 @@ router.get("/chats/:id", auth, async (req, res) => {
       status: normalizeMessageStatus(msg),
     }));
 
-    emitSupportEvent(req, "support_chat_updated", {
-      chat_id: chatId,
-      action: "admin_read_customer_messages",
-    });
-
     return res.json({
       success: true,
       chat: {
@@ -609,8 +576,6 @@ router.get("/chats/:id", auth, async (req, res) => {
 /* =========================================================
    ADMIN
    POST /support/chats/:id/release
-   تحرير المحادثة عند الخروج من شاشة الدردشة
-   إذا كانت مفتوحة تُعاد إلى pending
 ========================================================= */
 router.post("/chats/:id/release", auth, async (req, res) => {
   try {
@@ -682,7 +647,6 @@ router.post("/chats/:id/release", auth, async (req, res) => {
 /* =========================================================
    ADMIN
    PATCH /support/chats/:id/status
-   تحديث حالة المحادثة
 ========================================================= */
 router.patch("/chats/:id/status", auth, async (req, res) => {
   try {
@@ -771,7 +735,6 @@ router.patch("/chats/:id/status", auth, async (req, res) => {
 /* =========================================================
    ADMIN
    PATCH /support/chats/:id/read
-   تعليم رسائل العميل كمقروءة
 ========================================================= */
 router.patch("/chats/:id/read", auth, async (req, res) => {
   try {
@@ -822,3 +785,4 @@ router.patch("/chats/:id/read", auth, async (req, res) => {
 });
 
 export default router;
+س
