@@ -152,9 +152,6 @@ router.get("/my-chat", auth, async (req, res) => {
       emitSupportEvent(req, "support_chat_updated", {
         chat_id: chatId,
         action: "customer_read_admin_messages",
-        customer_id: chat.customer_id,
-        customer_name: chat.customer_name,
-        customer_phone: chat.customer_phone,
       });
     }
 
@@ -258,6 +255,8 @@ router.post("/chats", auth, async (req, res) => {
       branch_id: branch_id || null,
       order_id: order_id || null,
       message: cleanMessage,
+      notification_title: "رسالة جديدة",
+      notification_message: `العميل ${customer_name} أرسل لك رسالة`,
     });
 
     return res.status(201).json({
@@ -377,7 +376,15 @@ router.post("/chats/:id/messages", auth, async (req, res) => {
       customer_id: chat.customer_id,
       customer_name: chat.customer_name,
       customer_phone: chat.customer_phone,
+      branch_id: chat.branch_id,
+      order_id: chat.order_id,
       message: cleanMessage,
+      notification_title:
+        senderType === "customer" ? "رسالة جديدة من عميل" : "رد من الإدارة",
+      notification_message:
+        senderType === "customer"
+          ? `العميل ${chat.customer_name} أرسل لك رسالة`
+          : `تم الرد على العميل ${chat.customer_name}`,
     });
 
     return res.json({
@@ -435,4 +442,306 @@ router.get("/chats", auth, async (req, res) => {
           WHERE m_last.chat_id = c.id
           ORDER BY m_last.id DESC
           LIMIT 1
-        ) AS last
+        ) AS last_message
+      FROM support_chats c
+      WHERE 1 = 1
+    `;
+
+    const params = [];
+
+    if (status) {
+      sql += ` AND c.status = ? `;
+      params.push(status);
+    }
+
+    if (branch_id) {
+      sql += ` AND c.branch_id = ? `;
+      params.push(branch_id);
+    }
+
+    if (search) {
+      sql += `
+        AND (
+          c.customer_name LIKE ?
+          OR c.customer_phone LIKE ?
+          OR CAST(c.id AS CHAR) LIKE ?
+          OR CAST(c.order_id AS CHAR) LIKE ?
+        )
+      `;
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    sql += `
+      ORDER BY
+        CASE WHEN c.last_message_at IS NULL THEN 1 ELSE 0 END,
+        c.last_message_at DESC,
+        c.id DESC
+    `;
+
+    const [rows] = await db.query(sql, params);
+
+    return res.json({
+      success: true,
+      chats: rows,
+    });
+  } catch (error) {
+    console.error("GET /support/chats error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "حدث خطأ أثناء جلب المحادثات",
+      error: error.message,
+    });
+  }
+});
+
+/* =========================================================
+   ADMIN
+   GET /support/chats/:id
+========================================================= */
+router.get("/chats/:id", auth, async (req, res) => {
+  try {
+    if (!isAdmin(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: "غير مصرح",
+      });
+    }
+
+    const chatId = Number(req.params.id);
+
+    if (!chatId) {
+      return res.status(400).json({
+        success: false,
+        message: "رقم المحادثة غير صحيح",
+      });
+    }
+
+    const chat = await getChatById(chatId);
+
+    if (!chat) {
+      return res.status(404).json({
+        success: false,
+        message: "المحادثة غير موجودة",
+      });
+    }
+
+    const messages = await getChatMessages(chatId);
+
+    return res.json({
+      success: true,
+      chat: {
+        ...chat,
+        messages,
+      },
+    });
+  } catch (error) {
+    console.error("GET /support/chats/:id error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "حدث خطأ أثناء جلب تفاصيل المحادثة",
+      error: error.message,
+    });
+  }
+});
+
+/* =========================================================
+   ADMIN
+   POST /support/chats/:id/release
+========================================================= */
+router.post("/chats/:id/release", auth, async (req, res) => {
+  try {
+    if (!isAdmin(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: "غير مصرح",
+      });
+    }
+
+    const chatId = Number(req.params.id);
+
+    if (!chatId) {
+      return res.status(400).json({
+        success: false,
+        message: "رقم المحادثة غير صحيح",
+      });
+    }
+
+    const chat = await getChatById(chatId);
+
+    if (!chat) {
+      return res.status(404).json({
+        success: false,
+        message: "المحادثة غير موجودة",
+      });
+    }
+
+    const nextStatus = chat.status === "closed" ? "closed" : "pending";
+
+    await db.query(
+      `
+      UPDATE support_chats
+      SET status = ?, updated_at = NOW()
+      WHERE id = ?
+      `,
+      [nextStatus, chatId]
+    );
+
+    emitSupportEvent(req, "support_chat_updated", {
+      chat_id: chatId,
+      status: nextStatus,
+      action: "released",
+      customer_name: chat.customer_name,
+      customer_phone: chat.customer_phone,
+    });
+
+    return res.json({
+      success: true,
+      message: "تم تحرير المحادثة",
+      status: nextStatus,
+    });
+  } catch (error) {
+    console.error("POST /support/chats/:id/release error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "حدث خطأ أثناء تحرير المحادثة",
+      error: error.message,
+    });
+  }
+});
+
+/* =========================================================
+   ADMIN
+   PATCH /support/chats/:id/status
+========================================================= */
+router.patch("/chats/:id/status", auth, async (req, res) => {
+  try {
+    if (!isAdmin(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: "غير مصرح",
+      });
+    }
+
+    const chatId = Number(req.params.id);
+    const { status } = req.body;
+
+    if (!chatId) {
+      return res.status(400).json({
+        success: false,
+        message: "رقم المحادثة غير صحيح",
+      });
+    }
+
+    const allowedStatuses = ["pending", "open", "closed"];
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "الحالة غير صحيحة",
+      });
+    }
+
+    const [result] = await db.query(
+      `
+      UPDATE support_chats
+      SET status = ?, updated_at = NOW()
+      WHERE id = ?
+      `,
+      [status, chatId]
+    );
+
+    if (!result.affectedRows) {
+      return res.status(404).json({
+        success: false,
+        message: "المحادثة غير موجودة",
+      });
+    }
+
+    const chat = await getChatById(chatId);
+
+    emitSupportEvent(req, "support_chat_updated", {
+      chat_id: chatId,
+      status,
+      action: "status_changed",
+      customer_name: chat.customer_name,
+      customer_phone: chat.customer_phone,
+    });
+
+    return res.json({
+      success: true,
+      message: "تم تحديث حالة المحادثة",
+      chat,
+    });
+  } catch (error) {
+    console.error("PATCH /support/chats/:id/status error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "حدث خطأ أثناء تحديث الحالة",
+      error: error.message,
+    });
+  }
+});
+
+/* =========================================================
+   ADMIN
+   PATCH /support/chats/:id/read
+========================================================= */
+router.patch("/chats/:id/read", auth, async (req, res) => {
+  try {
+    if (!isAdmin(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: "غير مصرح",
+      });
+    }
+
+    const chatId = Number(req.params.id);
+
+    if (!chatId) {
+      return res.status(400).json({
+        success: false,
+        message: "رقم المحادثة غير صحيح",
+      });
+    }
+
+    const chat = await getChatById(chatId);
+
+    if (!chat) {
+      return res.status(404).json({
+        success: false,
+        message: "المحادثة غير موجودة",
+      });
+    }
+
+    await db.query(
+      `
+      UPDATE support_chat_messages
+      SET is_read = 1
+      WHERE chat_id = ?
+        AND sender_type = 'customer'
+        AND is_read = 0
+      `,
+      [chatId]
+    );
+
+    emitSupportEvent(req, "support_chat_updated", {
+      chat_id: chatId,
+      action: "marked_read",
+      customer_name: chat.customer_name,
+      customer_phone: chat.customer_phone,
+    });
+
+    return res.json({
+      success: true,
+      message: "تم تعليم الرسائل كمقروءة",
+    });
+  } catch (error) {
+    console.error("PATCH /support/chats/:id/read error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "حدث خطأ أثناء تحديث حالة القراءة",
+      error: error.message,
+    });
+  }
+});
+
+export default router;
