@@ -351,26 +351,27 @@ router.put("/status/:id", async (req, res) => {
   try {
     await conn.beginTransaction();
 
-let timeField = null;
+    let field = null;
 
-if (status === "confirmed") timeField = "processing_at";
-if (status === "delivering") timeField = "delivering_at";
-if (status === "completed") timeField = "completed_at";
-if (status === "cancelled") timeField = "cancelled_at";
+    if (status === "processing") field = "processing_at";
+    if (status === "ready") field = "ready_at";
+    if (status === "delivering") field = "delivering_at";
+    if (status === "completed") field = "completed_at";
+    if (status === "cancelled") field = "cancelled_at";
 
-if (timeField) {
-  await conn.query(`
-    UPDATE wassel_orders
-    SET status = ?, ${timeField} = NOW(), updated_by = ?
-    WHERE id = ?
-  `, [status, req.user.id, orderId]);
-} else {
-  await conn.query(`
-    UPDATE wassel_orders
-    SET status = ?, updated_by = ?
-    WHERE id = ?
-  `, [status, req.user.id, orderId]);
-}
+    if (field) {
+      await conn.query(
+        `UPDATE wassel_orders 
+         SET status=?, ${field}=NOW() 
+         WHERE id=?`,
+        [status, orderId]
+      );
+    } else {
+      await conn.query(
+        "UPDATE wassel_orders SET status=? WHERE id=?",
+        [status, orderId]
+      );
+    }
 
 
     if (status === "delivering") {
@@ -672,15 +673,15 @@ if (timeField) {
       actorIcon = "🧑‍💼";
     }
 
-    const statusMap = {
-      pending: "قيد الانتظار",
-      processing: "قيد المعالجة",
-      ready: "جاهز",
-      delivering: "قيد التوصيل",
-      completed: "مكتمل",
-      cancelled: "ملغي",
-      scheduled: "مجدول"
-    };
+     const statusMap = {
+        pending: "قيد الانتظار",
+        processing: "قيد المعالجة",
+        ready: "جاهز",
+        delivering: "قيد التوصيل",
+        completed: "مكتمل",
+        cancelled: "ملغي",
+        scheduled: "مجدول"
+      };
 
     const statusText = statusMap[status] || status;
 
