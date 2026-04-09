@@ -267,12 +267,15 @@ router.get("/transport-methods", async (req, res) => {
 });
 
 // إضافة وسيلة نقل
+// إضافة وسيلة نقل
 router.post("/transport-methods", async (req, res) => {
   try {
-    const { name, delivery_fee } = req.body;
+    const { name, base_fee, price_per_km, included_km } = req.body;
 
     const cleanName = String(name || "").trim();
-    const fee = Number(delivery_fee || 0);
+    const baseFee = Number(base_fee || 0);
+    const pricePerKm = Number(price_per_km || 0);
+    const includedKm = Number(included_km || 0);
 
     if (!cleanName) {
       return res.status(400).json({
@@ -281,10 +284,10 @@ router.post("/transport-methods", async (req, res) => {
       });
     }
 
-    if (Number.isNaN(fee) || fee < 0) {
+    if ([baseFee, pricePerKm, includedKm].some(v => Number.isNaN(v) || v < 0)) {
       return res.status(400).json({
         success: false,
-        message: "رسوم التوصيل غير صحيحة"
+        message: "بيانات التسعير غير صحيحة"
       });
     }
 
@@ -303,10 +306,10 @@ router.post("/transport-methods", async (req, res) => {
     const [result] = await db.query(
       `
       INSERT INTO wassel_transport_methods
-      (name, delivery_fee, created_at)
-      VALUES (?, ?, NOW())
+      (name, base_fee, price_per_km, included_km, is_active, created_at)
+      VALUES (?, ?, ?, ?, 1, NOW())
       `,
-      [cleanName, fee]
+      [cleanName, baseFee, pricePerKm, includedKm]
     );
 
     res.json({
@@ -322,15 +325,17 @@ router.post("/transport-methods", async (req, res) => {
     });
   }
 });
-
+// تعديل وسيلة نقل
 // تعديل وسيلة نقل
 router.put("/transport-methods/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, delivery_fee } = req.body;
+    const { name, base_fee, price_per_km, included_km } = req.body;
 
     const cleanName = String(name || "").trim();
-    const fee = Number(delivery_fee || 0);
+    const baseFee = Number(base_fee || 0);
+    const pricePerKm = Number(price_per_km || 0);
+    const includedKm = Number(included_km || 0);
 
     if (!cleanName) {
       return res.status(400).json({
@@ -339,10 +344,10 @@ router.put("/transport-methods/:id", async (req, res) => {
       });
     }
 
-    if (Number.isNaN(fee) || fee < 0) {
+    if ([baseFee, pricePerKm, includedKm].some(v => Number.isNaN(v) || v < 0)) {
       return res.status(400).json({
         success: false,
-        message: "رسوم التوصيل غير صحيحة"
+        message: "بيانات التسعير غير صحيحة"
       });
     }
 
@@ -361,10 +366,10 @@ router.put("/transport-methods/:id", async (req, res) => {
     await db.query(
       `
       UPDATE wassel_transport_methods
-      SET name = ?, delivery_fee = ?
+      SET name = ?, base_fee = ?, price_per_km = ?, included_km = ?
       WHERE id = ?
       `,
-      [cleanName, fee, id]
+      [cleanName, baseFee, pricePerKm, includedKm, id]
     );
 
     res.json({
