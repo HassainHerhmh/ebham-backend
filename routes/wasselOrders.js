@@ -216,6 +216,169 @@ router.delete("/types/:id", async (req, res) => {
     });
   }
 });
+
+/* ==============================================
+   2.6️⃣ وسائل النقل
+============================================== */
+
+// جلب وسائل النقل
+router.get("/transport-methods", async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT id, name, delivery_fee
+      FROM wassel_transport_methods
+      ORDER BY id DESC
+    `);
+
+    res.json({
+      success: true,
+      methods: rows
+    });
+  } catch (err) {
+    console.error("Get Transport Methods Error:", err);
+    res.status(500).json({
+      success: false,
+      message: "فشل جلب وسائل النقل"
+    });
+  }
+});
+
+// إضافة وسيلة نقل
+router.post("/transport-methods", async (req, res) => {
+  try {
+    const { name, delivery_fee } = req.body;
+
+    const cleanName = String(name || "").trim();
+    const fee = Number(delivery_fee || 0);
+
+    if (!cleanName) {
+      return res.status(400).json({
+        success: false,
+        message: "اسم وسيلة النقل مطلوب"
+      });
+    }
+
+    if (Number.isNaN(fee) || fee < 0) {
+      return res.status(400).json({
+        success: false,
+        message: "رسوم التوصيل غير صحيحة"
+      });
+    }
+
+    const [[exists]] = await db.query(
+      `SELECT id FROM wassel_transport_methods WHERE name = ? LIMIT 1`,
+      [cleanName]
+    );
+
+    if (exists) {
+      return res.status(400).json({
+        success: false,
+        message: "وسيلة النقل موجودة مسبقًا"
+      });
+    }
+
+    const [result] = await db.query(
+      `
+      INSERT INTO wassel_transport_methods
+      (name, delivery_fee, created_at)
+      VALUES (?, ?, NOW())
+      `,
+      [cleanName, fee]
+    );
+
+    res.json({
+      success: true,
+      message: "تمت إضافة وسيلة النقل",
+      id: result.insertId
+    });
+  } catch (err) {
+    console.error("Create Transport Method Error:", err);
+    res.status(500).json({
+      success: false,
+      message: "فشل إضافة وسيلة النقل"
+    });
+  }
+});
+
+// تعديل وسيلة نقل
+router.put("/transport-methods/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, delivery_fee } = req.body;
+
+    const cleanName = String(name || "").trim();
+    const fee = Number(delivery_fee || 0);
+
+    if (!cleanName) {
+      return res.status(400).json({
+        success: false,
+        message: "اسم وسيلة النقل مطلوب"
+      });
+    }
+
+    if (Number.isNaN(fee) || fee < 0) {
+      return res.status(400).json({
+        success: false,
+        message: "رسوم التوصيل غير صحيحة"
+      });
+    }
+
+    const [[exists]] = await db.query(
+      `SELECT id FROM wassel_transport_methods WHERE name = ? AND id <> ? LIMIT 1`,
+      [cleanName, id]
+    );
+
+    if (exists) {
+      return res.status(400).json({
+        success: false,
+        message: "يوجد وسيلة نقل أخرى بنفس الاسم"
+      });
+    }
+
+    await db.query(
+      `
+      UPDATE wassel_transport_methods
+      SET name = ?, delivery_fee = ?
+      WHERE id = ?
+      `,
+      [cleanName, fee, id]
+    );
+
+    res.json({
+      success: true,
+      message: "تم تعديل وسيلة النقل"
+    });
+  } catch (err) {
+    console.error("Update Transport Method Error:", err);
+    res.status(500).json({
+      success: false,
+      message: "فشل تعديل وسيلة النقل"
+    });
+  }
+});
+
+// حذف وسيلة نقل
+router.delete("/transport-methods/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await db.query(
+      `DELETE FROM wassel_transport_methods WHERE id = ?`,
+      [id]
+    );
+
+    res.json({
+      success: true,
+      message: "تم حذف وسيلة النقل"
+    });
+  } catch (err) {
+    console.error("Delete Transport Method Error:", err);
+    res.status(500).json({
+      success: false,
+      message: "فشل حذف وسيلة النقل"
+    });
+  }
+});
 /* ==============================================
     3️⃣ جلب جميع الطلبات
 ============================================== */
