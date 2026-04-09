@@ -1,6 +1,7 @@
 import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
+import admin from "firebase-admin";
 
 const router = express.Router();
 router.use(auth);
@@ -125,11 +126,9 @@ ORDER BY w.id DESC
    حفظ طلب يدوي
 ============================================== */
 router.post("/", async (req, res) => {
-
   const conn = await db.getConnection();
 
   try {
-
     const {
       customer_id,
       restaurant_id,
@@ -137,98 +136,116 @@ router.post("/", async (req, res) => {
       delivery_fee,
       notes,
       payment_method,
-         payment_method_id, // ✅ جديد
-scheduled_time,
-
+      payment_method_id,
+      scheduled_time,
       items,
       total_amount
     } = req.body;
 
     if (!customer_id || !items?.length) {
       return res.status(400).json({
-        success:false,
-        message:"البيانات ناقصة"
+        success: false,
+        message: "البيانات ناقصة"
       });
     }
 
     await conn.beginTransaction();
 
+    let scheduledAt = null;
 
-let scheduledAt = null;
+    if (scheduled_time) {
+      const d = new Date(scheduled_time);
 
-if (scheduled_time) {
+      scheduledAt =
+        d.getFullYear() + "-" +
+        String(d.getMonth() + 1).padStart(2, "0") + "-" +
+        String(d.getDate()).padStart(2, "0") + " " +
+        String(d.getHours()).padStart(2, "0") + ":" +
+        String(d.getMinutes()).padStart(2, "0") + ":00";
+    }
 
-  const d = new Date(scheduled_time);
-
-  scheduledAt =
-    d.getFullYear() + "-" +
-    String(d.getMonth() + 1).padStart(2, "0") + "-" +
-    String(d.getDate()).padStart(2, "0") + " " +
-    String(d.getHours()).padStart(2, "0") + ":" +
-    String(d.getMinutes()).padStart(2, "0") + ":00";
-}
-
-
-   const [orderRes] = await conn.query(`
-  INSERT INTO wassel_orders (
-    customer_id,
-    restaurant_id,
-    to_address,
-    delivery_fee,
-    total_amount,
-    payment_method,
-    payment_method_id,
-    scheduled_at,
-    notes,
-    status,
-    is_manual,
-    user_id,
-    created_at
-  )
-  VALUES (?,?,?,?,?,?,?,?,?, 'pending', 1, ?, NOW())
-`, [
-  customer_id,
-  restaurant_id || null,
-  to_address,
-  delivery_fee,
-  total_amount,
-  payment_method,
-  payment_method_id,
-  scheduledAt,
-  notes,
-  req.user.id
-]);
-
+    const [orderRes] = await conn.query(`
+      INSERT INTO wassel_orders (
+        customer_id,
+        restaurant_id,
+        to_address,
+        delivery_fee,
+        total_amount,
+        payment_method,
+        payment_method_id,
+        scheduled_at,
+        notes,
+        status,
+        is_manual,
+        user_id,
+        created_at
+      )
+      VALUES (?,?,?,?,?,?,?,?,?, 'pending', 1, ?, NOW())
+    `, [
+      customer_id,
+      restaurant_id || null,
+      to_address,
+      delivery_fee,
+      total_amount,
+      payment_method,
+      payment_method_id,
+      scheduledAt,
+      notes,
+      req.user.id
+    ]);
 
     const orderId = orderRes.insertId;
 
-    for (const item of items){
-
+    for (const item of items) {
       await conn.query(`
         INSERT INTO wassel_order_items
-        (order_id,product_name,qty,price,total)
+        (order_id, product_name, qty, price, total)
         VALUES (?,?,?,?,?)
-      `,[
+      `, [
         orderId,
         item.name,
         item.qty,
         item.price,
-        item.qty*item.price
+        item.qty * item.price
       ]);
     }
 
     await conn.commit();
 
-    res.json({ success:true, order_id:orderId });
+    const io = req.app.get("io");
 
-  } catch (err){
+    const [[customer]] = await db.query(
+      `SELECT name FROM customers WHERE id = ? LIMIT 1`,
+      [customer_id]
+    );
 
+    const customerName = customer?.name || "عميل غير معروف";
+    const actorName = req.user?.name || "مستخدم";
+
+    let adminMessage = "";
+
+    if (req.user?.role === "customer") {
+      adminMessage = `🧾 العميل ${customerName} أضاف طلب يدوي رقم #${orderId}`;
+    } else {
+      adminMessage = `🧾 المستخدم ${actorName} أضاف طلب يدوي للعميل ${customerName} رقم #${orderId}`;
+    }
+
+    io.emit("admin_notification", {
+      type: "manual_order_created",
+      order_id: orderId,
+      actor_name: actorName,
+      customer_name: customerName,
+      message: adminMessage
+    });
+
+    res.json({ success: true, order_id: orderId });
+
+  } catch (err) {
     await conn.rollback();
 
     console.error(err);
 
-    res.status(500).json({ success:false });
-
+    res.status(500).json({ success: false });
   } finally {
     conn.release();
   }
@@ -323,406 +340,385 @@ router.put("/:id", async (req, res) => {
 
 
 /* ==============================================
-   تحديث الحالة + القيود (نسخة نهائية صحيحة)
+   تحديث الحالة + القيود + الإشعارات
 ============================================== */
 router.put("/status/:id", async (req, res) => {
-
   const orderId = req.params.id;
   const { status } = req.body;
 
   const conn = await db.getConnection();
 
   try {
-
     await conn.beginTransaction();
 
-    /* تحديث الحالة */
-   const now = new Date();
+    let field = null;
 
-let field = null;
+    if (status === "processing") field = "processing_at";
+    if (status === "ready") field = "ready_at";
+    if (status === "delivering") field = "delivering_at";
+    if (status === "completed") field = "completed_at";
+    if (status === "cancelled") field = "cancelled_at";
 
-if (status === "processing") field = "processing_at";
-if (status === "ready") field = "ready_at";
-if (status === "delivering") field = "delivering_at";
-if (status === "completed") field = "completed_at";
-if (status === "cancelled") field = "cancelled_at";
-
-if (field) {
-  await conn.query(
-    `UPDATE wassel_orders 
-     SET status=?, ${field}=NOW() 
-     WHERE id=?`,
-    [status, orderId]
-  );
-} else {
-  await conn.query(
-    "UPDATE wassel_orders SET status=? WHERE id=?",
-    [status, orderId]
-  );
-}
-
-
-    if (status !== "delivering") {
-      await conn.commit();
-      return res.json({ success: true });
-    }
-
-
-    /* منع التكرار */
-    const [[old]] = await conn.query(`
-      SELECT id FROM journal_entries
-      WHERE reference_type='manual_order'
-      AND reference_id=?
-      LIMIT 1
-    `,[orderId]);
-
-    if (old) throw new Error("تم الترحيل سابقاً");
-
-
-    /* الإعدادات */
-    const [[settings]] = await conn.query(`
-      SELECT * FROM settings LIMIT 1
-    `);
-
-
-    /* بيانات الطلب */
-    const [[o]] = await conn.query(`
-
-      SELECT 
-        w.*,
-        c.name AS customer_name,
-
-        cap.account_id AS cap_acc_id,
-
-        cg.id   AS guarantee_id,
-        cg.type AS guarantee_type,
-        cg.account_id AS customer_acc_id,
-
-        comA.agent_account_id AS restaurant_acc_id,
-
-        comA.commission_type  AS agent_comm_type,
-        comA.commission_value AS agent_comm_value,
-
-        comm.commission_type,
-        comm.commission_value
-
-      FROM wassel_orders w
-
-      LEFT JOIN customers c ON c.id = w.customer_id
-      LEFT JOIN captains cap ON cap.id = w.captain_id
-      LEFT JOIN customer_guarantees cg ON cg.customer_id = w.customer_id
-
-      LEFT JOIN restaurants r ON r.id = w.restaurant_id
-      LEFT JOIN agents ag ON ag.id = r.agent_id
-
-      LEFT JOIN commissions comA
-        ON comA.account_type='agent'
-       AND comA.account_id=ag.id
-       AND comA.is_active=1
-
-      LEFT JOIN commissions comm
-        ON comm.account_type='captain'
-       AND comm.account_id=cap.id
-       AND comm.is_active=1
-
-      WHERE w.id=?
-
-    `,[orderId]);
-
-
-    if (!o) throw new Error("الطلب غير موجود");
-    if (!o.cap_acc_id) throw new Error("الكابتن بلا حساب");
-    if (!o.restaurant_acc_id) throw new Error("المورد بلا حساب");
-
-
-    /* ========================
-       المبالغ
-    ======================== */
-
-    const itemsAmount  = Number(o.total_amount) - Number(o.delivery_fee);
-    const deliveryFee  = Number(o.delivery_fee);
-    const totalAmount  = Number(o.total_amount);
-
-
-    /* ========================
-       عمولات
-    ======================== */
-
-    const captainCommission =
-      o.commission_type === "percent"
-        ? (deliveryFee * o.commission_value) / 100
-        : Number(o.commission_value || 0);
-
-
-    const agentCommission =
-      o.agent_comm_type === "percent"
-        ? (itemsAmount * o.agent_comm_value) / 100
-        : Number(o.agent_comm_value || 0);
-
-
-    const note = `طلب يدوي #${orderId} - ${o.customer_name}`;
-
-
-
-    /* =====================================================
-        COD
-    ===================================================== */
-    if (o.payment_method === "cod") {
-
-      /* كابتن → مورد (المشتريات فقط) */
-      await insertJournal(
-        conn,
-        o.cap_acc_id,
-        itemsAmount,
-        0,
-        `توريد نقدي للمورد - ${note}`,
-        orderId,
-        req
+    if (field) {
+      await conn.query(
+        `UPDATE wassel_orders 
+         SET status=?, ${field}=NOW() 
+         WHERE id=?`,
+        [status, orderId]
       );
-
-      await insertJournal(
-        conn,
-        o.restaurant_acc_id,
-        0,
-        itemsAmount,
-        `استلام نقدي من كابتن - ${note}`,
-        orderId,
-        req
+    } else {
+      await conn.query(
+        "UPDATE wassel_orders SET status=? WHERE id=?",
+        [status, orderId]
       );
     }
 
+    if (status === "delivering") {
+      const [[old]] = await conn.query(`
+        SELECT id FROM journal_entries
+        WHERE reference_type='manual_order'
+        AND reference_id=?
+        LIMIT 1
+      `, [orderId]);
 
+      if (old) throw new Error("تم الترحيل سابقاً");
 
-    /* =====================================================
-        Wallet
-    ===================================================== */
-    else if (o.payment_method === "wallet") {
+      const [[settings]] = await conn.query(`
+        SELECT * FROM settings LIMIT 1
+      `);
 
-      let payFrom = null;
+      const [[o]] = await conn.query(`
+        SELECT 
+          w.*,
+          c.name AS customer_name,
+          c.fcm_token AS customer_fcm_token,
 
-      /* عنده حساب */
-      if (o.guarantee_type === "account" && o.customer_acc_id){
-        payFrom = o.customer_acc_id;
-      }
+          cap.account_id AS cap_acc_id,
 
-      /* وسيط */
-      else {
-        payFrom = settings.customer_guarantee_account;
-      }
+          cg.id AS guarantee_id,
+          cg.type AS guarantee_type,
+          cg.account_id AS customer_acc_id,
 
-      if (!payFrom)
-        throw new Error("حساب محفظة العميل غير معرف");
+          comA.agent_account_id AS restaurant_acc_id,
 
+          comA.commission_type AS agent_comm_type,
+          comA.commission_value AS agent_comm_value,
 
-      /* عميل/وسيط → كابتن */
-      await insertJournal(
-        conn,
-        payFrom,
-        totalAmount,
-        0,
-        `سداد من الرصيد - ${note}`,
-        orderId,
-        req
-      );
+          comm.commission_type,
+          comm.commission_value
 
-      await insertJournal(
-        conn,
-        o.cap_acc_id,
-        0,
-        totalAmount,
-        `استلام من الرصيد - ${note}`,
-        orderId,
-        req
-      );
+        FROM wassel_orders w
 
+        LEFT JOIN customers c ON c.id = w.customer_id
+        LEFT JOIN captains cap ON cap.id = w.captain_id
+        LEFT JOIN customer_guarantees cg ON cg.customer_id = w.customer_id
 
-      /* كابتن → مورد */
-      await insertJournal(
-        conn,
-        o.cap_acc_id,
-        itemsAmount,
-        0,
-        `توريد للمورد - ${note}`,
-        orderId,
-        req
-      );
+        LEFT JOIN restaurants r ON r.id = w.restaurant_id
+        LEFT JOIN agents ag ON ag.id = r.agent_id
 
-      await insertJournal(
-        conn,
-        o.restaurant_acc_id,
-        0,
-        itemsAmount,
-        `استلام من كابتن - ${note}`,
-        orderId,
-        req
-      );
+        LEFT JOIN commissions comA
+          ON comA.account_type='agent'
+         AND comA.account_id=ag.id
+         AND comA.is_active=1
 
+        LEFT JOIN commissions comm
+          ON comm.account_type='captain'
+         AND comm.account_id=cap.id
+         AND comm.is_active=1
 
-      /* لو Cash Wallet → سجل حركة */
-      if (o.guarantee_type !== "account" && o.guarantee_id){
+        WHERE w.id=?
+      `, [orderId]);
 
-        await conn.query(`
-          INSERT INTO customer_guarantee_moves
-          (guarantee_id,currency_id,rate,amount,amount_base)
-          VALUES (?,1,1,?,?)
-        `,[
-          o.guarantee_id,
-          -totalAmount,
-          -totalAmount
+      if (!o) throw new Error("الطلب غير موجود");
+      if (!o.cap_acc_id) throw new Error("الكابتن بلا حساب");
+      if (!o.restaurant_acc_id) throw new Error("المورد بلا حساب");
+
+      const itemsAmount = Number(o.total_amount) - Number(o.delivery_fee);
+      const deliveryFee = Number(o.delivery_fee);
+      const totalAmount = Number(o.total_amount);
+
+      const captainCommission =
+        o.commission_type === "percent"
+          ? (deliveryFee * o.commission_value) / 100
+          : Number(o.commission_value || 0);
+
+      const agentCommission =
+        o.agent_comm_type === "percent"
+          ? (itemsAmount * o.agent_comm_value) / 100
+          : Number(o.agent_comm_value || 0);
+
+      const note = `طلب يدوي #${orderId} - ${o.customer_name}`;
+
+      if (o.payment_method === "cod") {
+        await insertJournal(
+          conn,
+          o.cap_acc_id,
+          itemsAmount,
+          0,
+          `توريد نقدي للمورد - ${note}`,
+          orderId,
+          req
+        );
+
+        await insertJournal(
+          conn,
+          o.restaurant_acc_id,
+          0,
+          itemsAmount,
+          `استلام نقدي من كابتن - ${note}`,
+          orderId,
+          req
+        );
+      } else if (o.payment_method === "wallet") {
+        let payFrom = null;
+
+        if (o.guarantee_type === "account" && o.customer_acc_id) {
+          payFrom = o.customer_acc_id;
+        } else {
+          payFrom = settings.customer_guarantee_account;
+        }
+
+        if (!payFrom) {
+          throw new Error("حساب محفظة العميل غير معرف");
+        }
+
+        await insertJournal(
+          conn,
+          payFrom,
+          totalAmount,
+          0,
+          `سداد من الرصيد - ${note}`,
+          orderId,
+          req
+        );
+
+        await insertJournal(
+          conn,
+          o.cap_acc_id,
+          0,
+          totalAmount,
+          `استلام من الرصيد - ${note}`,
+          orderId,
+          req
+        );
+
+        await insertJournal(
+          conn,
+          o.cap_acc_id,
+          itemsAmount,
+          0,
+          `توريد للمورد - ${note}`,
+          orderId,
+          req
+        );
+
+        await insertJournal(
+          conn,
+          o.restaurant_acc_id,
+          0,
+          itemsAmount,
+          `استلام من كابتن - ${note}`,
+          orderId,
+          req
+        );
+
+        if (o.guarantee_type !== "account" && o.guarantee_id) {
+          await conn.query(`
+            INSERT INTO customer_guarantee_moves
+            (guarantee_id,currency_id,rate,amount,amount_base)
+            VALUES (?,1,1,?,?)
+          `, [
+            o.guarantee_id,
+            -totalAmount,
+            -totalAmount
+          ]);
+        }
+      } else if (o.payment_method === "bank") {
+        const [[bankRow]] = await conn.query(`
+          SELECT 
+            COALESCE(bpa.account_id, pm.account_id) AS bank_account_id
+          FROM payment_methods pm
+          LEFT JOIN branch_payment_accounts bpa
+            ON bpa.payment_method_id = pm.id
+            AND bpa.branch_id = ?
+          WHERE pm.id = ?
+          LIMIT 1
+        `, [
+          req.user.branch_id,
+          o.payment_method_id
         ]);
+
+        if (!bankRow?.bank_account_id) {
+          throw new Error("حساب البنك غير مربوط لهذا الفرع");
+        }
+
+        const bankAccountId = bankRow.bank_account_id;
+
+        await insertJournal(
+          conn,
+          bankAccountId,
+          totalAmount,
+          0,
+          `تحويل بنكي - ${note}`,
+          orderId,
+          req
+        );
+
+        await insertJournal(
+          conn,
+          o.cap_acc_id,
+          0,
+          totalAmount,
+          `استلام بنكي - ${note}`,
+          orderId,
+          req
+        );
+
+        await insertJournal(
+          conn,
+          o.cap_acc_id,
+          itemsAmount,
+          0,
+          `توريد للمورد - ${note}`,
+          orderId,
+          req
+        );
+
+        await insertJournal(
+          conn,
+          o.restaurant_acc_id,
+          0,
+          itemsAmount,
+          `استلام من كابتن - ${note}`,
+          orderId,
+          req
+        );
       }
 
+      if (captainCommission > 0) {
+        await insertJournal(
+          conn,
+          o.cap_acc_id,
+          captainCommission,
+          0,
+          `خصم عمولة كابتن - ${note}`,
+          orderId,
+          req
+        );
+
+        await insertJournal(
+          conn,
+          settings.courier_commission_account,
+          0,
+          captainCommission,
+          `إيراد عمولة كابتن - ${note}`,
+          orderId,
+          req
+        );
+      }
+
+      if (agentCommission > 0) {
+        await insertJournal(
+          conn,
+          o.restaurant_acc_id,
+          agentCommission,
+          0,
+          `خصم عمولة وكيل - ${note}`,
+          orderId,
+          req
+        );
+
+        await insertJournal(
+          conn,
+          settings.commission_income_account,
+          0,
+          agentCommission,
+          `إيراد عمولة وكيل - ${note}`,
+          orderId,
+          req
+        );
+      }
     }
-
-
-
-    /* =====================================================
-        Bank
-    ===================================================== */
-else if (o.payment_method === "bank") {
-
-  /* جلب حساب البنك المرتبط فعلياً بالطلب */
-  const [[bankRow]] = await conn.query(`
-    SELECT 
-      COALESCE(bpa.account_id, pm.account_id) AS bank_account_id
-    FROM payment_methods pm
-    LEFT JOIN branch_payment_accounts bpa
-      ON bpa.payment_method_id = pm.id
-      AND bpa.branch_id = ?
-    WHERE pm.id = ?
-    LIMIT 1
-  `, [
-    req.user.branch_id,
-    o.payment_method_id
-  ]);
-
-  if (!bankRow?.bank_account_id) {
-    throw new Error("حساب البنك غير مربوط لهذا الفرع");
-  }
-
-  const bankAccountId = bankRow.bank_account_id;
-
-
-  /* بنك → كابتن */
-  await insertJournal(
-    conn,
-    bankAccountId,
-    totalAmount,
-    0,
-    `تحويل بنكي - ${note}`,
-    orderId,
-    req
-  );
-
-  await insertJournal(
-    conn,
-    o.cap_acc_id,
-    0,
-    totalAmount,
-    `استلام بنكي - ${note}`,
-    orderId,
-    req
-  );
-
-
-  /* كابتن → مورد */
-  await insertJournal(
-    conn,
-    o.cap_acc_id,
-    itemsAmount,
-    0,
-    `توريد للمورد - ${note}`,
-    orderId,
-    req
-  );
-
-  await insertJournal(
-    conn,
-    o.restaurant_acc_id,
-    0,
-    itemsAmount,
-    `استلام من كابتن - ${note}`,
-    orderId,
-    req
-  );
-}
-
-
-
-    /* =====================================================
-        عمولة كابتن
-    ===================================================== */
-    if (captainCommission > 0){
-
-      await insertJournal(
-        conn,
-        o.cap_acc_id,
-        captainCommission,
-        0,
-        `خصم عمولة كابتن - ${note}`,
-        orderId,
-        req
-      );
-
-      await insertJournal(
-        conn,
-        settings.courier_commission_account,
-        0,
-        captainCommission,
-        `إيراد عمولة كابتن - ${note}`,
-        orderId,
-        req
-      );
-    }
-
-
-
-    /* =====================================================
-        عمولة وكيل
-    ===================================================== */
-    if (agentCommission > 0){
-
-      await insertJournal(
-        conn,
-        o.restaurant_acc_id,
-        agentCommission,
-        0,
-        `خصم عمولة وكيل - ${note}`,
-        orderId,
-        req
-      );
-
-      await insertJournal(
-        conn,
-        settings.commission_income_account,
-        0,
-        agentCommission,
-        `إيراد عمولة وكيل - ${note}`,
-        orderId,
-        req
-      );
-    }
-
 
     await conn.commit();
 
-    res.json({ success:true });
+    const io = req.app.get("io");
 
-  } catch(err){
+    const [[orderInfo]] = await db.query(`
+      SELECT
+        w.id,
+        w.status,
+        c.id AS customer_id,
+        c.name AS customer_name,
+        c.fcm_token AS customer_fcm_token,
+        cap.name AS captain_name,
+        u.name AS user_name
+      FROM wassel_orders w
+      LEFT JOIN customers c ON c.id = w.customer_id
+      LEFT JOIN captains cap ON cap.id = ?
+      LEFT JOIN users u ON u.id = ?
+      WHERE w.id = ?
+      LIMIT 1
+    `, [req.user.id, req.user.id, orderId]);
 
+    let actorName = "النظام";
+    let actorIcon = "⚙️";
+
+    if (orderInfo?.captain_name) {
+      actorName = orderInfo.captain_name;
+      actorIcon = "👨‍✈️";
+    } else if (orderInfo?.user_name) {
+      actorName = orderInfo.user_name;
+      actorIcon = "🧑‍💼";
+    }
+
+    const statusMap = {
+      pending: "قيد الانتظار",
+      processing: "قيد المعالجة",
+      ready: "جاهز",
+      delivering: "قيد التوصيل",
+      completed: "مكتمل",
+      cancelled: "ملغي",
+      scheduled: "مجدول"
+    };
+
+    const statusText = statusMap[status] || status;
+
+    io.emit("admin_notification", {
+      type: "manual_order_status",
+      order_id: orderId,
+      actor_name: actorName,
+      customer_name: orderInfo?.customer_name,
+      status,
+      message: `${actorIcon} ${actorName} حدّث حالة الطلب اليدوي للعميل ${orderInfo?.customer_name} رقم #${orderId} إلى ${statusText}`
+    });
+
+    if (orderInfo?.customer_fcm_token) {
+      await sendFCMNotification(
+        orderInfo.customer_fcm_token,
+        "تحديث حالة الطلب",
+        `تم تحديث طلبك اليدوي رقم #${orderId} إلى ${statusText}`,
+        {
+          orderId: String(orderId),
+          type: "manual_order_status"
+        }
+      );
+    }
+
+    res.json({ success: true });
+
+  } catch (err) {
     await conn.rollback();
 
     console.error("❌ MANUAL STATUS ERROR:", err);
 
     res.status(500).json({
-      success:false,
+      success: false,
       error: err.message
     });
 
   } finally {
-
     conn.release();
-
   }
 });
 
@@ -961,5 +957,33 @@ router.get("/customer-orders", async (req, res) => {
   }
 
 });
+
+//////////////////////
+async function sendFCMNotification(token, title, body, data = {}) {
+  if (!token) return;
+
+  try {
+    await admin.messaging().send({
+      token,
+      notification: {
+        title,
+        body
+      },
+      data: {
+        ...data,
+        click_action: "FLUTTER_NOTIFICATION_CLICK"
+      },
+      android: {
+        priority: "high",
+        notification: {
+          sound: "default",
+          channelId: "orders_channel"
+        }
+      }
+    });
+  } catch (err) {
+    console.error("Manual Order FCM Error:", err.message);
+  }
+}
 
 export default router;
