@@ -1152,24 +1152,73 @@ const [[order]] = await db.query(`
    تحديث حالة طلب وصل لي
 ========================= */
 router.put("/:id/status", auth, async (req, res) => {
-
-  try{
-
+  try {
     const { id } = req.params;
     const { status } = req.body;
 
-    // تحديث الحالة
-    await db.query(`
-      UPDATE wassel_orders
-      SET status = ?, updated_by = ?
-      WHERE id = ?
-    `,[status, req.user.id, id]);
+    /* ======================
+       التحقق من الطلب
+    ====================== */
+    const [[currentOrder]] = await db.query(`
+      SELECT
+        w.id,
+        w.status,
+        w.captain_id,
+        c.name AS customer_name,
+        cap.name AS captain_name,
+        u.name AS user_name
+      FROM wassel_orders w
+      LEFT JOIN customers c ON c.id = w.customer_id
+      LEFT JOIN captains cap ON cap.id = req.user.id
+      LEFT JOIN users u ON u.id = req.user.id
+      WHERE w.id = ?
+      LIMIT 1
+    `, [id]);
 
+    if (!currentOrder) {
+      return res.status(404).json({
+        success: false,
+        message: "الطلب غير موجود"
+      });
+    }
 
     /* ======================
-       جلب بيانات الطلب
+       منع التوصيل بدون كابتن
     ====================== */
+    if (status === "delivering" && !currentOrder.captain_id) {
+      return res.status(400).json({
+        success: false,
+        message: "لم يتم إسناد كبتن"
+      });
+    }
 
+    /* ======================
+       تحديد وقت الحركة
+    ====================== */
+    let timeField = null;
+
+    if (status === "confirmed") timeField = "processing_at";
+    if (status === "delivering") timeField = "delivering_at";
+    if (status === "completed") timeField = "completed_at";
+    if (status === "cancelled") timeField = "cancelled_at";
+
+    if (timeField) {
+      await db.query(`
+        UPDATE wassel_orders
+        SET status = ?, ${timeField} = NOW(), updated_by = ?
+        WHERE id = ?
+      `, [status, req.user.id, id]);
+    } else {
+      await db.query(`
+        UPDATE wassel_orders
+        SET status = ?, updated_by = ?
+        WHERE id = ?
+      `, [status, req.user.id, id]);
+    }
+
+    /* ======================
+       جلب بيانات الطلب بعد التحديث
+    ====================== */
     const [[order]] = await db.query(`
       SELECT
         w.id,
@@ -1182,92 +1231,66 @@ router.put("/:id/status", auth, async (req, res) => {
       LEFT JOIN captains cap ON cap.id = ?
       LEFT JOIN users u ON u.id = ?
       WHERE w.id = ?
-    `,[req.user.id, req.user.id, id]);
-
+    `, [req.user.id, req.user.id, id]);
 
     /* ======================
        تحديد من قام بالتحديث
     ====================== */
-
     let actorName = "النظام";
     let actorIcon = "⚙️";
 
-    if(order?.captain_name){
-
+    if (order?.captain_name) {
       actorName = order.captain_name;
       actorIcon = "👨‍✈️";
-
-    }
-    else if(order?.user_name){
-
+    } else if (order?.user_name) {
       actorName = order.user_name;
       actorIcon = "🧑‍💼";
-
     }
-
 
     /* ======================
        تحويل الحالة للعربي
     ====================== */
-
     const statusMap = {
-
       pending: "قيد الانتظار",
       confirmed: "قيد المعالجة",
       preparing: "قيد التحضير",
-      ready: "جاهز",
       delivering: "قيد التوصيل",
       completed: "مكتمل",
       cancelled: "ملغي",
       scheduled: "مجدول"
-
     };
 
     const statusText = statusMap[status] || status;
 
-
     /* ======================
        إرسال Socket Notification
     ====================== */
-
     const io = req.app.get("io");
 
     io.emit("admin_notification", {
-
       type: "wassel_status",
-
       order_id: id,
-
       actor_name: actorName,
-
       customer_name: order.customer_name,
-
       status: status,
-
-      message:
-        `${actorIcon} ${actorName} حدث طلب العميل ${order.customer_name} رقم #${id} إلى ${statusText}`
-
+      message: `${actorIcon} ${actorName} حدّث حالة طلب العميل ${order.customer_name} رقم #${id} إلى ${statusText}`
     });
-
 
     res.json({
-      success:true,
-      message:"تم تحديث الحالة"
+      success: true,
+      message: "تم تحديث الحالة"
     });
 
-  }
-  catch(err){
-
+  } catch (err) {
     console.error(err);
 
     res.status(500).json({
-      success:false,
-      message:"Server error"
+      success: false,
+      message: "Server error"
     });
-
   }
-
 });
+
 ///////////////////////
 async function sendFCMNotification(token, title, body, data = {}) {
 
