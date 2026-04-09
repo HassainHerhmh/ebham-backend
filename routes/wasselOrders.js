@@ -646,21 +646,16 @@ router.post("/", async (req, res) => {
       [customer_id]
     );
 
-    let orderTypeName = order_type || "غير محدد";
-
-    if (order_type) {
-      const [[typeRow]] = await db.query(
-        `SELECT name FROM wassel_order_types WHERE id = ? LIMIT 1`,
-        [order_type]
-      );
-
-      if (typeRow?.name) {
-        orderTypeName = typeRow.name;
-      }
-    }
-
-    const actorName = req.user?.name || "مستخدم لوحة التحكم";
     const customerName = customer?.name || "عميل غير معروف";
+    const actorName = req.user?.name || "مستخدم";
+
+    let adminMessage = "";
+
+    if (req.user?.role === "customer") {
+      adminMessage = `🧾 العميل ${customerName} أضاف طلب وصل لي رقم #${orderId}`;
+    } else {
+      adminMessage = `🧾 المستخدم ${actorName} أضاف طلب وصل لي للعميل ${customerName} رقم #${orderId}`;
+    }
 
     /* ======================
        إشعار لوحة التحكم فقط
@@ -670,8 +665,7 @@ router.post("/", async (req, res) => {
       order_id: orderId,
       actor_name: actorName,
       customer_name: customerName,
-      order_type_name: orderTypeName,
-      message: `🧾 ${actorName} أضاف طلب وصل لي للعميل ${customerName} برقم #${orderId} - نوع الطلب: ${orderTypeName}`
+      message: adminMessage
     });
 
     res.json({
@@ -688,6 +682,7 @@ router.post("/", async (req, res) => {
     });
   }
 });
+
 
 
 /* ==============================================
