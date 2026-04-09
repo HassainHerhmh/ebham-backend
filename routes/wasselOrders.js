@@ -4,6 +4,28 @@ import auth from "../middlewares/auth.js";
 import admin from "firebase-admin";
 const router = express.Router();
 
+
+
+
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const toRad = (v) => (v * Math.PI) / 180;
+  const R = 6371;
+
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+
 /* ==============================================
     1️⃣ جلب رصيد العميل (يدعم المحفظة والحساب المحاسبي)
 ============================================== */
@@ -225,8 +247,9 @@ router.delete("/types/:id", async (req, res) => {
 router.get("/transport-methods", async (req, res) => {
   try {
     const [rows] = await db.query(`
-      SELECT id, name, delivery_fee
+      SELECT id, name, base_fee, price_per_km, included_km
       FROM wassel_transport_methods
+      WHERE is_active = 1
       ORDER BY id DESC
     `);
 
@@ -434,30 +457,32 @@ router.get("/", async (req, res) => {
 ============================================== */
 router.post("/", async (req, res) => {
   try {
+const {
+  customer_id,
+  order_type,
+  transport_method_id,
 
-    const {
-      customer_id,
-      order_type,
+  from_address,
+  to_address,
 
-      from_address,
-      to_address,
+  from_address_id,
+  to_address_id,
 
-      from_address_id,
-      to_address_id,
+  from_lat,
+  from_lng,
+  to_lat,
+  to_lng,
 
-      from_lat,
-      from_lng,
-      to_lat,
-      to_lng,
+  distance_km,
+  delivery_fee,
+  extra_fee,
+  notes,
 
-      delivery_fee,
-      extra_fee,
-      notes,
+  payment_method,
+  bank_id,
+  scheduled_time
+} = req.body;
 
-      payment_method,
-      bank_id,
-      scheduled_time
-    } = req.body;
 
     /* ======================
        فحص الرصيد
@@ -559,63 +584,66 @@ router.post("/", async (req, res) => {
     ====================== */
 
     const [result] = await db.query(`
-      INSERT INTO wassel_orders (
+  INSERT INTO wassel_orders (
+    customer_id,
+    order_type,
+    transport_method_id,
 
-        customer_id,
-        order_type,
+    from_address_id,
+    to_address_id,
 
-        from_address_id,
-        to_address_id,
+    from_address,
+    from_lat,
+    from_lng,
 
-        from_address,
-        from_lat,
-        from_lng,
+    to_address,
+    to_lat,
+    to_lng,
 
-        to_address,
-        to_lat,
-        to_lng,
+    distance_km,
+    delivery_fee,
+    extra_fee,
+    notes,
 
-        delivery_fee,
-        extra_fee,
-        notes,
+    status,
+    payment_method,
+    bank_id,
 
-        status,
-        payment_method,
-        bank_id,
+    user_id,
+    scheduled_at,
+    is_manual,
+    created_at
 
-        user_id,
-        scheduled_at,
-        is_manual,
-        created_at
+  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,NOW())
+`, [
 
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,NOW())
-    `, [
+  customer_id || null,
+  order_type,
+  transport_method_id || null,
 
-      customer_id || null,
-      order_type,
+  from_address_id || null,
+  to_address_id || null,
 
-      from_address_id || null,
-      to_address_id || null,
+  from_address,
+  finalFromLat,
+  finalFromLng,
 
-      from_address,
-      finalFromLat,
-      finalFromLng,
+  to_address,
+  finalToLat,
+  finalToLng,
 
-      to_address,
-      finalToLat,
-      finalToLng,
+  Number(distance_km || 0),
+  delivery_fee || 0,
+  extra_fee || 0,
+  notes || "",
 
-      delivery_fee || 0,
-      extra_fee || 0,
-      notes || "",
+  status,
+  payment_method,
+  bank_id || null,
 
-      status,
-      payment_method,
-      bank_id || null,
-
-      req.user.id,
-      scheduledAt
-    ]);
+  req.user.id,
+  scheduledAt
+]);
 
    const orderId = result.insertId;
 
@@ -908,29 +936,32 @@ router.put("/:id", async (req, res) => {
 
     const orderId = req.params.id;
 
-    const {
-      customer_id,
-      order_type,
+ const {
+  customer_id,
+  order_type,
+  transport_method_id,
 
-      from_address,
-      to_address,
+  from_address,
+  to_address,
 
-      from_address_id,
-      to_address_id,
+  from_address_id,
+  to_address_id,
 
-      from_lat,
-      from_lng,
-      to_lat,
-      to_lng,
+  from_lat,
+  from_lng,
+  to_lat,
+  to_lng,
 
-      delivery_fee,
-      extra_fee,
-      notes,
+  distance_km,
+  delivery_fee,
+  extra_fee,
+  notes,
 
-      payment_method,
-      bank_id,
-      scheduled_time
-    } = req.body;
+  payment_method,
+  bank_id,
+  scheduled_time
+} = req.body;
+
 
     /* ======================
        معالجة وقت الجدولة
@@ -988,66 +1019,71 @@ router.put("/:id", async (req, res) => {
        التحديث
     ====================== */
 
-    await db.query(`
-      UPDATE wassel_orders SET
+   await db.query(`
+  UPDATE wassel_orders SET
 
-        customer_id     = ?,
-        order_type      = ?,
+    customer_id        = ?,
+    order_type         = ?,
+    transport_method_id = ?,
 
-        from_address_id = ?,
-        to_address_id   = ?,
+    from_address_id    = ?,
+    to_address_id      = ?,
 
-        from_address    = ?,
-        from_lat        = ?,
-        from_lng        = ?,
+    from_address       = ?,
+    from_lat           = ?,
+    from_lng           = ?,
 
-        to_address      = ?,
-        to_lat          = ?,
-        to_lng          = ?,
+    to_address         = ?,
+    to_lat             = ?,
+    to_lng             = ?,
 
-        delivery_fee    = ?,
-        extra_fee       = ?,
-        notes           = ?,
+    distance_km        = ?,
+    delivery_fee       = ?,
+    extra_fee          = ?,
+    notes              = ?,
 
-        payment_method  = ?,
-        bank_id         = ?,
+    payment_method     = ?,
+    bank_id            = ?,
 
-        scheduled_at    = ?,
-        status          = ?,
+    scheduled_at       = ?,
+    status             = ?,
 
-        updated_by      = ?
+    updated_by         = ?
 
-      WHERE id = ?
-    `, [
+  WHERE id = ?
+`, [
 
-      customer_id || null,
-      order_type,
+  customer_id || null,
+  order_type,
+  transport_method_id || null,
 
-      from_address_id || null,
-      to_address_id || null,
+  from_address_id || null,
+  to_address_id || null,
 
-      from_address,
-      finalFromLat,   // ✅ مضمون
-      finalFromLng,   // ✅ مضمون
+  from_address,
+  finalFromLat,
+  finalFromLng,
 
-      to_address,
-      finalToLat,     // ✅ مضمون
-      finalToLng,     // ✅ مضمون
+  to_address,
+  finalToLat,
+  finalToLng,
 
-      delivery_fee || 0,
-      extra_fee || 0,
-      notes || "",
+  Number(distance_km || 0),
+  delivery_fee || 0,
+  extra_fee || 0,
+  notes || "",
 
-      payment_method,
-      bank_id || null,
+  payment_method,
+  bank_id || null,
 
-      scheduledAt,
-      status,
+  scheduledAt,
+  status,
 
-      req.user.id,
+  req.user.id,
 
-      orderId
-    ]);
+  orderId
+]);
+
 
     res.json({ success: true });
 
@@ -1074,48 +1110,47 @@ router.get("/:id", async (req, res) => {
        جلب الطلب
     ========================= */
 
-    const [[order]] = await db.query(`
-      SELECT
+  const [[order]] = await db.query(`
+  SELECT
+    w.id,
+    w.order_type,
+    w.transport_method_id,
+    tm.name AS transport_method_name,
+    w.distance_km,
+    w.is_manual,
+    w.status,
 
-        w.id,
-        w.order_type,
-        w.is_manual,
-        w.status,
+    w.from_address,
+    w.from_lat,
+    w.from_lng,
 
-        w.from_address,
-        w.from_lat,
-        w.from_lng,
+    w.to_address,
+    w.to_lat,
+    w.to_lng,
 
-        w.to_address,
-        w.to_lat,
-        w.to_lng,
+    w.delivery_fee,
+    w.extra_fee,
 
-        w.delivery_fee,
-        w.extra_fee,
+    (w.delivery_fee + w.extra_fee) AS total_fee,
 
-        (w.delivery_fee + w.extra_fee) AS total_fee,
+    w.notes,
+    w.payment_method,
 
-        w.notes,
+    w.customer_id,
+    c.name AS customer_name,
 
-        w.payment_method,
+    w.created_at,
+    w.processing_at,
+    w.delivering_at,
+    w.completed_at,
+    w.cancelled_at
 
-        w.customer_id,
-        c.name AS customer_name,
-
-        w.created_at,
-        w.processing_at,
-        w.delivering_at,
-        w.completed_at,
-        w.cancelled_at
-
-      FROM wassel_orders w
-
-      LEFT JOIN customers c
-        ON c.id = w.customer_id
-
-      WHERE w.id = ?
-      LIMIT 1
-    `, [orderId]);
+  FROM wassel_orders w
+  LEFT JOIN customers c ON c.id = w.customer_id
+  LEFT JOIN wassel_transport_methods tm ON tm.id = w.transport_method_id
+  WHERE w.id = ?
+  LIMIT 1
+`, [orderId]);
 
     if (!order) {
 
@@ -1373,4 +1408,71 @@ await db.query(
   }
 
 });
+
+router.post("/calculate-fee", async (req, res) => {
+  try {
+    const {
+      transport_method_id,
+      from_lat,
+      from_lng,
+      to_lat,
+      to_lng
+    } = req.body;
+
+    if (!transport_method_id || !from_lat || !from_lng || !to_lat || !to_lng) {
+      return res.status(400).json({
+        success: false,
+        message: "بيانات الحساب ناقصة"
+      });
+    }
+
+    const [[method]] = await db.query(`
+      SELECT id, name, base_fee, price_per_km, included_km
+      FROM wassel_transport_methods
+      WHERE id = ?
+      LIMIT 1
+    `, [transport_method_id]);
+
+    if (!method) {
+      return res.status(404).json({
+        success: false,
+        message: "وسيلة النقل غير موجودة"
+      });
+    }
+
+    const distanceKm = haversineKm(
+      Number(from_lat),
+      Number(from_lng),
+      Number(to_lat),
+      Number(to_lng)
+    );
+
+    const includedKm = Number(method.included_km || 0);
+    const baseFee = Number(method.base_fee || 0);
+    const pricePerKm = Number(method.price_per_km || 0);
+
+    const chargeableKm = Math.max(distanceKm - includedKm, 0);
+    const deliveryFee = baseFee + (chargeableKm * pricePerKm);
+    const extraFee = 0;
+
+    res.json({
+      success: true,
+      transport_method: {
+        id: method.id,
+        name: method.name
+      },
+      distance_km: Number(distanceKm.toFixed(2)),
+      delivery_fee: Number(deliveryFee.toFixed(2)),
+      extra_fee: Number(extraFee.toFixed(2)),
+      total_fee: Number((deliveryFee + extraFee).toFixed(2))
+    });
+  } catch (err) {
+    console.error("Calculate Wassel Fee Error:", err);
+    res.status(500).json({
+      success: false,
+      message: "فشل حساب الرسوم"
+    });
+  }
+});
+
 export default router;
