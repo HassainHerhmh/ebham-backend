@@ -610,31 +610,138 @@ const userId = user.role === "customer" ? null : (user.id || null);
       if (addrBranch.length) branchId = addrBranch[0].branch_id;
     }
 
-    let deliveryFee = 0;
-    let extraStoreFee = 0;
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const toRad = (v) => (v * Math.PI) / 180;
+  const R = 6371;
 
-    // (حساب الرسوم - يبقى كما هو في كودك)
-    if (branchId) {
-      const [settingsRows] = await db.query("SELECT * FROM branch_delivery_settings WHERE branch_id=? LIMIT 1", [branchId]);
-      if (settingsRows.length) {
-        const settings = settingsRows[0];
-        if (settings.method === "neighborhood" && address_id) {
-          const [addr] = await db.query("SELECT district FROM customer_addresses WHERE id=?", [address_id]);
-          if (addr.length && addr[0].district) {
-            const [n] = await db.query("SELECT delivery_fee, extra_store_fee FROM neighborhoods WHERE id=?", [addr[0].district]);
-            if (n.length) {
-              deliveryFee = Number(n[0].delivery_fee) || 0;
-              if (storesCount > 1) extraStoreFee = (storesCount - 1) * (Number(n[0].extra_store_fee) || 0);
-            }
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+let deliveryFee = 0;
+let extraStoreFee = 0;
+
+if (branchId) {
+  const [[settings]] = await db.query(
+    `
+    SELECT
+      method,
+      km_price_single,
+      km_price_multi,
+      extra_store_fee
+    FROM branch_delivery_settings
+    WHERE branch_id = ?
+    LIMIT 1
+    `,
+    [branchId]
+  );
+
+  if (settings) {
+    if (settings.method === "neighborhood" && address_id) {
+      const [[addr]] = await db.query(
+        `
+        SELECT district
+        FROM customer_addresses
+        WHERE id = ?
+        LIMIT 1
+        `,
+        [address_id]
+      );
+
+      if (addr?.district) {
+        const [[n]] = await db.query(
+          `
+          SELECT delivery_fee, extra_store_fee
+          FROM neighborhoods
+          WHERE id = ?
+          LIMIT 1
+          `,
+          [addr.district]
+        );
+
+        if (n) {
+          deliveryFee = Number(n.delivery_fee || 0);
+
+          if (storesCount > 1) {
+            extraStoreFee =
+              (storesCount - 1) *
+              Number(n.extra_store_fee || 0);
           }
-        }
-        if (settings.method === "distance") {
-          deliveryFee = Number(settings.km_price_single) || 0;
-          if (storesCount > 1) extraStoreFee = (storesCount - 1) * (Number(settings.km_price_multi) || 0);
         }
       }
     }
-     
+
+    if (settings.method === "distance" && address_id) {
+      const [[addr]] = await db.query(
+        `
+        SELECT latitude, longitude
+        FROM customer_addresses
+        WHERE id = ?
+        LIMIT 1
+        `,
+        [address_id]
+      );
+
+      if (addr?.latitude != null && addr?.longitude != null) {
+        const [restaurantRows] = await db.query(
+          `
+          SELECT id, latitude, longitude
+          FROM restaurants
+          WHERE id IN (?)
+          `,
+          [storeIds]
+        );
+
+        const restaurantMap = {};
+        restaurantRows.forEach((r) => {
+          restaurantMap[r.id] = r;
+        });
+
+        let firstStoreDistance = 0;
+        let additionalStoresDistance = 0;
+
+        storeIds.forEach((storeId, index) => {
+          const rest = restaurantMap[storeId];
+          if (!rest) return;
+          if (rest.latitude == null || rest.longitude == null) return;
+
+          const distanceKm = haversineKm(
+            Number(addr.latitude),
+            Number(addr.longitude),
+            Number(rest.latitude),
+            Number(rest.longitude)
+          );
+
+          if (index === 0) {
+            firstStoreDistance += distanceKm;
+          } else {
+            additionalStoresDistance += distanceKm;
+          }
+        });
+
+        deliveryFee =
+          firstStoreDistance * Number(settings.km_price_single || 0);
+
+        extraStoreFee =
+          additionalStoresDistance * Number(settings.km_price_multi || 0);
+      }
+    }
+  }
+}
+
+deliveryFee = Number(deliveryFee.toFixed(2));
+extraStoreFee = Number(extraStoreFee.toFixed(2));
+
 // ✅ تحويل وقت الجدولة لصيغة MySQL
 let scheduledAtSQL = null;
 
