@@ -1117,10 +1117,11 @@ router.get("/:id", async (req, res) => {
        جلب الطلب
     ========================= */
 
-  const [[order]] = await db.query(`
+const [[order]] = await db.query(`
   SELECT
     w.id,
     w.order_type,
+    COALESCE(wt.name, w.order_type) AS order_type_name,
     w.transport_method_id,
     tm.name AS transport_method_name,
     w.distance_km,
@@ -1155,10 +1156,11 @@ router.get("/:id", async (req, res) => {
   FROM wassel_orders w
   LEFT JOIN customers c ON c.id = w.customer_id
   LEFT JOIN wassel_transport_methods tm ON tm.id = w.transport_method_id
+  LEFT JOIN wassel_order_types wt ON wt.id = w.order_type
   WHERE w.id = ?
   LIMIT 1
 `, [orderId]);
-
+    
     if (!order) {
 
       return res.status(404).json({
