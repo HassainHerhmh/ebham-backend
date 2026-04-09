@@ -459,42 +459,39 @@ router.get("/", async (req, res) => {
 ============================================== */
 router.post("/", async (req, res) => {
   try {
-const {
-  customer_id,
-  order_type,
-  transport_method_id,
+    const {
+      customer_id,
+      order_type,
+      transport_method_id,
 
-  from_address,
-  to_address,
+      from_address,
+      to_address,
 
-  from_address_id,
-  to_address_id,
+      from_address_id,
+      to_address_id,
 
-  from_lat,
-  from_lng,
-  to_lat,
-  to_lng,
+      from_lat,
+      from_lng,
+      to_lat,
+      to_lng,
 
-  distance_km,
-  delivery_fee,
-  extra_fee,
-  notes,
+      distance_km,
+      delivery_fee,
+      extra_fee,
+      notes,
 
-  payment_method,
-  bank_id,
-  scheduled_time
-} = req.body;
-
+      payment_method,
+      bank_id,
+      scheduled_time
+    } = req.body;
 
     /* ======================
        فحص الرصيد
     ====================== */
-
     const totalAmount =
       Number(delivery_fee || 0) + Number(extra_fee || 0);
 
     if (payment_method === "wallet" && customer_id) {
-
       const [[wallet]] = await db.query(`
         SELECT cg.type, cg.credit_limit,
           CASE 
@@ -528,16 +525,12 @@ const {
     /* ======================
        معالجة الإحداثيات
     ====================== */
-
     let finalFromLat = from_lat;
     let finalFromLng = from_lng;
+    let finalToLat = to_lat;
+    let finalToLng = to_lng;
 
-    let finalToLat   = to_lat;
-    let finalToLng   = to_lng;
-
-    // لو من العناوين المحفوظة
     if (from_address_id) {
-
       const [[addr]] = await db.query(
         "SELECT latitude, longitude FROM customer_addresses WHERE id = ?",
         [from_address_id]
@@ -550,7 +543,6 @@ const {
     }
 
     if (to_address_id) {
-
       const [[addr]] = await db.query(
         "SELECT latitude, longitude FROM customer_addresses WHERE id = ?",
         [to_address_id]
@@ -565,12 +557,10 @@ const {
     /* ======================
        معالجة الجدولة
     ====================== */
-
     let scheduledAt = null;
     let status = "pending";
 
     if (scheduled_time) {
-
       const d = new Date(scheduled_time);
 
       scheduledAt = d
@@ -584,137 +574,112 @@ const {
     /* ======================
        الإدخال
     ====================== */
-
     const [result] = await db.query(`
-  INSERT INTO wassel_orders (
-    customer_id,
-    order_type,
-    transport_method_id,
+      INSERT INTO wassel_orders (
+        customer_id,
+        order_type,
+        transport_method_id,
 
-    from_address_id,
-    to_address_id,
+        from_address_id,
+        to_address_id,
 
-    from_address,
-    from_lat,
-    from_lng,
+        from_address,
+        from_lat,
+        from_lng,
 
-    to_address,
-    to_lat,
-    to_lng,
+        to_address,
+        to_lat,
+        to_lng,
 
-    distance_km,
-    delivery_fee,
-    extra_fee,
-    notes,
+        distance_km,
+        delivery_fee,
+        extra_fee,
+        notes,
 
-    status,
-    payment_method,
-    bank_id,
+        status,
+        payment_method,
+        bank_id,
 
-    user_id,
-    scheduled_at,
-    is_manual,
-    created_at
+        user_id,
+        scheduled_at,
+        is_manual,
+        created_at
 
-  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,NOW())
-`, [
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,NOW())
+    `, [
+      customer_id || null,
+      order_type || null,
+      transport_method_id || null,
 
-  customer_id || null,
-  order_type,
-  transport_method_id || null,
+      from_address_id || null,
+      to_address_id || null,
 
-  from_address_id || null,
-  to_address_id || null,
+      from_address,
+      finalFromLat,
+      finalFromLng,
 
-  from_address,
-  finalFromLat,
-  finalFromLng,
+      to_address,
+      finalToLat,
+      finalToLng,
 
-  to_address,
-  finalToLat,
-  finalToLng,
+      Number(distance_km || 0),
+      delivery_fee || 0,
+      extra_fee || 0,
+      notes || "",
 
-  Number(distance_km || 0),
-  delivery_fee || 0,
-  extra_fee || 0,
-  notes || "",
+      status,
+      payment_method,
+      bank_id || null,
 
-  status,
-  payment_method,
-  bank_id || null,
+      req.user.id,
+      scheduledAt
+    ]);
 
-  req.user.id,
-  scheduledAt
-]);
+    const orderId = result.insertId;
+    const io = req.app.get("io");
 
-   const orderId = result.insertId;
+    /* ======================
+       بيانات الإشعار
+    ====================== */
+    const [[customer]] = await db.query(
+      `SELECT name FROM customers WHERE id = ? LIMIT 1`,
+      [customer_id]
+    );
 
-const io = req.app.get("io");
+    let orderTypeName = order_type || "غير محدد";
 
-/* إشعار لوحة التحكم */
+    if (order_type) {
+      const [[typeRow]] = await db.query(
+        `SELECT name FROM wassel_order_types WHERE id = ? LIMIT 1`,
+        [order_type]
+      );
 
-io.emit("admin_notification", {
-
-  type: "wassel_order_created",
-
-  order_id: orderId,
-
-  message: `🚚 تم إنشاء طلب وصل لي رقم #${orderId}`
-
-});
-
-/* إرسال للكباتن المتصلين realtime */
-
-io.emit("new_wassel_order", {
-
-  order_id: orderId,
-
-  type: "wassel_order",
-
-  message: `🚚 طلب وصل لي جديد رقم #${orderId}`
-
-});
-
-/* إرسال Push Notification لجميع الكباتن */
-
-const [captains] = await db.query(
-
-  "SELECT id, fcm_token FROM captains WHERE fcm_token IS NOT NULL"
-
-);
-
-for(const captain of captains){
-
-  await sendFCMNotification(
-
-    captain.fcm_token,
-
-    "🚚 طلب وصل لي جديد",
-
-    `طلب رقم #${orderId}`,
-
-    {
-
-      orderId: String(orderId),
-
-      type: "wassel_order"
-
+      if (typeRow?.name) {
+        orderTypeName = typeRow.name;
+      }
     }
 
-  );
+    const actorName = req.user?.name || "مستخدم لوحة التحكم";
+    const customerName = customer?.name || "عميل غير معروف";
 
-}
+    /* ======================
+       إشعار لوحة التحكم فقط
+    ====================== */
+    io.emit("admin_notification", {
+      type: "wassel_order_created",
+      order_id: orderId,
+      actor_name: actorName,
+      customer_name: customerName,
+      order_type_name: orderTypeName,
+      message: `🧾 ${actorName} أضاف طلب وصل لي للعميل ${customerName} برقم #${orderId} - نوع الطلب: ${orderTypeName}`
+    });
 
-res.json({
-
-  success: true,
-
-  order_id: orderId
-
-});
+    res.json({
+      success: true,
+      order_id: orderId
+    });
 
   } catch (err) {
-
     console.error("Create Order Error:", err);
 
     res.status(500).json({
@@ -832,92 +797,72 @@ if (timeField) {
     6️⃣ إسناد كابتن
 ============================================== */
 router.post("/assign", async (req, res) => {
-
   try {
-
     const { orderId, captainId } = req.body;
 
     await db.query(
-
       `UPDATE wassel_orders SET captain_id = ?, updated_by = ? WHERE id = ?`,
-
       [captainId, req.user.id, orderId]
-
     );
 
     const io = req.app.get("io");
 
-    /* realtime */
-
-    io.to("captain_" + captainId).emit(
-
-      "new_wassel_order_assigned",
-
-      {
-
-        order_id: orderId,
-
-        message: `🚚 تم إسناد طلب وصل لي رقم #${orderId}`
-
-      }
-
-    );
-
-    /* push */
-
     const [[captain]] = await db.query(
-
-      "SELECT fcm_token FROM captains WHERE id=?",
-
+      "SELECT name, fcm_token FROM captains WHERE id = ?",
       [captainId]
-
     );
 
-    if(captain?.fcm_token){
+    const [[order]] = await db.query(`
+      SELECT
+        w.id,
+        c.name AS customer_name
+      FROM wassel_orders w
+      LEFT JOIN customers c ON c.id = w.customer_id
+      WHERE w.id = ?
+      LIMIT 1
+    `, [orderId]);
 
+    const captainName = captain?.name || "كابتن";
+    const customerName = order?.customer_name || "عميل غير معروف";
+
+    /* realtime للكابتن المحدد فقط */
+    io.to("captain_" + captainId).emit(
+      "new_wassel_order_assigned",
+      {
+        order_id: orderId,
+        message: `🚚 تم إسناد طلب وصل لي رقم #${orderId} للعميل ${customerName}`
+      }
+    );
+
+    /* push للكابتن المحدد فقط */
+    if (captain?.fcm_token) {
       await sendFCMNotification(
-
         captain.fcm_token,
-
         "🚚 طلب وصل لي جديد",
-
-        `تم إسناد طلب رقم #${orderId}`,
-
+        `تم إسناد طلب رقم #${orderId} للعميل ${customerName}`,
         {
-
           orderId: String(orderId),
-
           type: "wassel_order_assigned"
-
         }
-
       );
-
     }
 
-    /* admin */
-
+    /* إشعار لوحة التحكم */
     io.emit("admin_notification", {
-
       type: "wassel_assigned",
-
       order_id: orderId,
-
-      message: `👨‍✈️ تم إسناد طلب وصل لي #${orderId}`
-
+      captain_name: captainName,
+      customer_name: customerName,
+      message: `👨‍✈️ تم إسناد طلب وصل لي #${orderId} إلى ${captainName} للعميل ${customerName}`
     });
 
     res.json({ success: true });
 
-  }
-  catch(err){
-
+  } catch (err) {
     console.error(err);
 
-    res.status(500).json({ success:false });
-
+    res.status(500).json({ success: false });
   }
-
 });
 
 /* ==============================================
