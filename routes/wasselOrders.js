@@ -1169,11 +1169,11 @@ router.put("/:id/status", auth, async (req, res) => {
         u.name AS user_name
       FROM wassel_orders w
       LEFT JOIN customers c ON c.id = w.customer_id
-      LEFT JOIN captains cap ON cap.id = req.user.id
-      LEFT JOIN users u ON u.id = req.user.id
+      LEFT JOIN captains cap ON cap.id = ?
+      LEFT JOIN users u ON u.id = ?
       WHERE w.id = ?
       LIMIT 1
-    `, [id]);
+    `, [req.user.id, req.user.id, id]);
 
     if (!currentOrder) {
       return res.status(404).json({
@@ -1231,6 +1231,7 @@ router.put("/:id/status", auth, async (req, res) => {
       LEFT JOIN captains cap ON cap.id = ?
       LEFT JOIN users u ON u.id = ?
       WHERE w.id = ?
+      LIMIT 1
     `, [req.user.id, req.user.id, id]);
 
     /* ======================
@@ -1286,10 +1287,11 @@ router.put("/:id/status", auth, async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: "Server error"
+      message: err.message || "Server error"
     });
   }
 });
+
 
 ///////////////////////
 async function sendFCMNotification(token, title, body, data = {}) {
