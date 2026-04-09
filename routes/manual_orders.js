@@ -359,17 +359,17 @@ if (status === "completed") timeField = "completed_at";
 if (status === "cancelled") timeField = "cancelled_at";
 
 if (timeField) {
-  await db.query(`
+  await conn.query(`
     UPDATE wassel_orders
     SET status = ?, ${timeField} = NOW(), updated_by = ?
     WHERE id = ?
-  `, [status, req.user.id, id]);
+  `, [status, req.user.id, orderId]);
 } else {
-  await db.query(`
+  await conn.query(`
     UPDATE wassel_orders
     SET status = ?, updated_by = ?
     WHERE id = ?
-  `, [status, req.user.id, id]);
+  `, [status, req.user.id, orderId]);
 }
 
 
