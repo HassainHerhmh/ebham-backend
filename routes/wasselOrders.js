@@ -413,21 +413,23 @@ router.delete("/transport-methods/:id", async (req, res) => {
 router.get("/", async (req, res) => {
   try {
 
-    let query = `
-      SELECT 
-        w.*, 
-        c.name AS customer_name, 
-        cap.name AS captain_name, 
-        u1.name AS creator_name, 
-        u2.name AS updater_name
-      FROM wassel_orders w
-      LEFT JOIN customers c ON c.id = w.customer_id
-      LEFT JOIN captains cap ON cap.id = w.captain_id
-      LEFT JOIN users u1 ON u1.id = w.user_id
-      LEFT JOIN users u2 ON u2.id = w.updated_by
-      WHERE w.is_manual = 0
-    `;
-
+ let query = `
+  SELECT 
+    w.*,
+    COALESCE(wt.name, w.order_type) AS order_type_name,
+    c.name AS customer_name,
+    cap.name AS captain_name,
+    u1.name AS creator_name,
+    u2.name AS updater_name
+  FROM wassel_orders w
+  LEFT JOIN wassel_order_types wt ON wt.id = w.order_type
+  LEFT JOIN customers c ON c.id = w.customer_id
+  LEFT JOIN captains cap ON cap.id = w.captain_id
+  LEFT JOIN users u1 ON u1.id = w.user_id
+  LEFT JOIN users u2 ON u2.id = w.updated_by
+  WHERE w.is_manual = 0
+`;
+    
     let params = [];
 
     // إذا كان المستخدم كابتن → عرض طلباته فقط
