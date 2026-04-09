@@ -351,27 +351,27 @@ router.put("/status/:id", async (req, res) => {
   try {
     await conn.beginTransaction();
 
-    let field = null;
+let timeField = null;
 
-    if (status === "processing") field = "processing_at";
-    if (status === "ready") field = "ready_at";
-    if (status === "delivering") field = "delivering_at";
-    if (status === "completed") field = "completed_at";
-    if (status === "cancelled") field = "cancelled_at";
+if (status === "confirmed") timeField = "processing_at";
+if (status === "delivering") timeField = "delivering_at";
+if (status === "completed") timeField = "completed_at";
+if (status === "cancelled") timeField = "cancelled_at";
 
-    if (field) {
-      await conn.query(
-        `UPDATE wassel_orders 
-         SET status=?, ${field}=NOW() 
-         WHERE id=?`,
-        [status, orderId]
-      );
-    } else {
-      await conn.query(
-        "UPDATE wassel_orders SET status=? WHERE id=?",
-        [status, orderId]
-      );
-    }
+if (timeField) {
+  await db.query(`
+    UPDATE wassel_orders
+    SET status = ?, ${timeField} = NOW(), updated_by = ?
+    WHERE id = ?
+  `, [status, req.user.id, id]);
+} else {
+  await db.query(`
+    UPDATE wassel_orders
+    SET status = ?, updated_by = ?
+    WHERE id = ?
+  `, [status, req.user.id, id]);
+}
+
 
     if (status === "delivering") {
       const [[old]] = await conn.query(`
