@@ -22,95 +22,214 @@ const router = express.Router();
 
 
 /* =========================
+   دالة حساب المسافة بالكيلو
+========================= */
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const toRad = (v) => (v * Math.PI) / 180;
+  const R = 6371;
+
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+/* =========================
    POST /orders/calc-fees
 ========================= */
-router.post("/calc-fees", async (req, res) => {
+router.post("/calc-fees", auth, async (req, res) => {
   try {
-     
     const { address_id, restaurants } = req.body;
     const user = req.user || {};
 
-    if (!restaurants || !restaurants.length) {
-      return res.json({ success: false });
+    if (!address_id || !restaurants || !restaurants.length) {
+      return res.status(400).json({
+        success: false,
+        message: "بيانات الحساب ناقصة"
+      });
     }
 
-    const storeIds = restaurants.map(r => r.restaurant_id);
-    const storesCount = new Set(storeIds).size;
+    const storeIds = [
+      ...new Set(
+        restaurants
+          .map(r => Number(r.restaurant_id || r.id))
+          .filter(Boolean)
+      )
+    ];
 
-    let branchId = user.branch_id;
+    if (!storeIds.length) {
+      return res.status(400).json({
+        success: false,
+        message: "لا توجد مطاعم صالحة"
+      });
+    }
 
-    if (!branchId && address_id) {
-      const [addr] = await db.query(
-        "SELECT branch_id FROM customer_addresses WHERE id=?",
-        [address_id]
-      );
+    let branchId = user.branch_id || null;
 
-      if (addr.length) {
-        branchId = addr[0].branch_id;
-      }
+    const [[address]] = await db.query(`
+      SELECT
+        id,
+        branch_id,
+        district,
+        latitude,
+        longitude
+      FROM customer_addresses
+      WHERE id = ?
+      LIMIT 1
+    `, [address_id]);
+
+    if (!address) {
+      return res.status(404).json({
+        success: false,
+        message: "العنوان غير موجود"
+      });
+    }
+
+    if (!branchId) {
+      branchId = address.branch_id || null;
+    }
+
+    if (!branchId) {
+      return res.status(400).json({
+        success: false,
+        message: "تعذر تحديد الفرع"
+      });
+    }
+
+    const [[settings]] = await db.query(`
+      SELECT
+        method,
+        km_price_single,
+        km_price_multi,
+        extra_store_fee
+      FROM branch_delivery_settings
+      WHERE branch_id = ?
+      LIMIT 1
+    `, [branchId]);
+
+    if (!settings) {
+      return res.json({
+        success: true,
+        delivery_fee: 0,
+        extra_store_fee: 0,
+        stores_count: storeIds.length,
+        additional_stores_count: Math.max(storeIds.length - 1, 0),
+        pricing_method: "none",
+        distance_km: 0
+      });
     }
 
     let deliveryFee = 0;
     let extraStoreFee = 0;
-        
-    if (branchId) {
-      const [settingsRows] = await db.query(
-        "SELECT * FROM branch_delivery_settings WHERE branch_id=? LIMIT 1",
-        [branchId]
-      );
+    let totalDistanceKm = 0;
 
-      if (settingsRows.length) {
-        const settings = settingsRows[0];
+    /* ===== حسب الحي ===== */
+    if (settings.method === "neighborhood") {
+      const [[neighborhood]] = await db.query(`
+        SELECT
+          delivery_fee,
+          extra_store_fee
+        FROM neighborhoods
+        WHERE id = ?
+        LIMIT 1
+      `, [address.district]);
 
-        /* ===== حسب الحي ===== */
-        if (settings.method === "neighborhood" && address_id) {
-          const [addr] = await db.query(
-            "SELECT district FROM customer_addresses WHERE id=?",
-            [address_id]
-          );
+      if (neighborhood) {
+        deliveryFee = Number(neighborhood.delivery_fee || 0);
 
-          if (addr.length) {
-            const [n] = await db.query(
-              "SELECT delivery_fee, extra_store_fee FROM neighborhoods WHERE id=?",
-              [addr[0].district]
-            );
-
-            if (n.length) {
-              deliveryFee = Number(n[0].delivery_fee) || 0;
-
-              if (storesCount > 1) {
-                extraStoreFee =
-                  (storesCount - 1) *
-                  (Number(n[0].extra_store_fee) || 0);
-              }
-            }
-          }
-        }
-
-        /* ===== حسب المسافة ===== */
-        if (settings.method === "distance") {
-          deliveryFee = Number(settings.km_price_single) || 0;
-
-          if (storesCount > 1) {
-            extraStoreFee =
-              (storesCount - 1) *
-              (Number(settings.km_price_multi) || 0);
-          }
+        if (storeIds.length > 1) {
+          extraStoreFee =
+            (storeIds.length - 1) *
+            Number(neighborhood.extra_store_fee || 0);
         }
       }
     }
 
+    /* ===== حسب المسافة ===== */
+    else if (settings.method === "distance") {
+      if (
+        address.latitude == null ||
+        address.longitude == null
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "العنوان لا يحتوي إحداثيات"
+        });
+      }
+
+      const [restaurantRows] = await db.query(`
+        SELECT
+          id,
+          name,
+          latitude,
+          longitude
+        FROM restaurants
+        WHERE id IN (?)
+      `, [storeIds]);
+
+      const restaurantMap = {};
+      restaurantRows.forEach(r => {
+        restaurantMap[r.id] = r;
+      });
+
+      let firstStoreDistance = 0;
+      let additionalStoresDistance = 0;
+
+      storeIds.forEach((storeId, index) => {
+        const rest = restaurantMap[storeId];
+        if (!rest) return;
+        if (rest.latitude == null || rest.longitude == null) return;
+
+        const distanceKm = haversineKm(
+          Number(address.latitude),
+          Number(address.longitude),
+          Number(rest.latitude),
+          Number(rest.longitude)
+        );
+
+        totalDistanceKm += distanceKm;
+
+        if (index === 0) {
+          firstStoreDistance += distanceKm;
+        } else {
+          additionalStoresDistance += distanceKm;
+        }
+      });
+
+      deliveryFee =
+        firstStoreDistance * Number(settings.km_price_single || 0);
+
+      extraStoreFee =
+        additionalStoresDistance * Number(settings.km_price_multi || 0);
+    }
+
     res.json({
       success: true,
-      delivery_fee: deliveryFee,
-      extra_store_fee: extraStoreFee,
+      delivery_fee: Number(deliveryFee.toFixed(2)),
+      extra_store_fee: Number(extraStoreFee.toFixed(2)),
+      stores_count: storeIds.length,
+      additional_stores_count: Math.max(storeIds.length - 1, 0),
+      pricing_method: settings.method,
+      distance_km: Number(totalDistanceKm.toFixed(2))
     });
 
   } catch (err) {
     console.error("CALC FEES ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: "فشل حساب الرسوم"
+    });
   }
 });
+
 
   
 /*==========================
