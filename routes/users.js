@@ -136,28 +136,41 @@ const permissionSections = [
   "dashboard",
   "users",
   "customers",
+
   "orders",
+  "wassel_orders",
+  "manual_orders",
+
   "marketing",
+  "loyalty",
+
   "reports",
+  "commission_reports",
+
   "settings",
   "neighborhoods",
+
   "restaurants",
   "products",
   "categories",
   "units",
   "types",
+
   "agents",
   "agent_groups",
   "captains",
   "Captain_Groups",
   "agent_info",
+
   "stores",
   "payment",
   "currency",
   "branches",
+
   "accounts",
   "payments",
 ];
+
 
 const permissionActions = ["view", "create", "edit", "delete", "print"];
 
