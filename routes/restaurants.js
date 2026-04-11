@@ -137,50 +137,63 @@ router.get("/app", async (req, res) => {
     const params = (branch && branch !== "null") ? [branch] : [];
 
     const [rows] = await db.query(
-  `
-  SELECT 
-    r.id,
-    r.name,
-    r.address,
-    r.image_url,
-    r.sort_order,
-    r.branch_id,
-    r.type_id,
-    r.display_type,
-    r.delivery_time,
+      `
+      SELECT 
+        r.id,
+        r.name,
+        r.address,
+        r.image_url,
+        r.sort_order,
+        r.branch_id,
+        r.type_id,
+        r.display_type,
+        r.delivery_time,
 
-    CASE 
-      WHEN EXISTS (
-        SELECT 1
-        FROM restaurant_schedule s
-        WHERE s.restaurant_id = r.id
-          AND s.closed = 0
-          AND s.day = 
-            CASE DAYOFWEEK(NOW())
-              WHEN 1 THEN 'الأحد'
-              WHEN 2 THEN 'الإثنين'
-              WHEN 3 THEN 'الثلاثاء'
-              WHEN 4 THEN 'الأربعاء'
-              WHEN 5 THEN 'الخميس'
-              WHEN 6 THEN 'الجمعة'
-              WHEN 7 THEN 'السبت'
-            END
-          AND (
-            (s.start_time IS NULL AND s.end_time IS NULL)
-            OR (CURTIME() BETWEEN s.start_time AND s.end_time)
+        CASE 
+          WHEN EXISTS (
+            SELECT 1
+            FROM restaurant_schedule s
+            WHERE s.restaurant_id = r.id
+              AND s.closed = 0
+              AND s.day = 
+                CASE DAYOFWEEK(UTC_TIMESTAMP() + INTERVAL 3 HOUR)
+                  WHEN 1 THEN 'الأحد'
+                  WHEN 2 THEN 'الإثنين'
+                  WHEN 3 THEN 'الثلاثاء'
+                  WHEN 4 THEN 'الأربعاء'
+                  WHEN 5 THEN 'الخميس'
+                  WHEN 6 THEN 'الجمعة'
+                  WHEN 7 THEN 'السبت'
+                END
+              AND (
+                (s.start_time IS NULL AND s.end_time IS NULL)
+
+                OR (s.start_time = s.end_time)
+
+                OR (
+                  s.start_time < s.end_time
+                  AND TIME(UTC_TIMESTAMP() + INTERVAL 3 HOUR)
+                    BETWEEN s.start_time AND s.end_time
+                )
+
+                OR (
+                  s.start_time > s.end_time
+                  AND (
+                    TIME(UTC_TIMESTAMP() + INTERVAL 3 HOUR) >= s.start_time
+                    OR TIME(UTC_TIMESTAMP() + INTERVAL 3 HOUR) <= s.end_time
+                  )
+                )
+              )
           )
-      )
-      THEN 1 ELSE 0
-    END AS is_open
+          THEN 1 ELSE 0
+        END AS is_open
 
-  FROM restaurants r
-  ${where}
-  ORDER BY r.sort_order ASC
-  `,
-  params
-);
-
-    console.log("APP RESTAURANTS:", rows); // 👈 أضف هذا السطر
+      FROM restaurants r
+      ${where}
+      ORDER BY r.sort_order ASC
+      `,
+      params
+    );
 
     res.json({ success: true, restaurants: rows });
   } catch (err) {
@@ -188,6 +201,7 @@ router.get("/app", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 /* ======================================================
    🟢 جلب مطاعم الفرع فقط (للتسويق)
 ====================================================== */
