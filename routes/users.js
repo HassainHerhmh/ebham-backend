@@ -131,6 +131,159 @@ router.post("/", upload.single("image"), async (req, res) => {
   }
 });
 
+////////////////////////////////////
+const permissionSections = [
+  "dashboard",
+  "users",
+  "customers",
+  "orders",
+  "marketing",
+  "reports",
+  "settings",
+  "neighborhoods",
+  "restaurants",
+  "products",
+  "categories",
+  "units",
+  "types",
+  "agents",
+  "agent_groups",
+  "captains",
+  "Captain_Groups",
+  "agent_info",
+  "stores",
+  "payment",
+  "currency",
+  "branches",
+  "accounts",
+  "payments",
+];
+
+const permissionActions = ["view", "create", "edit", "delete", "print"];
+
+function normalizeRole(role) {
+  if (!role) return "employee";
+  if (typeof role === "object") return String(role.name || "employee").toLowerCase();
+  return String(role).toLowerCase();
+}
+
+function createEmptyPermissions() {
+  const result = {};
+  for (const section of permissionSections) {
+    result[section] = {};
+    for (const action of permissionActions) {
+      result[section][action] = false;
+    }
+  }
+  return result;
+}
+
+function normalizePermissions(value) {
+  const empty = createEmptyPermissions();
+  if (!value) return empty;
+
+  let parsed = value;
+
+  try {
+    if (typeof value === "string") parsed = JSON.parse(value);
+  } catch {
+    return empty;
+  }
+
+  for (const section of permissionSections) {
+    for (const action of permissionActions) {
+      empty[section][action] = Boolean(parsed?.[section]?.[action]);
+    }
+  }
+
+  return empty;
+}
+
+router.get("/:id/permissions", async (req, res) => {
+  try {
+    const [[user]] = await pool.query(
+      `SELECT id, name, role, permissions FROM users WHERE id = ? LIMIT 1`,
+      [req.params.id]
+    );
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "المستخدم غير موجود" });
+    }
+
+    res.json({
+      success: true,
+      user_id: user.id,
+      role: normalizeRole(user.role),
+      permissions: normalizePermissions(user.permissions),
+    });
+  } catch (err) {
+    console.error("GET USER PERMISSIONS ERROR:", err);
+    res.status(500).json({ success: false, message: "فشل جلب الصلاحيات" });
+  }
+});
+
+router.put("/:id/permissions", async (req, res) => {
+  try {
+    const role = normalizeRole(req.body.role);
+    const permissions = normalizePermissions(req.body.permissions);
+
+    const [[existing]] = await pool.query(
+      `SELECT id FROM users WHERE id = ? LIMIT 1`,
+      [req.params.id]
+    );
+
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "المستخدم غير موجود" });
+    }
+
+    await pool.query(
+      `UPDATE users SET role = ?, permissions = ? WHERE id = ?`,
+      [role, JSON.stringify(permissions), req.params.id]
+    );
+
+    res.json({
+      success: true,
+      message: "تم تحديث الصلاحيات",
+      role,
+      permissions,
+    });
+  } catch (err) {
+    console.error("UPDATE PERMISSIONS ERROR:", err);
+    res.status(500).json({ success: false, message: "فشل تحديث الصلاحيات" });
+  }
+});
+
+router.put("/:id", upload.single("image"), async (req, res) => {
+  try {
+    const { name, email, phone, role, branch_id } = req.body;
+    const image_url = req.file ? `/uploads/users/${req.file.filename}` : null;
+
+    const fields = ["name = ?", "email = ?", "phone = ?", "role = ?"];
+    const values = [name, email || null, phone || null, normalizeRole(role)];
+
+    if (branch_id) {
+      fields.push("branch_id = ?");
+      values.push(branch_id);
+    }
+
+    if (image_url) {
+      fields.push("image_url = ?");
+      values.push(image_url);
+    }
+
+    values.push(req.params.id);
+
+    await pool.query(
+      `UPDATE users SET ${fields.join(", ")} WHERE id = ?`,
+      values
+    );
+
+    res.json({ success: true, message: "تم تحديث المستخدم" });
+  } catch (err) {
+    console.error("UPDATE USER ERROR:", err);
+    res.status(500).json({ success: false, message: "فشل تحديث المستخدم" });
+  }
+});
 
 
 /* ======================================================
