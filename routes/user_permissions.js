@@ -38,25 +38,44 @@ router.use(ensureAdmin);
 const permissionSections = [
   "dashboard",
   "users",
-  "roles",
+  "customers",
+
+  "orders",
+  "wassel_orders",
+  "manual_orders",
+
+  "marketing",
+  "loyalty",
+
+  "reports",
+  "commission_reports",
+
+  "settings",
+  "neighborhoods",
+
   "restaurants",
   "products",
   "categories",
-  "branches",
-  "orders",
-  "manual_orders",
-  "wassel_orders",
+  "units",
+  "types",
+
+  "agents",
+  "agent_groups",
   "captains",
-  "customers",
-  "coupons",
-  "ads",
-  "wallets",
-  "loyalty",
-  "reports",
-  "settings",
+  "Captain_Groups",
+  "agent_info",
+
+  "stores",
+  "payment",
+  "currency",
+  "branches",
+
+  "accounts",
+  "payments",
 ];
 
-const permissionActions = ["view", "create", "edit", "delete"];
+const permissionActions = ["view", "create", "edit", "delete", "print"];
+
 
 function createEmptyPermissions() {
   const result = {};
