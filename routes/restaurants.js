@@ -148,6 +148,39 @@ router.get("/app", async (req, res) => {
         r.type_id,
         r.display_type,
         r.delivery_time,
+      (
+  SELECT s.start_time
+  FROM restaurant_schedule s
+  WHERE s.restaurant_id = r.id
+    AND s.day =
+      CASE DAYOFWEEK(UTC_TIMESTAMP() + INTERVAL 3 HOUR)
+        WHEN 1 THEN 'الأحد'
+        WHEN 2 THEN 'الإثنين'
+        WHEN 3 THEN 'الثلاثاء'
+        WHEN 4 THEN 'الأربعاء'
+        WHEN 5 THEN 'الخميس'
+        WHEN 6 THEN 'الجمعة'
+        WHEN 7 THEN 'السبت'
+      END
+  LIMIT 1
+) AS today_start_time,
+
+(
+  SELECT s.end_time
+  FROM restaurant_schedule s
+  WHERE s.restaurant_id = r.id
+    AND s.day =
+      CASE DAYOFWEEK(UTC_TIMESTAMP() + INTERVAL 3 HOUR)
+        WHEN 1 THEN 'الأحد'
+        WHEN 2 THEN 'الإثنين'
+        WHEN 3 THEN 'الثلاثاء'
+        WHEN 4 THEN 'الأربعاء'
+        WHEN 5 THEN 'الخميس'
+        WHEN 6 THEN 'الجمعة'
+        WHEN 7 THEN 'السبت'
+      END
+  LIMIT 1
+) AS today_end_time,
 
         CASE 
           WHEN EXISTS (
