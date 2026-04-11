@@ -173,16 +173,28 @@ router.post("/", limiter, auth, validateAd, async (req, res) => {
       "active"
     ]);
 
-    const adId = result.insertId;
+const adId = result.insertId;
 
-    if(product_ids?.length){
-      for(const p of product_ids){
-        await db.query(
-          "INSERT INTO ad_products (ad_id,product_id) VALUES (?,?)",
-          [adId,p]
-        );
-      }
-    }
+req.app.get("io")?.emit("notification", {
+  type: "ad",
+  id: adId,
+  title: "إعلان جديد",
+  message: discount_percent
+    ? `${name} - خصم ${discount_percent}%`
+    : name,
+  image_url: image_url || null,
+  restaurant_id: restaurant_id || null,
+});
+
+if(product_ids?.length){
+  for(const p of product_ids){
+    await db.query(
+      "INSERT INTO ad_products (ad_id,product_id) VALUES (?,?)",
+      [adId,p]
+    );
+  }
+}
+
 
     res.json({ success:true, id:adId });
 
