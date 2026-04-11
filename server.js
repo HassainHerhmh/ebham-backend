@@ -571,6 +571,13 @@ app.use("/api/language", languageRoutes);
 import supportRoutes from "./routes/support.js";
 
 app.use("/api/support", supportRoutes);
+
+/* =========================
+الصلاحيات
+========================= */
+import userPermissionsRoutes from "./routes/user_permissions.js";
+app.use("/api/users", userPermissionsRoutes);
+
 /* =========================
    Start Server + Socket.IO
 ========================= */
