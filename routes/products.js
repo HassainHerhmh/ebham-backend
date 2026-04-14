@@ -188,10 +188,10 @@ router.post("/", upload.single("image"), async (req, res) => {
 
     let image_url = bodyImageUrl || null;
 
-    if (req.file) {
-      const uploaded = await uploadToCloudinary(req.file.path, "products");
-      image_url = uploaded.secure_url;
-    }
+ if (req.file) {
+  const uploaded = await uploadToCloudinary(req.file.buffer, "products");
+  image_url = uploaded.secure_url;
+}
 
     const [result] = await db.query(
       `
@@ -312,11 +312,11 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       params.push(bodyImageUrl || null);
     }
 
-    if (req.file) {
-      const uploaded = await uploadToCloudinary(req.file.path, "products");
-      updates.push("image_url=?");
-      params.push(uploaded.secure_url);
-    }
+   if (req.file) {
+  const uploaded = await uploadToCloudinary(req.file.buffer, "products");
+  updates.push("image_url=?");
+  params.push(uploaded.secure_url);
+}
 
     if (updates.length) {
       params.push(req.params.id);
