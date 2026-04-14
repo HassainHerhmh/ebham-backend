@@ -5,10 +5,33 @@ import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 
+function parseJsonArray(value, fallback = []) {
+  if (Array.isArray(value)) return value;
+  if (value === undefined || value === null || value === "") return fallback;
+
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function isUnsafeImageUrl(value) {
+  if (!value || typeof value !== "string") return false;
+  const trimmed = value.trim().toLowerCase();
+  return trimmed.startsWith("blob:") || trimmed.startsWith("data:");
+}
+
+/* ======================================================
+   Router
+====================================================== */
+const routerInstance = express.Router();
+
 /* ======================================================
    🟢 (APP/Public) جلب أبناء منتج معين (للخيارات)
 ====================================================== */
-router.get("/:id/children", async (req, res) => {
+routerInstance.get("/:id/children", async (req, res) => {
   try {
     const [rows] = await db.query(
       `
@@ -42,7 +65,7 @@ router.get("/:id/children", async (req, res) => {
 /* ======================================================
    🟢 (Public) جلب منتجات فئة معينة للخصومات
 ====================================================== */
-router.get("/by-category/:categoryId", async (req, res) => {
+routerInstance.get("/by-category/:categoryId", async (req, res) => {
   try {
     const categoryId = req.params.categoryId;
 
@@ -83,12 +106,12 @@ router.get("/by-category/:categoryId", async (req, res) => {
 /* =========================
    🔐 حماية المسارات التالية
 ========================= */
-router.use(auth);
+routerInstance.use(auth);
 
 /* ======================================================
    🟢 جلب جميع المنتجات
 ====================================================== */
-router.get("/", async (req, res) => {
+routerInstance.get("/", async (req, res) => {
   const search = req.query.search || "";
   const user = req.user || {};
   const { role, id: userId, is_admin_branch, branch_id } = user;
@@ -110,7 +133,7 @@ router.get("/", async (req, res) => {
   try {
     let rows;
     let where = `WHERE p.name LIKE ?`;
-    let params = [`%${search}%`];
+    const params = [`%${search}%`];
 
     if (role === "agent") {
       where += ` AND r.agent_id = ?`;
@@ -161,14 +184,17 @@ router.get("/", async (req, res) => {
     res.json({ success: true, products: rows });
   } catch (err) {
     console.error("GET PRODUCTS ERROR:", err);
-    res.status(500).json({ success: false, message: err.message || "خطأ في السيرفر" });
+    res.status(500).json({
+      success: false,
+      message: err.message || "خطأ في السيرفر",
+    });
   }
 });
 
 /* ======================================================
    ✅ إضافة منتج جديد
 ====================================================== */
-router.post("/", upload.single("image"), async (req, res) => {
+routerInstance.post("/", upload.single("image"), async (req, res) => {
   try {
     const {
       name,
@@ -183,15 +209,57 @@ router.post("/", upload.single("image"), async (req, res) => {
       image_url: bodyImageUrl,
     } = req.body;
 
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "اسم المنتج مطلوب",
+      });
+    }
+
+    if (!restaurant_id) {
+      return res.status(400).json({
+        success: false,
+        message: "المطعم مطلوب",
+      });
+    }
+
+    if (Number(is_parent) !== 1 && (price === undefined || price === null || price === "")) {
+      return res.status(400).json({
+        success: false,
+        message: "السعر مطلوب",
+      });
+    }
+
     const isAvailableVal = Number(is_available) === 1 ? 1 : 0;
     const isParentVal = Number(is_parent) === 1 ? 1 : 0;
 
     let image_url = bodyImageUrl || null;
 
- if (req.file) {
-  const uploaded = await uploadToCloudinary(req.file.buffer, "products");
-  image_url = uploaded.secure_url;
-}
+    if (isUnsafeImageUrl(image_url)) {
+      image_url = null;
+    }
+
+    if (req.file) {
+      if (!req.file.buffer) {
+        return res.status(400).json({
+          success: false,
+          message: "ملف الصورة غير صالح",
+        });
+      }
+
+      console.log("CREATE PRODUCT IMAGE UPLOAD START", {
+        hasFile: true,
+        mimeType: req.file.mimetype,
+        size: req.file.size,
+      });
+
+      const uploaded = await uploadToCloudinary(req.file.buffer, "products");
+      image_url = uploaded.secure_url;
+
+      console.log("CREATE PRODUCT IMAGE UPLOAD OK", {
+        secure_url: uploaded.secure_url,
+      });
+    }
 
     const [result] = await db.query(
       `
@@ -200,7 +268,7 @@ router.post("/", upload.single("image"), async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
       `,
       [
-        name,
+        String(name).trim(),
         isParentVal ? null : (price || null),
         image_url,
         notes || "",
@@ -213,11 +281,7 @@ router.post("/", upload.single("image"), async (req, res) => {
 
     const productId = result.insertId;
 
-    let cats = [];
-    try {
-      cats = typeof category_ids === "string" ? JSON.parse(category_ids) : category_ids;
-    } catch {}
-
+    const cats = parseJsonArray(category_ids, []);
     for (const cid of cats) {
       await db.query(
         "INSERT INTO product_categories (product_id, category_id) VALUES (?, ?)",
@@ -225,11 +289,7 @@ router.post("/", upload.single("image"), async (req, res) => {
       );
     }
 
-    let kids = [];
-    try {
-      kids = typeof children === "string" ? JSON.parse(children) : children;
-    } catch {}
-
+    const kids = parseJsonArray(children, []);
     for (const childId of kids) {
       await db.query(
         "INSERT INTO product_children (parent_id, child_id) VALUES (?, ?)",
@@ -237,9 +297,16 @@ router.post("/", upload.single("image"), async (req, res) => {
       );
     }
 
-    res.json({ success: true, message: "✅ تم إضافة المنتج" });
+    res.json({
+      success: true,
+      message: "✅ تم إضافة المنتج",
+      image_url,
+      product_id: productId,
+    });
   } catch (err) {
-    console.error("CREATE PRODUCT ERROR:", err);
+    console.error("CREATE PRODUCT ERROR RAW:", err);
+    console.error("CREATE PRODUCT ERROR JSON:", JSON.stringify(err, null, 2));
+
     res.status(500).json({
       success: false,
       message: err.message || "خطأ في السيرفر",
@@ -250,7 +317,7 @@ router.post("/", upload.single("image"), async (req, res) => {
 /* ======================================================
    ✏️ تعديل منتج
 ====================================================== */
-router.put("/:id", upload.single("image"), async (req, res) => {
+routerInstance.put("/:id", upload.single("image"), async (req, res) => {
   try {
     const {
       name,
@@ -270,7 +337,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
 
     if (name !== undefined) {
       updates.push("name=?");
-      params.push(name);
+      params.push(String(name).trim());
     }
 
     if (price !== undefined) {
@@ -294,7 +361,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
 
     if (restaurant_id !== undefined) {
       updates.push("restaurant_id=?");
-      params.push(restaurant_id);
+      params.push(restaurant_id || null);
     }
 
     if (is_available !== undefined) {
@@ -308,15 +375,36 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     }
 
     if (bodyImageUrl !== undefined) {
+      const safeBodyImageUrl = isUnsafeImageUrl(bodyImageUrl) ? null : (bodyImageUrl || null);
       updates.push("image_url=?");
-      params.push(bodyImageUrl || null);
+      params.push(safeBodyImageUrl);
     }
 
-   if (req.file) {
-  const uploaded = await uploadToCloudinary(req.file.buffer, "products");
-  updates.push("image_url=?");
-  params.push(uploaded.secure_url);
-}
+    if (req.file) {
+      if (!req.file.buffer) {
+        return res.status(400).json({
+          success: false,
+          message: "ملف الصورة غير صالح",
+        });
+      }
+
+      console.log("UPDATE PRODUCT IMAGE UPLOAD START", {
+        productId: req.params.id,
+        hasFile: true,
+        mimeType: req.file.mimetype,
+        size: req.file.size,
+      });
+
+      const uploaded = await uploadToCloudinary(req.file.buffer, "products");
+
+      updates.push("image_url=?");
+      params.push(uploaded.secure_url);
+
+      console.log("UPDATE PRODUCT IMAGE UPLOAD OK", {
+        productId: req.params.id,
+        secure_url: uploaded.secure_url,
+      });
+    }
 
     if (updates.length) {
       params.push(req.params.id);
@@ -327,13 +415,12 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     }
 
     if (category_ids !== undefined) {
-      await db.query("DELETE FROM product_categories WHERE product_id=?", [req.params.id]);
+      await db.query(
+        "DELETE FROM product_categories WHERE product_id=?",
+        [req.params.id]
+      );
 
-      let cats = [];
-      try {
-        cats = typeof category_ids === "string" ? JSON.parse(category_ids) : category_ids;
-      } catch {}
-
+      const cats = parseJsonArray(category_ids, []);
       for (const cid of cats) {
         await db.query(
           "INSERT INTO product_categories (product_id, category_id) VALUES (?, ?)",
@@ -343,13 +430,12 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     }
 
     if (children !== undefined) {
-      await db.query("DELETE FROM product_children WHERE parent_id=?", [req.params.id]);
+      await db.query(
+        "DELETE FROM product_children WHERE parent_id=?",
+        [req.params.id]
+      );
 
-      let kids = [];
-      try {
-        kids = typeof children === "string" ? JSON.parse(children) : children;
-      } catch {}
-
+      const kids = parseJsonArray(children, []);
       for (const childId of kids) {
         await db.query(
           "INSERT INTO product_children (parent_id, child_id) VALUES (?, ?)",
@@ -358,9 +444,14 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       }
     }
 
-    res.json({ success: true, message: "✅ تم تعديل المنتج" });
+    res.json({
+      success: true,
+      message: "✅ تم تعديل المنتج",
+    });
   } catch (err) {
-    console.error("UPDATE PRODUCT ERROR:", err);
+    console.error("UPDATE PRODUCT ERROR RAW:", err);
+    console.error("UPDATE PRODUCT ERROR JSON:", JSON.stringify(err, null, 2));
+
     res.status(500).json({
       success: false,
       message: err.message || "خطأ في السيرفر",
@@ -371,10 +462,11 @@ router.put("/:id", upload.single("image"), async (req, res) => {
 /* ======================================================
    🗑️ حذف منتج
 ====================================================== */
-router.delete("/:id", async (req, res) => {
+routerInstance.delete("/:id", async (req, res) => {
   try {
     await db.query("DELETE FROM product_categories WHERE product_id=?", [req.params.id]);
     await db.query("DELETE FROM products WHERE id=?", [req.params.id]);
+
     res.json({ success: true, message: "🗑️ تم حذف المنتج" });
   } catch (err) {
     console.error("DELETE PRODUCT ERROR:", err);
@@ -385,4 +477,4 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-export default router;
+export default routerInstance;
