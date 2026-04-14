@@ -7,7 +7,6 @@ const router = express.Router();
 
 /* ======================================================
    🟢 (APP/Public) جلب أبناء منتج معين (للخيارات)
-   ⚠️ تم نقله هنا ليكون متاحاً للتطبيق دون الحاجة لتوكن أدمن
 ====================================================== */
 router.get("/:id/children", async (req, res) => {
   try {
@@ -17,7 +16,7 @@ router.get("/:id/children", async (req, res) => {
         p.id,
         p.name,
         p.price,
-        p.image_url,  -- ✅ تمت إضافة الصورة
+        p.image_url,
         p.notes,
         p.is_available,
         r.name AS restaurant_name,
@@ -43,68 +42,56 @@ router.get("/:id/children", async (req, res) => {
 /* ======================================================
    🟢 (Public) جلب منتجات فئة معينة للخصومات
 ====================================================== */
-
 router.get("/by-category/:categoryId", async (req, res) => {
+  try {
+    const categoryId = req.params.categoryId;
 
-  try{
+    const [rows] = await db.query(
+      `
+      SELECT 
+        p.id,
+        p.name,
+        p.price,
+        IFNULL(
+          ROUND(p.price - (p.price * ads.discount_percent / 100)),
+          p.price
+        ) AS final_price,
+        ads.discount_percent
+      FROM products p
+      INNER JOIN product_categories pc
+        ON pc.product_id = p.id
+      LEFT JOIN ad_products ap
+        ON ap.product_id = p.id
+      LEFT JOIN ads
+        ON ads.id = ap.ad_id
+        AND ads.status='active'
+        AND (ads.start_date IS NULL OR ads.start_date <= NOW())
+        AND (ads.end_date IS NULL OR ads.end_date >= NOW())
+      WHERE pc.category_id = ?
+      ORDER BY p.name ASC
+      `,
+      [categoryId]
+    );
 
-    const categoryId = req.params.categoryId
-
-    const [rows] = await db.query(`
-   SELECT 
-p.id,
-p.name,
-p.price,
-
-IFNULL(
-  ROUND(p.price - (p.price * ads.discount_percent / 100)),
-  p.price
-) AS final_price,
-
-ads.discount_percent
-
-FROM products p
-
-INNER JOIN product_categories pc
-  ON pc.product_id = p.id
-
-LEFT JOIN ad_products ap
-  ON ap.product_id = p.id
-
-LEFT JOIN ads
-  ON ads.id = ap.ad_id
-  AND ads.status='active'
-  AND (ads.start_date IS NULL OR ads.start_date <= NOW())
-  AND (ads.end_date IS NULL OR ads.end_date >= NOW())
-
-WHERE pc.category_id = ?
-
-ORDER BY p.name ASC
-    `,[categoryId])
-
-    res.json(rows)
-
-  }catch(err){
-
-    console.error("GET PRODUCTS BY CATEGORY ERROR:",err)
-    res.status(500).json([])
-
+    res.json(rows);
+  } catch (err) {
+    console.error("GET PRODUCTS BY CATEGORY ERROR:", err);
+    res.status(500).json([]);
   }
+});
 
-})
 /* =========================
-   🔐 حماية المسارات التالية (لوحة التحكم)
+   🔐 حماية المسارات التالية
 ========================= */
 router.use(auth);
 
-
 /* ======================================================
-   🟢 جلب جميع المنتجات (لوحة التحكم)
+   🟢 جلب جميع المنتجات
 ====================================================== */
 router.get("/", async (req, res) => {
   const search = req.query.search || "";
   const user = req.user || {};
-  const { is_admin_branch, branch_id } = user;
+  const { role, id: userId, is_admin_branch, branch_id } = user;
 
   let selectedBranch = req.headers["x-branch-id"];
 
@@ -112,7 +99,11 @@ router.get("/", async (req, res) => {
     selectedBranch = null;
   }
 
-  if (is_admin_branch && selectedBranch && Number(selectedBranch) === Number(branch_id)) {
+  if (
+    is_admin_branch &&
+    selectedBranch &&
+    Number(selectedBranch) === Number(branch_id)
+  ) {
     selectedBranch = null;
   }
 
@@ -121,7 +112,10 @@ router.get("/", async (req, res) => {
     let where = `WHERE p.name LIKE ?`;
     let params = [`%${search}%`];
 
-    if (is_admin_branch) {
+    if (role === "agent") {
+      where += ` AND r.agent_id = ?`;
+      params.push(userId);
+    } else if (is_admin_branch) {
       if (selectedBranch) {
         where += ` AND r.branch_id = ?`;
         params.push(selectedBranch);
@@ -195,9 +189,11 @@ router.post("/", upload.single("image"), async (req, res) => {
     const image_url = bodyImageUrl || null;
 
     const [result] = await db.query(
-      `INSERT INTO products
-       (name, price, image_url, notes, unit_id, restaurant_id, is_available, is_parent, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      `
+      INSERT INTO products
+        (name, price, image_url, notes, unit_id, restaurant_id, is_available, is_parent, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      `,
       [
         name,
         isParentVal ? null : (price || null),
@@ -212,7 +208,6 @@ router.post("/", upload.single("image"), async (req, res) => {
 
     const productId = result.insertId;
 
-    // الفئات
     let cats = [];
     try {
       cats = typeof category_ids === "string" ? JSON.parse(category_ids) : category_ids;
@@ -225,7 +220,6 @@ router.post("/", upload.single("image"), async (req, res) => {
       );
     }
 
-    // الأبناء
     let kids = [];
     try {
       kids = typeof children === "string" ? JSON.parse(children) : children;
@@ -266,7 +260,10 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     const updates = [];
     const params = [];
 
-    if (name !== undefined) { updates.push("name=?"); params.push(name); }
+    if (name !== undefined) {
+      updates.push("name=?");
+      params.push(name);
+    }
 
     if (price !== undefined) {
       if (price === "") {
@@ -277,9 +274,20 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       }
     }
 
-    if (notes !== undefined) { updates.push("notes=?"); params.push(notes); }
-    if (unit_id !== undefined) { updates.push("unit_id=?"); params.push(unit_id || null); }
-    if (restaurant_id !== undefined) { updates.push("restaurant_id=?"); params.push(restaurant_id); }
+    if (notes !== undefined) {
+      updates.push("notes=?");
+      params.push(notes);
+    }
+
+    if (unit_id !== undefined) {
+      updates.push("unit_id=?");
+      params.push(unit_id || null);
+    }
+
+    if (restaurant_id !== undefined) {
+      updates.push("restaurant_id=?");
+      params.push(restaurant_id);
+    }
 
     if (is_available !== undefined) {
       updates.push("is_available=?");
@@ -310,7 +318,6 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       );
     }
 
-    // تحديث الفئات
     if (category_ids !== undefined) {
       await db.query("DELETE FROM product_categories WHERE product_id=?", [req.params.id]);
 
@@ -327,7 +334,6 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       }
     }
 
-    // تحديث الأبناء
     if (children !== undefined) {
       await db.query("DELETE FROM product_children WHERE parent_id=?", [req.params.id]);
 
