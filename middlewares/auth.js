@@ -54,6 +54,25 @@ export default async function auth(req, res, next) {
       userRecord = rows[0];
     }
 
+
+      else if (decoded.role === "agent") {
+  const [rows] = await db.query(
+    `
+    SELECT
+      id,
+      name,
+      phone,
+      branch_id,
+      is_active,
+      'agent' AS role
+    FROM agents
+    WHERE id=? LIMIT 1
+    `,
+    [decoded.id]
+  );
+
+  userRecord = rows[0];
+}
     /* ==========================
        ADMIN / STAFF
     ========================== */
@@ -86,14 +105,17 @@ export default async function auth(req, res, next) {
     }
 
     // 4. تجهيز req.user
-    req.user = {
-      id: userRecord.id,
-      name: userRecord.name,
-      phone: userRecord.phone,
-      role: userRecord.role,
-      branch_id: userRecord.branch_id || null,
-      status: userRecord.status || null,
-    };
+ req.user = {
+  id: userRecord.id,
+  name: userRecord.name,
+  phone: userRecord.phone,
+  role: userRecord.role,
+  branch_id: userRecord.branch_id || null,
+  status: userRecord.status || null,
+  is_admin: userRecord.is_admin || 0,
+  is_admin_branch: userRecord.is_admin_branch || 0,
+  is_active: userRecord.is_active ?? null,
+};
 
     // 5. السماح بتغيير الفرع (اختياري)
     const headerBranch = req.headers["x-branch-id"];
