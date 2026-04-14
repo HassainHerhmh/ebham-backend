@@ -237,7 +237,108 @@ router.post("/calc-fees", auth, async (req, res) => {
 ==================== */
 router.use(auth);
 
+/* =====================================================
+   GET /orders/agent-summary
+   طلبات الوكيل أو مطعمه فقط بدون بيانات العميل
+===================================================== */
+router.get("/agent-summary", async (req, res) => {
+  try {
+    const user = req.user || {};
+    const restaurantId = req.query.restaurant_id || null;
+    const limit = Number(req.query.limit) || 100;
 
+    let where = [];
+    let params = [];
+
+    if (user.role === "agent") {
+      if (restaurantId) {
+        where.push("r.agent_id = ?");
+        params.push(user.id);
+
+        where.push("r.id = ?");
+        params.push(restaurantId);
+      } else {
+        where.push("r.agent_id = ?");
+        params.push(user.id);
+      }
+    } else {
+      if (!restaurantId) {
+        return res.status(400).json({
+          success: false,
+          message: "restaurant_id مطلوب لهذا النوع من المستخدمين"
+        });
+      }
+
+      where.push("r.id = ?");
+      params.push(restaurantId);
+
+      if (user.branch_id) {
+        where.push("o.branch_id = ?");
+        params.push(user.branch_id);
+      }
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+    const [rows] = await db.query(
+      `
+      SELECT
+        o.id,
+        o.status,
+        o.created_at,
+        r.id AS restaurant_id,
+        r.name AS restaurant_name,
+        oi.product_id,
+        oi.name AS product_name,
+        oi.quantity,
+        oi.price
+      FROM orders o
+      JOIN order_items oi ON oi.order_id = o.id
+      JOIN restaurants r ON r.id = oi.restaurant_id
+      ${whereSql}
+      ORDER BY o.id DESC, oi.id ASC
+      LIMIT ${limit}
+      `,
+      params
+    );
+
+    const orderMap = {};
+
+    for (const row of rows) {
+      if (!orderMap[row.id]) {
+        orderMap[row.id] = {
+          id: row.id,
+          status: row.status,
+          created_at: row.created_at,
+          restaurant: {
+            id: row.restaurant_id,
+            name: row.restaurant_name
+          },
+          products: []
+        };
+      }
+
+      orderMap[row.id].products.push({
+        product_id: row.product_id,
+        name: row.product_name,
+        quantity: Number(row.quantity),
+        price: Number(row.price),
+        subtotal: Number(row.price) * Number(row.quantity)
+      });
+    }
+
+    res.json({
+      success: true,
+      orders: Object.values(orderMap)
+    });
+  } catch (err) {
+    console.error("AGENT SUMMARY ORDERS ERROR:", err);
+    res.status(500).json({
+      success: false,
+      orders: []
+    });
+  }
+});
 /*====================
 للتطبيق
 ========================*/
