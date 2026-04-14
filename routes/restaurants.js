@@ -274,21 +274,24 @@ router.use(auth);
 ====================================================== */
 router.get("/", async (req, res) => {
   try {
-    const { is_admin_branch, branch_id } = req.user;
-    const selectedBranch = req.headers["x-branch-id"];
+const { role, id, is_admin_branch, branch_id } = req.user;
+const selectedBranch = req.headers["x-branch-id"];
 
-    let where = "";
-    let params = [];
+let where = "";
+let params = [];
 
-    if (is_admin_branch) {
-      if (selectedBranch && Number(selectedBranch) !== Number(branch_id)) {
-        where = "WHERE r.branch_id = ?";
-        params.push(selectedBranch);
-      }
-    } else {
-      where = "WHERE r.branch_id = ?";
-      params.push(branch_id);
-    }
+if (role === "agent") {
+  where = "WHERE r.agent_id = ?";
+  params.push(id);
+} else if (is_admin_branch) {
+  if (selectedBranch && Number(selectedBranch) !== Number(branch_id)) {
+    where = "WHERE r.branch_id = ?";
+    params.push(selectedBranch);
+  }
+} else {
+  where = "WHERE r.branch_id = ?";
+  params.push(branch_id);
+}
 
     const [rows] = await db.query(
       `
