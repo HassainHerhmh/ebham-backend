@@ -1,6 +1,6 @@
 import express from "express";
 import db from "../db.js";
-import upload from "../middlewares/upload.js";
+import upload, { uploadToCloudinary } from "../middlewares/upload.js";
 import auth from "../middlewares/auth.js";
 
 const router = express.Router();
@@ -161,7 +161,7 @@ router.get("/", async (req, res) => {
     res.json({ success: true, products: rows });
   } catch (err) {
     console.error("GET PRODUCTS ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, message: err.message || "خطأ في السيرفر" });
   }
 });
 
@@ -186,7 +186,12 @@ router.post("/", upload.single("image"), async (req, res) => {
     const isAvailableVal = Number(is_available) === 1 ? 1 : 0;
     const isParentVal = Number(is_parent) === 1 ? 1 : 0;
 
-    const image_url = bodyImageUrl || null;
+    let image_url = bodyImageUrl || null;
+
+    if (req.file) {
+      const uploaded = await uploadToCloudinary(req.file.path, "products");
+      image_url = uploaded.secure_url;
+    }
 
     const [result] = await db.query(
       `
@@ -235,7 +240,10 @@ router.post("/", upload.single("image"), async (req, res) => {
     res.json({ success: true, message: "✅ تم إضافة المنتج" });
   } catch (err) {
     console.error("CREATE PRODUCT ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message || "خطأ في السيرفر",
+    });
   }
 });
 
@@ -305,9 +313,9 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     }
 
     if (req.file) {
-      const image_url = `/uploads/${req.file.filename}`;
+      const uploaded = await uploadToCloudinary(req.file.path, "products");
       updates.push("image_url=?");
-      params.push(image_url);
+      params.push(uploaded.secure_url);
     }
 
     if (updates.length) {
@@ -353,7 +361,10 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     res.json({ success: true, message: "✅ تم تعديل المنتج" });
   } catch (err) {
     console.error("UPDATE PRODUCT ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message || "خطأ في السيرفر",
+    });
   }
 });
 
@@ -367,7 +378,10 @@ router.delete("/:id", async (req, res) => {
     res.json({ success: true, message: "🗑️ تم حذف المنتج" });
   } catch (err) {
     console.error("DELETE PRODUCT ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err.message || "خطأ في السيرفر",
+    });
   }
 });
 
