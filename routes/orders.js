@@ -1459,12 +1459,18 @@ res.json({
 ===================================================== */
 router.put("/:id/status", async (req, res) => {
   const conn = await db.getConnection();
+
   try {
-    const { status } = req.body; 
+    const { status } = req.body;
     const orderId = req.params.id;
     const updated_by = req.user.id;
 
-    if (!status) return res.status(400).json({ success: false, message: "الحالة غير محددة" });
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        message: "الحالة غير محددة"
+      });
+    }
 
     await conn.beginTransaction();
 
@@ -1480,6 +1486,7 @@ router.put("/:id/status", async (req, res) => {
         const sch = new Date(row.scheduled_at);
 
         if (now < sch) {
+          await conn.rollback();
           return res.status(400).json({
             success: false,
             message: "⏰ لا يمكن اعتماد الطلب قبل وقت الجدولة"
@@ -1488,9 +1495,9 @@ router.put("/:id/status", async (req, res) => {
       }
     }
 
-    // 1. تحديث حالة الطلب
+    // تحديث حالة الطلب
     let timeField = null;
-    if (status === "confirmed" || status === "preparing") timeField = "processing_at";
+    if (status === "confirmed" || status === "processing") timeField = "processing_at";
     if (status === "ready") timeField = "ready_at";
     if (status === "delivering") timeField = "delivering_at";
     if (status === "completed") timeField = "completed_at";
@@ -1498,351 +1505,296 @@ router.put("/:id/status", async (req, res) => {
 
     if (timeField) {
       await conn.query(
-        `UPDATE orders 
+        `UPDATE orders
          SET status=?,
              ${timeField}=NOW(),
              scheduled_at=NULL,
              updated_by=?
          WHERE id=?`,
-        [status, req.user.id, orderId]
+        [status, updated_by, orderId]
       );
-
-    } 
-    
-    else {
+    } else {
       await conn.query(
-        `UPDATE orders 
+        `UPDATE orders
          SET status=?, updated_by=?
          WHERE id=?`,
-        [status, req.user.id, orderId]
+        [status, updated_by, orderId]
       );
     }
 
-// ============================
-// ⭐ 2. نقاط الولاء
-// ============================
-if (status === "completed") {
+    // نقاط الولاء
+    if (status === "completed") {
+      try {
+        const [[orderData]] = await conn.query(
+          `SELECT id, customer_id, total_amount
+           FROM orders
+           WHERE id=?`,
+          [orderId]
+        );
 
-  try {
-
-    const [[orderData]] = await conn.query(
-      `SELECT id, customer_id, total_amount 
-       FROM orders 
-       WHERE id=?`,
-      [orderId]
-    );
-
-    if (orderData && orderData.total_amount > 0) {
-
-      await addPointsAfterOrder(orderData);
-
-      console.log("⭐ Loyalty Added:", {
-        order: orderId,
-        customer: orderData.customer_id,
-        amount: orderData.total_amount
-      });
-
-    }
-
-  } catch (err) {
-    console.error("❌ LOYALTY ERROR:", err.message);
-  }
-
-}
-
-    // 2. توليد القيود عند الانتقال لحالة "قيد التوصيل"
-    if (status === "delivering") {
-      // منع تكرار القيود لنفس الطلب
-const [[existsEntry]] = await conn.query(
-`SELECT id FROM journal_entries 
- WHERE reference_type='order' 
- AND reference_id=? 
- LIMIT 1`,
-[orderId]
-);
-
-if (existsEntry) {
-  console.log("⚠️ القيود موجودة مسبقاً للطلب:", orderId);
-  await conn.commit();
-  return res.json({ success:true, message:"تم تنفيذ القيود مسبقاً" });
-}
-      const [[settings]] = await conn.query("SELECT * FROM settings LIMIT 1");
-      const [[baseCur]] = await conn.query("SELECT id FROM currencies WHERE is_local=1 LIMIT 1");
-      const journalTypeId = 5; 
-
-      const [orderRows] = await conn.query(`
-        SELECT 
-          o.*,
-          pm.account_id AS bank_account_id,
-          cap.name AS captain_name,
-          cg.type AS guarantee_type, cg.account_id AS direct_acc_id,
-          c_comm.agent_account_id AS cap_acc_id, 
-          c_comm.commission_type AS cap_comm_type, 
-          c_comm.commission_value AS cap_comm_val
-        FROM orders o
-        LEFT JOIN customer_guarantees cg ON cg.customer_id = o.customer_id
-        LEFT JOIN payment_methods pm ON o.bank_id = pm.id
-        LEFT JOIN captains cap ON cap.id = o.captain_id
-        LEFT JOIN commissions c_comm ON (c_comm.account_id = o.captain_id AND c_comm.account_type = 'captain' AND c_comm.is_active = 1)
-        WHERE o.id = ?
-      `, [orderId]);
-
-      const order = orderRows[0];
-      if (!order) throw new Error("الطلب غير موجود");
-
-      let mainDebitAccount = null;
-      if (order.guarantee_type === 'account' && order.direct_acc_id) {
-        mainDebitAccount = order.direct_acc_id;
-      } else {
-        const pMethod = String(order.payment_method).toLowerCase();
-        if (pMethod === "cod") mainDebitAccount = order.cap_acc_id;
-        else if (pMethod === "bank") mainDebitAccount = order.bank_account_id || 10;
-        else mainDebitAccount = settings.customer_guarantee_account || 51;
+        if (orderData && orderData.total_amount > 0) {
+          await addPointsAfterOrder(orderData);
+          console.log("⭐ Loyalty Added:", {
+            order: orderId,
+            customer: orderData.customer_id,
+            amount: orderData.total_amount
+          });
+        }
+      } catch (err) {
+        console.error("❌ LOYALTY ERROR:", err.message);
       }
-
-       /* =========================
-   قيد خصم الكوبون
-========================= */
-
-if (order.discount_amount > 0 && settings.coupon_discount_account) {
-
-const discount = Number(order.discount_amount);
-
-await insertJournalEntry(
-  conn,
-  journalTypeId,
-  orderId,
-  baseCur.id,
-  settings.coupon_discount_account,
-  discount,
-  0,
-  `دعم كوبون طلب #${orderId}`,
-  req
-);
-
-await insertJournalEntry(
-  conn,
-  journalTypeId,
-  orderId,
-  baseCur.id,
-  order.cap_acc_id,
-  0,
-  discount,
-  `تعويض خصم الكوبون للكابتن #${orderId}`,
-  req
-);
-
-}
-
-      const [restaurantItems] = await conn.query(`
-        SELECT 
-          oi.restaurant_id, 
-          MAX(r.name) AS restaurant_name,
-          MAX(r_comm.agent_account_id) AS res_acc_id, 
-          MAX(r_comm.commission_type) AS res_comm_type, 
-          MAX(r_comm.commission_value) AS res_comm_val,
-          SUM(oi.price * oi.quantity) AS net_amount
-        FROM order_items oi
-        JOIN restaurants r ON oi.restaurant_id = r.id
-        LEFT JOIN commissions r_comm 
-          ON (r_comm.account_id = r.agent_id 
-              AND r_comm.account_type = 'agent' 
-              AND r_comm.is_active = 1)
-        WHERE oi.order_id = ?
-        GROUP BY oi.restaurant_id
-      `, [orderId]);
-for (const res of restaurantItems) {
-
-  if (res.res_acc_id && res.net_amount > 0) {
-
-    /* حساب نسبة الخصم */
-    let discountText = "";
-
-    const [original] = await conn.query(
-    `
-    SELECT 
-    SUM(p.price * oi.quantity) AS original_total
-    FROM order_items oi
-    JOIN products p ON p.id = oi.product_id
-    WHERE oi.order_id=? AND oi.restaurant_id=?
-    `,
-    [orderId, res.restaurant_id]
-    );
-
-    const originalTotal = Number(original[0]?.original_total || 0);
-
-    if (originalTotal > res.net_amount) {
-
-      const diff = originalTotal - res.net_amount;
-
-      const percent =
-      Math.round((diff / originalTotal) * 100);
-
-      discountText = ` عرض خصم ${percent}%`;
-
     }
 
-    const foodNote =
-      `قيمة وجبات من ${res.restaurant_name} طلب #${orderId}${discountText}`;
-
-    const salesNote =
-      `صافي مبيعات طلب #${orderId}${discountText}`;
-
-
-    /* قيد المبيعات */
-
-    await insertJournalEntry(
-      conn,
-      journalTypeId,
-      orderId,
-      baseCur.id,
-      mainDebitAccount,
-      res.net_amount,
-      0,
-      foodNote,
-      req
-    );
-
-    await insertJournalEntry(
-      conn,
-      journalTypeId,
-      orderId,
-      baseCur.id,
-      res.res_acc_id,
-      0,
-      res.net_amount,
-      salesNote,
-      req
-    );
-
-
-    /* عمولة المطعم */
-
-    if (settings.commission_income_account && res.res_comm_val > 0) {
-
-      let resComm =
-        (res.res_comm_type === 'percent')
-          ? (res.net_amount * Number(res.res_comm_val)) / 100
-          : Number(res.res_comm_val);
-
-      await insertJournalEntry(
-        conn,
-        journalTypeId,
-        orderId,
-        baseCur.id,
-        res.res_acc_id,
-        resComm,
-        0,
-        `خصم عمولة ${res.restaurant_name} طلب #${orderId}`,
-        req
+    // القيود المحاسبية فقط عند قيد التوصيل
+    if (status === "delivering") {
+      const [[existsEntry]] = await conn.query(
+        `SELECT id FROM journal_entries
+         WHERE reference_type='order'
+         AND reference_id=?
+         LIMIT 1`,
+        [orderId]
       );
 
-      await insertJournalEntry(
-        conn,
-        journalTypeId,
-        orderId,
-        baseCur.id,
-        settings.commission_income_account,
-        0,
-        resComm,
-        `إيراد عمولة مطعم #${orderId}`,
-        req
-      );
+      if (existsEntry) {
+        console.log("⚠️ القيود موجودة مسبقاً للطلب:", orderId);
+      } else {
+        const [[settings]] = await conn.query("SELECT * FROM settings LIMIT 1");
+        const [[baseCur]] = await conn.query("SELECT id FROM currencies WHERE is_local=1 LIMIT 1");
+        const journalTypeId = 5;
 
+        const [orderRows] = await conn.query(
+          `SELECT
+            o.*,
+            pm.account_id AS bank_account_id,
+            cap.name AS captain_name,
+            cg.type AS guarantee_type,
+            cg.account_id AS direct_acc_id,
+            c_comm.agent_account_id AS cap_acc_id,
+            c_comm.commission_type AS cap_comm_type,
+            c_comm.commission_value AS cap_comm_val
+          FROM orders o
+          LEFT JOIN customer_guarantees cg ON cg.customer_id = o.customer_id
+          LEFT JOIN payment_methods pm ON o.bank_id = pm.id
+          LEFT JOIN captains cap ON cap.id = o.captain_id
+          LEFT JOIN commissions c_comm
+            ON (c_comm.account_id = o.captain_id
+            AND c_comm.account_type = 'captain'
+            AND c_comm.is_active = 1)
+          WHERE o.id = ?`,
+          [orderId]
+        );
+
+        const order = orderRows[0];
+        if (!order) {
+          throw new Error("الطلب غير موجود");
+        }
+
+        let mainDebitAccount = null;
+        if (order.guarantee_type === "account" && order.direct_acc_id) {
+          mainDebitAccount = order.direct_acc_id;
+        } else {
+          const pMethod = String(order.payment_method).toLowerCase();
+          if (pMethod === "cod") mainDebitAccount = order.cap_acc_id;
+          else if (pMethod === "bank") mainDebitAccount = order.bank_account_id || 10;
+          else mainDebitAccount = settings.customer_guarantee_account || 51;
+        }
+
+        if (order.discount_amount > 0 && settings.coupon_discount_account) {
+          const discount = Number(order.discount_amount);
+
+          await insertJournalEntry(
+            conn,
+            journalTypeId,
+            orderId,
+            baseCur.id,
+            settings.coupon_discount_account,
+            discount,
+            0,
+            `دعم كوبون طلب #${orderId}`,
+            req
+          );
+
+          await insertJournalEntry(
+            conn,
+            journalTypeId,
+            orderId,
+            baseCur.id,
+            order.cap_acc_id,
+            0,
+            discount,
+            `تعويض خصم الكوبون للكابتن #${orderId}`,
+            req
+          );
+        }
+
+        const [restaurantItems] = await conn.query(
+          `SELECT
+            oi.restaurant_id,
+            MAX(r.name) AS restaurant_name,
+            MAX(r_comm.agent_account_id) AS res_acc_id,
+            MAX(r_comm.commission_type) AS res_comm_type,
+            MAX(r_comm.commission_value) AS res_comm_val,
+            SUM(oi.price * oi.quantity) AS net_amount
+          FROM order_items oi
+          JOIN restaurants r ON oi.restaurant_id = r.id
+          LEFT JOIN commissions r_comm
+            ON (r_comm.account_id = r.agent_id
+            AND r_comm.account_type = 'agent'
+            AND r_comm.is_active = 1)
+          WHERE oi.order_id = ?
+          GROUP BY oi.restaurant_id`,
+          [orderId]
+        );
+
+        for (const resItem of restaurantItems) {
+          if (resItem.res_acc_id && resItem.net_amount > 0) {
+            let discountText = "";
+
+            const [original] = await conn.query(
+              `SELECT
+                SUM(p.price * oi.quantity) AS original_total
+               FROM order_items oi
+               JOIN products p ON p.id = oi.product_id
+               WHERE oi.order_id=? AND oi.restaurant_id=?`,
+              [orderId, resItem.restaurant_id]
+            );
+
+            const originalTotal = Number(original[0]?.original_total || 0);
+
+            if (originalTotal > resItem.net_amount) {
+              const diff = originalTotal - resItem.net_amount;
+              const percent = Math.round((diff / originalTotal) * 100);
+              discountText = ` عرض خصم ${percent}%`;
+            }
+
+            await insertJournalEntry(
+              conn,
+              journalTypeId,
+              orderId,
+              baseCur.id,
+              mainDebitAccount,
+              resItem.net_amount,
+              0,
+              `قيمة وجبات من ${resItem.restaurant_name} طلب #${orderId}${discountText}`,
+              req
+            );
+
+            await insertJournalEntry(
+              conn,
+              journalTypeId,
+              orderId,
+              baseCur.id,
+              resItem.res_acc_id,
+              0,
+              resItem.net_amount,
+              `صافي مبيعات طلب #${orderId}${discountText}`,
+              req
+            );
+
+            if (settings.commission_income_account && resItem.res_comm_val > 0) {
+              const resComm =
+                resItem.res_comm_type === "percent"
+                  ? (resItem.net_amount * Number(resItem.res_comm_val)) / 100
+                  : Number(resItem.res_comm_val);
+
+              await insertJournalEntry(
+                conn,
+                journalTypeId,
+                orderId,
+                baseCur.id,
+                resItem.res_acc_id,
+                resComm,
+                0,
+                `خصم عمولة ${resItem.restaurant_name} طلب #${orderId}`,
+                req
+              );
+
+              await insertJournalEntry(
+                conn,
+                journalTypeId,
+                orderId,
+                baseCur.id,
+                settings.commission_income_account,
+                0,
+                resComm,
+                `إيراد عمولة مطعم #${orderId}`,
+                req
+              );
+            }
+          }
+        }
+
+        const deliveryTotal =
+          Number(order.delivery_fee || 0) +
+          Number(order.extra_store_fee || 0);
+
+        if (deliveryTotal > 0) {
+          await insertJournalEntry(
+            conn,
+            journalTypeId,
+            orderId,
+            baseCur.id,
+            mainDebitAccount,
+            deliveryTotal,
+            0,
+            `رسوم توصيل طلب #${orderId}`,
+            req
+          );
+
+          await insertJournalEntry(
+            conn,
+            journalTypeId,
+            orderId,
+            baseCur.id,
+            order.cap_acc_id,
+            0,
+            deliveryTotal,
+            `إيراد توصيل للكابتن طلب #${orderId}`,
+            req
+          );
+        }
+
+        if (deliveryTotal > 0 && order.cap_comm_val > 0) {
+          const captainCommission =
+            order.cap_comm_type === "percent"
+              ? (deliveryTotal * Number(order.cap_comm_val)) / 100
+              : Number(order.cap_comm_val);
+
+          await insertJournalEntry(
+            conn,
+            journalTypeId,
+            orderId,
+            baseCur.id,
+            order.cap_acc_id,
+            captainCommission,
+            0,
+            `خصم عمولة الكابتن طلب #${orderId}`,
+            req
+          );
+
+          await insertJournalEntry(
+            conn,
+            journalTypeId,
+            orderId,
+            baseCur.id,
+            settings.courier_commission_account,
+            0,
+            captainCommission,
+            `وسيط عمولات الكباتن طلب #${orderId}`,
+            req
+          );
+        }
+      }
     }
 
-  }
+    await conn.commit();
 
-}
-
-
-/* =========================
-   قيد التوصيل
-========================= */
-
-const deliveryTotal =
-Number(order.delivery_fee || 0) +
-Number(order.extra_store_fee || 0);
-
-if (deliveryTotal > 0) {
-
-  await insertJournalEntry(
-    conn,
-    journalTypeId,
-    orderId,
-    baseCur.id,
-    mainDebitAccount,
-    deliveryTotal,
-    0,
-    `رسوم توصيل طلب #${orderId}`,
-    req
-  );
-
-  await insertJournalEntry(
-    conn,
-    journalTypeId,
-    orderId,
-    baseCur.id,
-    order.cap_acc_id,
-    0,
-    deliveryTotal,
-    `إيراد توصيل للكابتن طلب #${orderId}`,
-    req
-  );
-
-}
-
-
-/* =========================
-   عمولة الكابتن
-========================= */
-
-if (deliveryTotal > 0 && order.cap_comm_val > 0) {
-
-  let captainCommission =
-  (order.cap_comm_type === "percent")
-  ? (deliveryTotal * Number(order.cap_comm_val)) / 100
-  : Number(order.cap_comm_val);
-
-  await insertJournalEntry(
-    conn,
-    journalTypeId,
-    orderId,
-    baseCur.id,
-    order.cap_acc_id,
-    captainCommission,
-    0,
-    `خصم عمولة الكابتن طلب #${orderId}`,
-    req
-  );
-
-  await insertJournalEntry(
-    conn,
-    journalTypeId,
-    orderId,
-    baseCur.id,
-    settings.courier_commission_account,
-    0,
-    captainCommission,
-    `وسيط عمولات الكباتن طلب #${orderId}`,
-    req
-  );
-
-}
-
-
-await conn.commit();
-}
-
-    /* =========================
-       إشعارات FCM (للعميل والكابتن)
-    ========================= */
     try {
-      const [[orderContacts]] = await conn.query(`
-        SELECT 
-          o.id, 
-            o.captain_id,   -- ✅ أضف هذا السطر
-          c.fcm_token AS customer_token, 
+      const [[orderContacts]] = await conn.query(
+        `SELECT
+          o.id,
+          o.captain_id,
+          c.fcm_token AS customer_token,
           cap.fcm_token AS captain_token,
           c.name AS customer_name,
           u.name AS user_name
@@ -1850,8 +1802,9 @@ await conn.commit();
         LEFT JOIN customers c ON o.customer_id = c.id
         LEFT JOIN captains cap ON o.captain_id = cap.id
         LEFT JOIN users u ON u.id = ?
-        WHERE o.id = ?
-      `, [updated_by, orderId]);
+        WHERE o.id = ?`,
+        [updated_by, orderId]
+      );
 
       if (orderContacts) {
         let title = "تحديث في طلبك 📦";
@@ -1863,74 +1816,62 @@ await conn.commit();
         else if (status === "completed") body = `تم توصيل الطلب رقم #${orderId} بنجاح، بالعافية! ❤️`;
         else if (status === "cancelled") body = `نعتذر منك، تم إلغاء طلبك رقم #${orderId} ❌`;
 
-        // إرسال للعميل
         if (body && orderContacts.customer_token) {
-          await sendFCMNotification(orderContacts.customer_token, title, body,
-          { 
-  orderId: String(orderId), 
-  status,
-  status_label: getStatusLabel(status)});
+          await sendFCMNotification(orderContacts.customer_token, title, body, {
+            orderId: String(orderId),
+            status,
+            status_label: getStatusLabel(status)
+          });
         }
 
-        // إرسال للكابتن (تنبيه بالاستلام عند الجاهزية)
         if (status === "ready" && orderContacts.captain_token) {
           await sendFCMNotification(
-            orderContacts.captain_token, 
-            "📦 طلب جاهز", 
+            orderContacts.captain_token,
+            "📦 طلب جاهز",
             `الطلب رقم #${orderId} للعميل ${orderContacts.customer_name} جاهز في المطعم.`,
             { orderId: String(orderId), type: "order_ready" }
           );
         }
 
-        /* =========================
-           إشعار لوحة التحكم (Socket.io)
-        ========================= */
-const io = req.app.get("io");
+        const io = req.app.get("io");
 
-/* إشعار لوحة التحكم */
-io.emit("admin_notification", {
-  type: "order_status_updated",
-  order_id: orderId,
-message: `📦 المستخدم ${orderContacts.user_name || "غير معروف"} حدّث طلب #${orderId} للعميل ${orderContacts.customer_name} إلى (${getStatusLabel(status)})`
-});
+        io.emit("admin_notification", {
+          type: "order_status_updated",
+          order_id: orderId,
+          message: `📦 المستخدم ${orderContacts.user_name || "غير معروف"} حدّث طلب #${orderId} للعميل ${orderContacts.customer_name} إلى (${getStatusLabel(status)})`
+        });
 
-/* 🔔 إشعار مباشر للكابتن */
-if (orderContacts.captain_id) {
+        if (orderContacts.captain_id) {
+          await db.query(
+            `INSERT INTO notifications
+             (captain_id, title, message, type, reference_id)
+             VALUES (?,?,?,?,?)`,
+            [
+              orderContacts.captain_id,
+              "تحديث حالة الطلب",
+              `📦 تحديث الطلب #${orderId} إلى (${getStatusLabel(status)})`,
+              "order_status",
+              orderId
+            ]
+          );
 
-  // 🔔 حفظ الإشعار في الداتابيز
-  await db.query(
-    `INSERT INTO notifications
-     (captain_id, title, message, type, reference_id)
-     VALUES (?,?,?,?,?)`,
-    [
-      orderContacts.captain_id,
-      "تحديث حالة الطلب",
-      `📦 تحديث الطلب #${orderId} إلى (${getStatusLabel(status)})`,
-      "order_status",
-      orderId
-    ]
-  );
-
-  // 🚀 realtime
-  io.to("captain_" + orderContacts.captain_id).emit("new_notification", {
-    message: `📦 تحديث الطلب #${orderId} إلى (${getStatusLabel(status)})`,
-    createdAt: new Date()
-  });
-}
- }
-      
+          io.to("captain_" + orderContacts.captain_id).emit("new_notification", {
+            message: `📦 تحديث الطلب #${orderId} إلى (${getStatusLabel(status)})`,
+            createdAt: new Date()
+          });
+        }
+      }
     } catch (fcmErr) {
       console.error("FCM NOTIFICATION ERROR:", fcmErr.message);
-      // لا نوقف العملية إذا فشل الإشعار
     }
 
     res.json({ success: true });
   } catch (err) {
-    if (conn) await conn.rollback();
+    await conn.rollback();
     console.error("FINALIZE ORDER ERROR:", err.message);
     res.status(500).json({ success: false, message: err.message });
   } finally {
-    if (conn) conn.release();
+    conn.release();
   }
 });
 /* =====================================================
