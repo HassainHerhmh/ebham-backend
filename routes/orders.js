@@ -280,43 +280,48 @@ router.get("/agent-summary", async (req, res) => {
 
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
-    const [rows] = await db.query(
-      `
-      SELECT
-        o.id,
-        o.status,
-        o.created_at,
-        r.id AS restaurant_id,
-        r.name AS restaurant_name,
-        oi.product_id,
-        oi.name AS product_name,
-        oi.quantity,
-        oi.price
-      FROM orders o
-      JOIN order_items oi ON oi.order_id = o.id
-      JOIN restaurants r ON r.id = oi.restaurant_id
-      ${whereSql}
-      ORDER BY o.id DESC, oi.id ASC
-      LIMIT ${limit}
-      `,
-      params
-    );
+   const [rows] = await db.query(
+  `
+  SELECT
+    o.id,
+    o.status,
+    o.created_at,
+    o.captain_id,
+    cap.name AS captain_name,
+    r.id AS restaurant_id,
+    r.name AS restaurant_name,
+    oi.product_id,
+    oi.name AS product_name,
+    oi.quantity,
+    oi.price
+  FROM orders o
+  JOIN order_items oi ON oi.order_id = o.id
+  JOIN restaurants r ON r.id = oi.restaurant_id
+  LEFT JOIN captains cap ON cap.id = o.captain_id
+  ${whereSql}
+  ORDER BY o.id DESC, oi.id ASC
+  LIMIT ${limit}
+  `,
+  params
+);
 
     const orderMap = {};
 
     for (const row of rows) {
-      if (!orderMap[row.id]) {
-        orderMap[row.id] = {
-          id: row.id,
-          status: row.status,
-          created_at: row.created_at,
-          restaurant: {
-            id: row.restaurant_id,
-            name: row.restaurant_name
-          },
-          products: []
-        };
-      }
+ if (!orderMap[row.id]) {
+  orderMap[row.id] = {
+    id: row.id,
+    status: row.status,
+    created_at: row.created_at,
+    captain_id: row.captain_id || null,
+    captain_name: row.captain_name || null,
+    restaurant: {
+      id: row.restaurant_id,
+      name: row.restaurant_name
+    },
+    products: []
+  };
+}
 
       orderMap[row.id].products.push({
         product_id: row.product_id,
