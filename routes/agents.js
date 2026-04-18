@@ -319,6 +319,7 @@ res.json({
     name: agent.name,
     phone: agent.phone,
     branch_id: agent.branch_id,
+        account_id: agent.account_id,
     image_url: agent.image_url, // 🆕 شعار الوكيل
   },
 });
