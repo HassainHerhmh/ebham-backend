@@ -18,6 +18,51 @@ function getStatusLabel(status) {
   }
 }
 
+function getActorLabel(role) {
+  switch (role) {
+    case "agent": return "الوكيل";
+    case "captain": return "الكابتن";
+    case "customer": return "العميل";
+    default: return "المستخدم";
+  }
+}
+
+async function getActorName(conn, user) {
+  if (!user) return "غير معروف";
+  if (user.name) return user.name;
+
+  if (user.role === "agent") {
+    const [[agent]] = await conn.query(
+      "SELECT name FROM agents WHERE id=? LIMIT 1",
+      [user.id]
+    );
+    return agent?.name || "غير معروف";
+  }
+
+  if (user.role === "captain") {
+    const [[captain]] = await conn.query(
+      "SELECT name FROM captains WHERE id=? LIMIT 1",
+      [user.id]
+    );
+    return captain?.name || "غير معروف";
+  }
+
+  if (user.role === "customer") {
+    const customerId = user.customer_id || user.id;
+    const [[customer]] = await conn.query(
+      "SELECT name FROM customers WHERE id=? LIMIT 1",
+      [customerId]
+    );
+    return customer?.name || "غير معروف";
+  }
+
+  const [[dashboardUser]] = await conn.query(
+    "SELECT name FROM users WHERE id=? LIMIT 1",
+    [user.id]
+  );
+  return dashboardUser?.name || "غير معروف";
+}
+
 const router = express.Router();
 
 
@@ -1801,17 +1846,17 @@ router.put("/:id/status", async (req, res) => {
           o.captain_id,
           c.fcm_token AS customer_token,
           cap.fcm_token AS captain_token,
-          c.name AS customer_name,
-          u.name AS user_name
+          c.name AS customer_name
         FROM orders o
         LEFT JOIN customers c ON o.customer_id = c.id
         LEFT JOIN captains cap ON o.captain_id = cap.id
-        LEFT JOIN users u ON u.id = ?
         WHERE o.id = ?`,
-        [updated_by, orderId]
+        [orderId]
       );
 
       if (orderContacts) {
+        const actorLabel = getActorLabel(req.user?.role);
+        const actorName = await getActorName(conn, req.user);
         let title = "تحديث في طلبك 📦";
         let body = "";
 
@@ -1843,7 +1888,7 @@ router.put("/:id/status", async (req, res) => {
         io.emit("admin_notification", {
           type: "order_status_updated",
           order_id: orderId,
-          message: `📦 المستخدم ${orderContacts.user_name || "غير معروف"} حدّث طلب #${orderId} للعميل ${orderContacts.customer_name} إلى (${getStatusLabel(status)})`
+          message: `📦 ${actorLabel} ${actorName} حدّث طلب #${orderId} للعميل ${orderContacts.customer_name} إلى (${getStatusLabel(status)})`
         });
 
         if (orderContacts.captain_id) {
