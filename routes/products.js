@@ -114,7 +114,7 @@ routerInstance.use(auth);
 routerInstance.get("/", async (req, res) => {
   const search = req.query.search || "";
   const user = req.user || {};
-  const { role, id: userId, is_admin_branch, branch_id } = user;
+  const { role, id: userId, is_admin_branch, branch_id, agent_id: authAgentId } = user;
 
   let selectedBranch = req.headers["x-branch-id"];
 
@@ -138,6 +138,9 @@ routerInstance.get("/", async (req, res) => {
     if (role === "agent") {
       where += ` AND r.agent_id = ?`;
       params.push(userId);
+    } else if (authAgentId) {
+      where += ` AND r.agent_id = ?`;
+      params.push(authAgentId);
     } else if (is_admin_branch) {
       if (selectedBranch) {
         where += ` AND r.branch_id = ?`;
@@ -196,6 +199,9 @@ routerInstance.get("/", async (req, res) => {
 ====================================================== */
 routerInstance.post("/", upload.single("image"), async (req, res) => {
   try {
+    const user = req.user || {};
+    const { role, id: userId, branch_id, is_admin_branch, agent_id: authAgentId } = user;
+
     const {
       name,
       price,
@@ -220,6 +226,28 @@ routerInstance.post("/", upload.single("image"), async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "المطعم مطلوب",
+      });
+    }
+
+    let restaurantSql = `SELECT id FROM restaurants WHERE id = ?`;
+    const restaurantParams = [restaurant_id];
+
+    if (role === "agent") {
+      restaurantSql += ` AND agent_id = ?`;
+      restaurantParams.push(userId);
+    } else if (authAgentId) {
+      restaurantSql += ` AND agent_id = ?`;
+      restaurantParams.push(authAgentId);
+    } else if (!is_admin_branch) {
+      restaurantSql += ` AND branch_id = ?`;
+      restaurantParams.push(branch_id);
+    }
+
+    const [[allowedRestaurant]] = await db.query(restaurantSql, restaurantParams);
+    if (!allowedRestaurant) {
+      return res.status(403).json({
+        success: false,
+        message: "غير مصرح باستخدام هذا المطعم",
       });
     }
 
@@ -319,6 +347,9 @@ routerInstance.post("/", upload.single("image"), async (req, res) => {
 ====================================================== */
 routerInstance.put("/:id", upload.single("image"), async (req, res) => {
   try {
+    const user = req.user || {};
+    const { role, id: userId, branch_id, is_admin_branch, agent_id: authAgentId } = user;
+
     const {
       name,
       price,
@@ -331,6 +362,57 @@ routerInstance.put("/:id", upload.single("image"), async (req, res) => {
       children,
       image_url: bodyImageUrl,
     } = req.body;
+
+    let productScopeSql = `
+      SELECT p.id
+      FROM products p
+      LEFT JOIN restaurants r ON r.id = p.restaurant_id
+      WHERE p.id = ?
+    `;
+    const productScopeParams = [req.params.id];
+
+    if (role === "agent") {
+      productScopeSql += ` AND r.agent_id = ?`;
+      productScopeParams.push(userId);
+    } else if (authAgentId) {
+      productScopeSql += ` AND r.agent_id = ?`;
+      productScopeParams.push(authAgentId);
+    } else if (!is_admin_branch) {
+      productScopeSql += ` AND r.branch_id = ?`;
+      productScopeParams.push(branch_id);
+    }
+
+    const [[scopedProduct]] = await db.query(productScopeSql, productScopeParams);
+    if (!scopedProduct) {
+      return res.status(403).json({
+        success: false,
+        message: "غير مصرح بتعديل هذا المنتج",
+      });
+    }
+
+    if (restaurant_id !== undefined && restaurant_id !== null && restaurant_id !== "") {
+      let restaurantSql = `SELECT id FROM restaurants WHERE id = ?`;
+      const restaurantParams = [restaurant_id];
+
+      if (role === "agent") {
+        restaurantSql += ` AND agent_id = ?`;
+        restaurantParams.push(userId);
+      } else if (authAgentId) {
+        restaurantSql += ` AND agent_id = ?`;
+        restaurantParams.push(authAgentId);
+      } else if (!is_admin_branch) {
+        restaurantSql += ` AND branch_id = ?`;
+        restaurantParams.push(branch_id);
+      }
+
+      const [[allowedRestaurant]] = await db.query(restaurantSql, restaurantParams);
+      if (!allowedRestaurant) {
+        return res.status(403).json({
+          success: false,
+          message: "غير مصرح بنقل المنتج إلى هذا المطعم",
+        });
+      }
+    }
 
     const updates = [];
     const params = [];
@@ -464,6 +546,36 @@ routerInstance.put("/:id", upload.single("image"), async (req, res) => {
 ====================================================== */
 routerInstance.delete("/:id", async (req, res) => {
   try {
+    const user = req.user || {};
+    const { role, id: userId, branch_id, is_admin_branch, agent_id: authAgentId } = user;
+
+    let productScopeSql = `
+      SELECT p.id
+      FROM products p
+      LEFT JOIN restaurants r ON r.id = p.restaurant_id
+      WHERE p.id = ?
+    `;
+    const productScopeParams = [req.params.id];
+
+    if (role === "agent") {
+      productScopeSql += ` AND r.agent_id = ?`;
+      productScopeParams.push(userId);
+    } else if (authAgentId) {
+      productScopeSql += ` AND r.agent_id = ?`;
+      productScopeParams.push(authAgentId);
+    } else if (!is_admin_branch) {
+      productScopeSql += ` AND r.branch_id = ?`;
+      productScopeParams.push(branch_id);
+    }
+
+    const [[scopedProduct]] = await db.query(productScopeSql, productScopeParams);
+    if (!scopedProduct) {
+      return res.status(403).json({
+        success: false,
+        message: "غير مصرح بحذف هذا المنتج",
+      });
+    }
+
     await db.query("DELETE FROM product_categories WHERE product_id=?", [req.params.id]);
     await db.query("DELETE FROM products WHERE id=?", [req.params.id]);
 
