@@ -40,10 +40,13 @@ router.post("/login", async (req, res) => {
         u.role,
         u.status,
         u.branch_id,
+        u.agent_id,
+        a.name AS agent_name,
         b.name AS branch_name,
         b.is_admin AS is_admin_branch
       FROM users u
       LEFT JOIN branches b ON b.id = u.branch_id
+      LEFT JOIN agents a ON a.id = u.agent_id
       WHERE u.email = ? OR u.phone = ?
       LIMIT 1
       `,
@@ -92,6 +95,8 @@ router.post("/login", async (req, res) => {
         status: user.status,
         branch_id: user.branch_id,
         branch_name: user.branch_name,
+        agent_id: user.agent_id,
+        agent_name: user.agent_name,
         is_admin_branch: user.is_admin_branch === 1,
         token,
       },

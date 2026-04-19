@@ -37,19 +37,44 @@ const upload = multer({ storage });
 ====================================================== */
 router.get("/", async (req, res) => {
   try {
-    const { is_admin_branch, branch_id } = req.user;
+    const { is_admin_branch, branch_id, role, id: authUserId, agent_id: authAgentId } = req.user;
     const selectedBranch = req.headers["x-branch-id"];
 
     let rows;
 
-    if (is_admin_branch) {
+    if (role === "agent") {
+      [rows] = await pool.query(
+        `
+        SELECT u.*, b.name AS branch_name, a.name AS agent_name
+        FROM users u
+        LEFT JOIN branches b ON b.id = u.branch_id
+        LEFT JOIN agents a ON a.id = u.agent_id
+        WHERE u.agent_id = ?
+        ORDER BY u.id DESC
+        `,
+        [authUserId]
+      );
+    } else if (authAgentId) {
+      [rows] = await pool.query(
+        `
+        SELECT u.*, b.name AS branch_name, a.name AS agent_name
+        FROM users u
+        LEFT JOIN branches b ON b.id = u.branch_id
+        LEFT JOIN agents a ON a.id = u.agent_id
+        WHERE u.agent_id = ?
+        ORDER BY u.id DESC
+        `,
+        [authAgentId]
+      );
+    } else if (is_admin_branch) {
       if (selectedBranch && selectedBranch !== "all") {
         // الإدارة العامة + فرع محدد
         [rows] = await pool.query(
           `
-          SELECT u.*, b.name AS branch_name
+          SELECT u.*, b.name AS branch_name, a.name AS agent_name
           FROM users u
           LEFT JOIN branches b ON b.id = u.branch_id
+          LEFT JOIN agents a ON a.id = u.agent_id
           WHERE u.branch_id = ?
           ORDER BY u.id DESC
           `,
@@ -58,9 +83,10 @@ router.get("/", async (req, res) => {
       } else {
         // الإدارة العامة بدون فلترة (كل المستخدمين)
         [rows] = await pool.query(`
-          SELECT u.*, b.name AS branch_name
+          SELECT u.*, b.name AS branch_name, a.name AS agent_name
           FROM users u
           LEFT JOIN branches b ON b.id = u.branch_id
+          LEFT JOIN agents a ON a.id = u.agent_id
           ORDER BY u.id DESC
         `);
       }
@@ -68,9 +94,10 @@ router.get("/", async (req, res) => {
       // مستخدم فرع عادي
       [rows] = await pool.query(
         `
-        SELECT u.*, b.name AS branch_name
+        SELECT u.*, b.name AS branch_name, a.name AS agent_name
         FROM users u
         LEFT JOIN branches b ON b.id = u.branch_id
+        LEFT JOIN agents a ON a.id = u.agent_id
         WHERE u.branch_id = ?
         ORDER BY u.id DESC
         `,
@@ -93,12 +120,33 @@ router.get("/", async (req, res) => {
 router.post("/", upload.single("image"), async (req, res) => {
   try {
     const authUser = req.user;
-    let { name, email, phone, password, role, permissions, branch_id } = req.body;
+    let { name, email, phone, password, role, permissions, branch_id, agent_id } = req.body;
 
     // لو المستخدم ليس من الإدارة العامة
     // نربطه تلقائيًا بفرعه ولا نسمح بتغيير الفرع
     if (!(authUser.role === "admin" && authUser.is_admin_branch === true)) {
       branch_id = authUser.branch_id;
+    }
+
+    if (authUser.role === "agent") {
+      agent_id = authUser.id;
+    } else if (authUser.agent_id) {
+      agent_id = authUser.agent_id;
+    }
+
+    if (agent_id) {
+      const [[agent]] = await pool.query(
+        `SELECT id, branch_id FROM agents WHERE id = ? LIMIT 1`,
+        [agent_id]
+      );
+
+      if (!agent) {
+        return res.status(400).json({ success: false, message: "الوكيل غير موجود" });
+      }
+
+      if (agent.branch_id) {
+        branch_id = agent.branch_id;
+      }
     }
 
     const hashed = await bcrypt.hash(password, 10);
@@ -109,8 +157,8 @@ router.post("/", upload.single("image"), async (req, res) => {
 
     await pool.query(
       `
-      INSERT INTO users (name, email, phone, password, role, permissions, branch_id, image_url, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
+      INSERT INTO users (name, email, phone, password, role, permissions, branch_id, agent_id, image_url, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
       `,
       [
         name,
@@ -120,6 +168,7 @@ router.post("/", upload.single("image"), async (req, res) => {
         role,
         permissions || "{}",
         branch_id || null,
+        agent_id || null,
         image_url,
       ]
     );
@@ -215,7 +264,13 @@ function normalizePermissions(value) {
 router.get("/:id/permissions", async (req, res) => {
   try {
     const [[user]] = await pool.query(
-      `SELECT id, name, role, permissions FROM users WHERE id = ? LIMIT 1`,
+      `
+      SELECT u.id, u.name, u.role, u.permissions, u.agent_id, a.name AS agent_name
+      FROM users u
+      LEFT JOIN agents a ON a.id = u.agent_id
+      WHERE u.id = ?
+      LIMIT 1
+      `,
       [req.params.id]
     );
 
@@ -227,6 +282,8 @@ router.get("/:id/permissions", async (req, res) => {
       success: true,
       user_id: user.id,
       role: normalizeRole(user.role),
+      agent_id: user.agent_id || null,
+      agent_name: user.agent_name || null,
       permissions: normalizePermissions(user.permissions),
     });
   } catch (err) {
@@ -268,11 +325,18 @@ router.put("/:id/permissions", async (req, res) => {
 
 router.put("/:id", upload.single("image"), async (req, res) => {
   try {
-    const { name, email, phone, role, branch_id } = req.body;
+    const authUser = req.user;
+    let { name, email, phone, role, branch_id, agent_id } = req.body;
     const image_url = req.file ? `/uploads/users/${req.file.filename}` : null;
 
-    const fields = ["name = ?", "email = ?", "phone = ?", "role = ?"];
-    const values = [name, email || null, phone || null, normalizeRole(role)];
+    if (authUser.role === "agent") {
+      agent_id = authUser.id;
+    } else if (authUser.agent_id) {
+      agent_id = authUser.agent_id;
+    }
+
+    const fields = ["name = ?", "email = ?", "phone = ?", "role = ?", "agent_id = ?"];
+    const values = [name, email || null, phone || null, normalizeRole(role), agent_id || null];
 
     if (branch_id) {
       fields.push("branch_id = ?");

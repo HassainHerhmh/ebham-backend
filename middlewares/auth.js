@@ -84,7 +84,8 @@ export default async function auth(req, res, next) {
           name,
           phone,
           role,
-          branch_id
+          branch_id,
+          agent_id
         FROM users
         WHERE id=? LIMIT 1
         `,
@@ -111,6 +112,7 @@ export default async function auth(req, res, next) {
   phone: userRecord.phone,
   role: userRecord.role,
   branch_id: userRecord.branch_id || null,
+    agent_id: userRecord.agent_id || null,
   status: userRecord.status || null,
   is_admin: userRecord.is_admin || 0,
   is_admin_branch: userRecord.is_admin_branch || 0,
