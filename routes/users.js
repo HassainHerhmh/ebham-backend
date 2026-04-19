@@ -120,7 +120,15 @@ router.get("/", async (req, res) => {
 router.post("/", upload.single("image"), async (req, res) => {
   try {
     const authUser = req.user;
-    let { name, email, phone, password, role, permissions, branch_id, agent_id } = req.body;
+    let { name, email, username, phone, password, role, permissions, branch_id, agent_id } = req.body;
+    const normalizedName = normalizeLoginValue(name);
+    const loginValue = normalizeLoginValue(username) || normalizeLoginValue(email);
+    const normalizedPhone = normalizeLoginValue(phone);
+    const normalizedRole = normalizeRole(role);
+
+    if (!normalizedName || !loginValue || !normalizedPhone || !password) {
+      return res.status(400).json({ success: false, message: "أكمل جميع الحقول المطلوبة" });
+    }
 
     // لو المستخدم ليس من الإدارة العامة
     // نربطه تلقائيًا بفرعه ولا نسمح بتغيير الفرع
@@ -149,6 +157,24 @@ router.post("/", upload.single("image"), async (req, res) => {
       }
     }
 
+    const [[existingPhoneUser]] = await pool.query(
+      `SELECT id FROM users WHERE phone = ? LIMIT 1`,
+      [normalizedPhone]
+    );
+
+    if (existingPhoneUser) {
+      return res.status(409).json({ success: false, message: "رقم الجوال مستخدم بالفعل" });
+    }
+
+    const [[existingLoginUser]] = await pool.query(
+      `SELECT id FROM users WHERE email = ? LIMIT 1`,
+      [loginValue]
+    );
+
+    if (existingLoginUser) {
+      return res.status(409).json({ success: false, message: "اسم المستخدم مستخدم بالفعل" });
+    }
+
     const hashed = await bcrypt.hash(password, 10);
 
     const image_url = req.file
@@ -161,11 +187,11 @@ router.post("/", upload.single("image"), async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
       `,
       [
-        name,
-        email,
-        phone,
+        normalizedName,
+        loginValue,
+        normalizedPhone,
         hashed,
-        role,
+        normalizedRole,
         permissions || "{}",
         branch_id || null,
         agent_id || null,
@@ -176,7 +202,7 @@ router.post("/", upload.single("image"), async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error("ADD USER ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, message: getUserWriteErrorMessage(err) });
   }
 });
 
@@ -227,6 +253,46 @@ function normalizeRole(role) {
   if (!role) return "employee";
   if (typeof role === "object") return String(role.name || "employee").toLowerCase();
   return String(role).toLowerCase();
+}
+
+function normalizeLoginValue(value) {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized || null;
+}
+
+function getUserWriteErrorMessage(err) {
+  const sqlMessage = String(err?.sqlMessage || err?.message || "");
+
+  if (err?.code === "ER_DUP_ENTRY") {
+    if (sqlMessage.includes("phone")) {
+      return "رقم الجوال مستخدم بالفعل";
+    }
+
+    if (sqlMessage.includes("email")) {
+      return "اسم المستخدم مستخدم بالفعل";
+    }
+
+    return "توجد بيانات مستخدم مكررة";
+  }
+
+  if (err?.code === "ER_BAD_FIELD_ERROR" && sqlMessage.includes("agent_id")) {
+    return "قاعدة البيانات لم تُحدّث بعد. نفذ ملف scripts/add-users-agent-id.sql على قاعدة البيانات ثم أعد المحاولة";
+  }
+
+  if (
+    err?.code === "WARN_DATA_TRUNCATED" ||
+    err?.code === "ER_TRUNCATED_WRONG_VALUE_FOR_FIELD" ||
+    (sqlMessage.includes("role") && sqlMessage.includes("Data truncated"))
+  ) {
+    return "قيمة الدور الحالية غير مدعومة في قاعدة البيانات. حدّث عمود role في جدول users ليدعم employee و accountant و cashier";
+  }
+
+  if (err?.code === "ER_NO_REFERENCED_ROW_2" && sqlMessage.includes("agent_id")) {
+    return "الوكيل المرتبط غير موجود في قاعدة البيانات";
+  }
+
+  return "فشل حفظ بيانات المستخدم";
 }
 
 function createEmptyPermissions() {
@@ -326,7 +392,9 @@ router.put("/:id/permissions", async (req, res) => {
 router.put("/:id", upload.single("image"), async (req, res) => {
   try {
     const authUser = req.user;
-    let { name, email, phone, role, branch_id, agent_id } = req.body;
+    let { name, email, username, phone, role, branch_id, agent_id } = req.body;
+    const loginValue = normalizeLoginValue(username) || normalizeLoginValue(email);
+    const normalizedPhone = normalizeLoginValue(phone);
     const image_url = req.file ? `/uploads/users/${req.file.filename}` : null;
 
     if (authUser.role === "agent") {
@@ -335,8 +403,30 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       agent_id = authUser.agent_id;
     }
 
+    if (loginValue) {
+      const [[existingLoginUser]] = await pool.query(
+        `SELECT id FROM users WHERE email = ? AND id <> ? LIMIT 1`,
+        [loginValue, req.params.id]
+      );
+
+      if (existingLoginUser) {
+        return res.status(409).json({ success: false, message: "اسم المستخدم مستخدم بالفعل" });
+      }
+    }
+
+    if (normalizedPhone) {
+      const [[existingPhoneUser]] = await pool.query(
+        `SELECT id FROM users WHERE phone = ? AND id <> ? LIMIT 1`,
+        [normalizedPhone, req.params.id]
+      );
+
+      if (existingPhoneUser) {
+        return res.status(409).json({ success: false, message: "رقم الجوال مستخدم بالفعل" });
+      }
+    }
+
     const fields = ["name = ?", "email = ?", "phone = ?", "role = ?", "agent_id = ?"];
-    const values = [name, email || null, phone || null, normalizeRole(role), agent_id || null];
+    const values = [name, loginValue, normalizedPhone, normalizeRole(role), agent_id || null];
 
     if (branch_id) {
       fields.push("branch_id = ?");
@@ -358,7 +448,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     res.json({ success: true, message: "تم تحديث المستخدم" });
   } catch (err) {
     console.error("UPDATE USER ERROR:", err);
-    res.status(500).json({ success: false, message: "فشل تحديث المستخدم" });
+    res.status(500).json({ success: false, message: getUserWriteErrorMessage(err) });
   }
 });
 
