@@ -66,7 +66,7 @@ router.post("/account-statement", async (req, res) => {
     let openingBalances = {}; 
     if (from_date) {
       const [ops] = await db.query(
-        `SELECT currency_id, ROUND(SUM(credit - debit), 2) AS bal
+        `SELECT currency_id, ROUND(SUM(debit - credit), 2) AS bal
          FROM journal_entries je
          WHERE je.account_id IN (${accountIds.map(() => "?").join(",")})
          AND je.journal_date < ?
@@ -149,7 +149,7 @@ router.post("/account-statement", async (req, res) => {
             debit: 0,
             credit: 0,
             balance: startBal,
-            isOpening: true
+            is_opening: true
           });
         }
         processedCurrencies.add(curId);
@@ -169,11 +169,11 @@ router.post("/account-statement", async (req, res) => {
       });
     });
 
-  res.json({
-  success: true,
-  openingBalance: currency_id ? (openingBalances[currency_id] || 0) : openingBalances,
-  list: finalRows,
-});
+    res.json({
+      success: true,
+      opening_balance: currency_id ? (openingBalances[currency_id] || 0) : openingBalances,
+      list: finalRows,
+    });
 
   } catch (err) {
     console.error("ACCOUNT STATEMENT ERROR:", err);
