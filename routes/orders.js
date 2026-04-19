@@ -9,6 +9,7 @@ function getStatusLabel(status) {
     case "pending": return "قيد الانتظار";
     case "scheduled": return "مجدول";
     case "processing": return "قيد التحضير";
+    case "preparing": return "قيد التحضير";
     case "confirmed": return "تم التأكيد";
     case "ready": return "جاهز";
     case "delivering": return "قيد التوصيل";
