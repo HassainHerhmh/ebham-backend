@@ -5,6 +5,7 @@ import auth from "../middlewares/auth.js";
 const router = express.Router();
 router.use(auth);
 
+
 router.post("/account-statement", async (req, res) => {
   try {
     const {
@@ -21,35 +22,46 @@ router.post("/account-statement", async (req, res) => {
     const params = [];
 
     /* =========================
-        1. تحديد الحسابات
+       1. تحديد الحسابات
     ========================= */
     let accountIds = [];
     let summaryGroupByParent = false;
 
     if (account_id) {
       const [rows] = await db.query(`SELECT id FROM accounts WHERE id = ?`, [account_id]);
-      accountIds = rows.map(r => r.id);
+      accountIds = rows.map((r) => r.id);
     } else {
       let mainsSql = `SELECT id FROM accounts WHERE parent_id IS NULL`;
       const mainsParams = [];
+
       if (!is_admin_branch) {
         mainsSql += ` OR (parent_id IS NOT NULL AND branch_id = ?)`;
         mainsParams.push(branch_id);
       }
+
       const [mains] = await db.query(mainsSql, mainsParams);
-      const mainIds = mains.map(r => r.id);
+      const mainIds = mains.map((r) => r.id);
+
       if (mainIds.length) {
         const [all] = await db.query(
-          `SELECT id FROM accounts WHERE id IN (${mainIds.map(() => "?").join(",")}) OR parent_id IN (${mainIds.map(() => "?").join(",")})`,
+          `SELECT id
+           FROM accounts
+           WHERE id IN (${mainIds.map(() => "?").join(",")})
+              OR parent_id IN (${mainIds.map(() => "?").join(",")})`,
           [...mainIds, ...mainIds]
         );
-        accountIds = all.map(r => r.id);
+
+        accountIds = all.map((r) => r.id);
         summaryGroupByParent = true;
       }
     }
 
     if (!accountIds.length) {
-      return res.json({ success: true, opening_balance: 0, list: [] });
+      return res.json({
+        success: true,
+        opening_balance: currency_id ? 0 : {},
+        list: [],
+      });
     }
 
     where.push(`je.account_id IN (${accountIds.map(() => "?").join(",")})`);
@@ -61,111 +73,176 @@ router.post("/account-statement", async (req, res) => {
     }
 
     /* =========================
-        2. حساب الأرصدة الافتتاحية بدقة
+       2. حساب الرصيد السابق الصحيح
+       الصحيح هنا: credit - debit
     ========================= */
-    let openingBalances = {}; 
+    let openingBalances = {};
+
     if (from_date) {
       const [ops] = await db.query(
-        `SELECT currency_id, ROUND(SUM(debit - credit), 2) AS bal
+        `SELECT
+           je.currency_id,
+           ROUND(SUM(je.credit - je.debit), 2) AS bal
          FROM journal_entries je
          WHERE je.account_id IN (${accountIds.map(() => "?").join(",")})
-         AND je.journal_date < ?
-         GROUP BY currency_id`,
-        [...accountIds, from_date]
+           ${currency_id ? "AND je.currency_id = ?" : ""}
+           AND je.journal_date < ?
+         GROUP BY je.currency_id`,
+        currency_id
+          ? [...accountIds, currency_id, from_date]
+          : [...accountIds, from_date]
       );
-      
-      ops.forEach(row => {
-        // التأكد من تحويل القيمة لرقم لمنع التضخم النصي
+
+      ops.forEach((row) => {
         openingBalances[row.currency_id] = Number(row.bal || 0);
       });
     }
 
     /* =========================
-        3. الجلب النهائي للقائمة
+       3. بناء الفلترة النهائية
     ========================= */
     const finalWhere = [...where];
     const finalParams = [...params];
 
-    if (from_date) { 
-      finalWhere.push(`je.journal_date >= ?`); 
-      finalParams.push(from_date); 
+    if (from_date) {
+      finalWhere.push(`je.journal_date >= ?`);
+      finalParams.push(from_date);
     }
-    if (to_date) { 
-      finalWhere.push(`je.journal_date <= ?`); 
-      finalParams.push(to_date); 
+
+    if (to_date) {
+      finalWhere.push(`je.journal_date <= ?`);
+      finalParams.push(to_date);
     }
 
     let sql;
+
     if (report_mode === "summary") {
-      sql = `SELECT c.id AS currency_id, c.name_ar AS currency_name, 
-             ${summaryGroupByParent ? 'p.name_ar' : 'a.name_ar'} AS account_name, 
-             ROUND(SUM(je.debit), 2) AS debit, ROUND(SUM(je.credit), 2) AS credit, 
-             ROUND(SUM(je.debit) - SUM(je.credit), 2) AS balance 
-             FROM journal_entries je 
-             JOIN accounts a ON a.id = je.account_id 
-             JOIN accounts p ON p.id = COALESCE(a.parent_id, a.id)
-             JOIN currencies c ON c.id = je.currency_id 
-             WHERE ${finalWhere.join(" AND ")}
-             GROUP BY c.id, ${summaryGroupByParent ? 'p.id, p.name_ar' : 'a.id, a.name_ar'} 
-             ORDER BY c.name_ar`;
+      sql = `
+        SELECT
+          c.id AS currency_id,
+          c.name_ar AS currency_name,
+          ${summaryGroupByParent ? "p.name_ar" : "a.name_ar"} AS account_name,
+          ROUND(SUM(je.debit), 2) AS debit,
+          ROUND(SUM(je.credit), 2) AS credit,
+          ROUND(SUM(je.credit) - SUM(je.debit), 2) AS balance
+        FROM journal_entries je
+        JOIN accounts a ON a.id = je.account_id
+        JOIN accounts p ON p.id = COALESCE(a.parent_id, a.id)
+        JOIN currencies c ON c.id = je.currency_id
+        WHERE ${finalWhere.join(" AND ")}
+        GROUP BY c.id, ${summaryGroupByParent ? "p.id, p.name_ar" : "a.id, a.name_ar"}
+        ORDER BY c.name_ar
+      `;
     } else {
       sql = `
         SELECT
-          je.id, je.journal_date, je.reference_type, je.reference_id, je.currency_id,
-          c.name_ar AS currency_name, a.name_ar AS account_name,
-          je.debit, je.credit, je.notes
+          je.id,
+          je.journal_date,
+          je.reference_type,
+          je.reference_id,
+          je.currency_id,
+          c.name_ar AS currency_name,
+          a.name_ar AS account_name,
+          ROUND(IFNULL(je.debit, 0), 2) AS debit,
+          ROUND(IFNULL(je.credit, 0), 2) AS credit,
+          je.notes
         FROM journal_entries je
         JOIN accounts a ON a.id = je.account_id
         JOIN currencies c ON c.id = je.currency_id
         WHERE ${finalWhere.join(" AND ")}
-        ORDER BY je.currency_id, je.journal_date ASC, je.id ASC
+        ORDER BY je.currency_id ASC, je.journal_date ASC, je.id ASC
       `;
     }
 
     const [rows] = await db.query(sql, finalParams);
 
-  /* =========================
-        4. المعالجة الحسابية ومنع التكرار
+    if (report_mode === "summary") {
+      return res.json({
+        success: true,
+        opening_balance: currency_id ? (openingBalances[currency_id] || 0) : openingBalances,
+        list: rows,
+      });
+    }
+
+    /* =========================
+       4. تجهيز العملات المعروضة
+       حتى يظهر الرصيد السابق حتى لو ما فيه قيود
     ========================= */
-    let finalRows = [];
-    let runningBalances = { ...openingBalances };
-    let processedCurrencies = new Set();
+    const displayCurrencyIds = Array.from(
+      new Set([
+        ...(currency_id ? [currency_id] : []),
+        ...Object.keys(openingBalances),
+        ...rows.map((row) => String(row.currency_id)),
+      ])
+    );
 
-    rows.forEach(row => {
-      const curId = row.currency_id;
-      const debit = Number(row.debit || 0);
-      const credit = Number(row.credit || 0);
+    let currencyNames = {};
 
-      // إضافة سطر الرصيد السابق لمرة واحدة فقط لكل عملة وبشرط ألا يكون صفراً
-      if (!processedCurrencies.has(curId)) {
-        const startBal = Number(openingBalances[curId] || 0);
-        if (startBal !== 0) {
-          finalRows.push({
-            id: 'op-' + curId,
-            journal_date: from_date || row.journal_date,
-            notes: 'رصيد سابق',
-            account_name: 'رصيد سابق',
-            currency_name: row.currency_name,
-            debit: 0,
-            credit: 0,
-            balance: startBal,
-            is_opening: true
-          });
-        }
-        processedCurrencies.add(curId);
+    if (displayCurrencyIds.length) {
+      const [currencyRows] = await db.query(
+        `SELECT id, name_ar
+         FROM currencies
+         WHERE id IN (${displayCurrencyIds.map(() => "?").join(",")})`,
+        displayCurrencyIds
+      );
+
+      currencyRows.forEach((row) => {
+        currencyNames[String(row.id)] = row.name_ar;
+      });
+    }
+
+    const rowsByCurrency = new Map();
+
+    rows.forEach((row) => {
+      const curId = String(row.currency_id);
+
+      if (!rowsByCurrency.has(curId)) {
+        rowsByCurrency.set(curId, []);
       }
 
-      // الحساب التراكمي الدقيق (منع تضخم الأرقام)
-      if (runningBalances[curId] === undefined) runningBalances[curId] = 0;
-      
-      const currentBalance = Number(runningBalances[curId]) + debit - credit;
-      runningBalances[curId] = Number(currentBalance.toFixed(2));
-      
+      rowsByCurrency.get(curId).push(row);
+    });
+
+    /* =========================
+       5. المعالجة الصحيحة
+       - إضافة الرصيد السابق مرة واحدة لكل عملة
+       - حتى لو كان صفر
+       - حتى لو ما فيه قيود في الفترة
+       - الرصيد التراكمي = السابق + credit - debit
+    ========================= */
+    const finalRows = [];
+
+    displayCurrencyIds.forEach((curId) => {
+      const currencyRows = rowsByCurrency.get(String(curId)) || [];
+      let runningBalance = Number(openingBalances[curId] || 0);
+
       finalRows.push({
-        ...row,
-        debit: debit,
-        credit: credit,
-        balance: runningBalances[curId]
+        id: `op-${curId}`,
+        journal_date: from_date || "",
+        reference_id: "",
+        reference_type: "opening_balance",
+        notes: "رصيد سابق",
+        account_name: "رصيد سابق",
+        currency_id: curId,
+        currency_name: currencyNames[curId] || "",
+        debit: runningBalance < 0 ? Math.abs(runningBalance) : 0,
+        credit: runningBalance > 0 ? Math.abs(runningBalance) : 0,
+        balance: Number(runningBalance.toFixed(2)),
+        is_opening: true,
+      });
+
+      currencyRows.forEach((row) => {
+        const debit = Number(row.debit || 0);
+        const credit = Number(row.credit || 0);
+
+        runningBalance = Number((runningBalance + credit - debit).toFixed(2));
+
+        finalRows.push({
+          ...row,
+          debit,
+          credit,
+          balance: runningBalance,
+        });
       });
     });
 
@@ -174,7 +251,6 @@ router.post("/account-statement", async (req, res) => {
       opening_balance: currency_id ? (openingBalances[currency_id] || 0) : openingBalances,
       list: finalRows,
     });
-
   } catch (err) {
     console.error("ACCOUNT STATEMENT ERROR:", err);
     res.status(500).json({ success: false });
