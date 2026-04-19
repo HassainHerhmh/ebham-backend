@@ -28,7 +28,10 @@ router.post("/account-statement", async (req, res) => {
     let summaryGroupByParent = false;
 
     if (account_id) {
-      const [rows] = await db.query(`SELECT id FROM accounts WHERE id = ?`, [account_id]);
+      const [rows] = await db.query(
+        `SELECT id FROM accounts WHERE id = ?`,
+        [account_id]
+      );
       accountIds = rows.map((r) => r.id);
     } else {
       let mainsSql = `SELECT id FROM accounts WHERE parent_id IS NULL`;
@@ -56,19 +59,7 @@ router.post("/account-statement", async (req, res) => {
       }
     }
 
-    console.log("ACCOUNT STATEMENT INPUT =", {
-      account_id,
-      currency_id,
-      from_date,
-      to_date,
-      report_mode,
-      branch_id,
-      is_admin_branch,
-      accountIds,
-    });
-
     if (!accountIds.length) {
-      console.log("NO ACCOUNT IDS FOUND");
       return res.json({
         success: true,
         opening_balance: currency_id ? 0 : {},
@@ -85,87 +76,37 @@ router.post("/account-statement", async (req, res) => {
     }
 
     /* =========================
-       2. حساب الرصيد السابق الصحيح
+       2. حساب الرصيد السابق
+       fix:
+       - DATE(je.journal_date) < DATE(?)
+       - توحيد مفاتيح العملات كنص
     ========================= */
-    let openingBalances = {};
+    const openingBalances = {};
 
     if (from_date) {
-      const debugParams = currency_id
-        ? [...accountIds, currency_id, from_date]
-        : [...accountIds, from_date];
-
-      const debugSql = `
+      const openingSql = `
         SELECT
-          je.currency_id,
-          ROUND(SUM(je.credit - je.debit), 2) AS bal
+          CAST(je.currency_id AS CHAR) AS currency_id,
+          ROUND(
+            IFNULL(SUM(IFNULL(je.credit, 0) - IFNULL(je.debit, 0)), 0),
+            2
+          ) AS bal
         FROM journal_entries je
         WHERE je.account_id IN (${accountIds.map(() => "?").join(",")})
           ${currency_id ? "AND je.currency_id = ?" : ""}
-          AND je.journal_date < ?
+          AND DATE(je.journal_date) < DATE(?)
         GROUP BY je.currency_id
       `;
 
-      console.log("OPENING SQL =", debugSql);
-      console.log("OPENING PARAMS =", debugParams);
+      const openingParams = currency_id
+        ? [...accountIds, currency_id, from_date]
+        : [...accountIds, from_date];
 
-      const [ops] = await db.query(debugSql, debugParams);
-
-      console.log("OPENING RAW RESULT =", ops);
+      const [ops] = await db.query(openingSql, openingParams);
 
       ops.forEach((row) => {
         openingBalances[String(row.currency_id)] = Number(row.bal || 0);
       });
-
-      console.log("OPENING BALANCES =", openingBalances);
-
-      const [sampleBeforeRows] = await db.query(
-        `
-        SELECT
-          je.id,
-          je.account_id,
-          je.currency_id,
-          je.journal_date,
-          je.debit,
-          je.credit,
-          je.reference_type,
-          je.reference_id
-        FROM journal_entries je
-        WHERE je.account_id IN (${accountIds.map(() => "?").join(",")})
-          AND je.journal_date < ?
-        ORDER BY je.journal_date DESC, je.id DESC
-        LIMIT 10
-        `,
-        [...accountIds, from_date]
-      );
-
-      console.log("SAMPLE ENTRIES BEFORE FROM_DATE =", sampleBeforeRows);
-
-      if (currency_id) {
-        const [sampleCurrencyRows] = await db.query(
-          `
-          SELECT
-            je.id,
-            je.account_id,
-            je.currency_id,
-            je.journal_date,
-            je.debit,
-            je.credit,
-            je.reference_type,
-            je.reference_id
-          FROM journal_entries je
-          WHERE je.account_id IN (${accountIds.map(() => "?").join(",")})
-            AND je.currency_id = ?
-            AND je.journal_date < ?
-          ORDER BY je.journal_date DESC, je.id DESC
-          LIMIT 10
-          `,
-          [...accountIds, currency_id, from_date]
-        );
-
-        console.log("SAMPLE ENTRIES BEFORE FROM_DATE FOR CURRENCY =", sampleCurrencyRows);
-      }
-    } else {
-      console.log("NO from_date => opening balance remains zero");
     }
 
     /* =========================
@@ -175,12 +116,12 @@ router.post("/account-statement", async (req, res) => {
     const finalParams = [...params];
 
     if (from_date) {
-      finalWhere.push(`je.journal_date >= ?`);
+      finalWhere.push(`DATE(je.journal_date) >= DATE(?)`);
       finalParams.push(from_date);
     }
 
     if (to_date) {
-      finalWhere.push(`je.journal_date <= ?`);
+      finalWhere.push(`DATE(je.journal_date) <= DATE(?)`);
       finalParams.push(to_date);
     }
 
@@ -192,9 +133,9 @@ router.post("/account-statement", async (req, res) => {
           c.id AS currency_id,
           c.name_ar AS currency_name,
           ${summaryGroupByParent ? "p.name_ar" : "a.name_ar"} AS account_name,
-          ROUND(SUM(je.debit), 2) AS debit,
-          ROUND(SUM(je.credit), 2) AS credit,
-          ROUND(SUM(je.credit) - SUM(je.debit), 2) AS balance
+          ROUND(SUM(IFNULL(je.debit, 0)), 2) AS debit,
+          ROUND(SUM(IFNULL(je.credit, 0)), 2) AS credit,
+          ROUND(SUM(IFNULL(je.credit, 0)) - SUM(IFNULL(je.debit, 0)), 2) AS balance
         FROM journal_entries je
         JOIN accounts a ON a.id = je.account_id
         JOIN accounts p ON p.id = COALESCE(a.parent_id, a.id)
@@ -224,30 +165,20 @@ router.post("/account-statement", async (req, res) => {
       `;
     }
 
-    console.log("FINAL SQL =", sql);
-    console.log("FINAL PARAMS =", finalParams);
-
     const [rows] = await db.query(sql, finalParams);
 
-    console.log("DETAIL/SUMMARY ROWS COUNT =", rows.length);
-    console.log("DETAIL/SUMMARY FIRST 5 =", rows.slice(0, 5));
-
     if (report_mode === "summary") {
-      const responseOpeningBalance = currency_id
-        ? (openingBalances[String(currency_id)] || 0)
-        : openingBalances;
-
-      console.log("SUMMARY opening_balance RESPONSE =", responseOpeningBalance);
-
       return res.json({
         success: true,
-        opening_balance: responseOpeningBalance,
+        opening_balance: currency_id
+          ? (openingBalances[String(currency_id)] || 0)
+          : openingBalances,
         list: rows,
       });
     }
 
     /* =========================
-       4. تجهيز العملات المعروضة
+       4. العملات المعروضة
     ========================= */
     const displayCurrencyIds = Array.from(
       new Set([
@@ -257,9 +188,7 @@ router.post("/account-statement", async (req, res) => {
       ])
     );
 
-    console.log("DISPLAY CURRENCY IDS =", displayCurrencyIds);
-
-    let currencyNames = {};
+    const currencyNames = {};
 
     if (displayCurrencyIds.length) {
       const [currencyRows] = await db.query(
@@ -274,8 +203,6 @@ router.post("/account-statement", async (req, res) => {
       });
     }
 
-    console.log("CURRENCY NAMES =", currencyNames);
-
     const rowsByCurrency = new Map();
 
     rows.forEach((row) => {
@@ -289,7 +216,7 @@ router.post("/account-statement", async (req, res) => {
     });
 
     /* =========================
-       5. المعالجة النهائية
+       5. تجهيز النتيجة النهائية
     ========================= */
     const finalRows = [];
 
@@ -327,16 +254,11 @@ router.post("/account-statement", async (req, res) => {
       });
     });
 
-    const responseOpeningBalance = currency_id
-      ? (openingBalances[String(currency_id)] || 0)
-      : openingBalances;
-
-    console.log("FINAL ROWS FIRST 10 =", finalRows.slice(0, 10));
-    console.log("FINAL opening_balance RESPONSE =", responseOpeningBalance);
-
     res.json({
       success: true,
-      opening_balance: responseOpeningBalance,
+      opening_balance: currency_id
+        ? (openingBalances[String(currency_id)] || 0)
+        : openingBalances,
       list: finalRows,
     });
   } catch (err) {
