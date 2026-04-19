@@ -458,14 +458,26 @@ router.put("/:id", upload.single("image"), async (req, res) => {
 ====================================================== */
 router.put("/:id/disable", async (req, res) => {
   try {
-    await pool.query(
-      `UPDATE users SET status='disabled' WHERE id=?`,
+    const [[existingUser]] = await pool.query(
+      `SELECT id, status FROM users WHERE id = ? LIMIT 1`,
       [req.params.id]
     );
-    res.json({ success: true });
+
+    if (!existingUser) {
+      return res.status(404).json({ success: false, message: "المستخدم غير موجود" });
+    }
+
+    const nextStatus = existingUser.status === "disabled" ? "active" : "disabled";
+
+    await pool.query(
+      `UPDATE users SET status = ? WHERE id = ?`,
+      [nextStatus, req.params.id]
+    );
+
+    res.json({ success: true, status: nextStatus });
   } catch (err) {
     console.error("DISABLE USER ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, message: "فشل تغيير حالة المستخدم" });
   }
 });
 
