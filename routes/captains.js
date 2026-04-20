@@ -9,7 +9,8 @@ import fs from "fs";
    إعداد تخزين الصور
 ========================= */
 
-const uploadDir = "uploads/captains";
+const uploadPublicDir = "/uploads/captains";
+const uploadDir = path.join(process.cwd(), "uploads", "captains");
 
 // إنشاء المجلد لو غير موجود
 if (!fs.existsSync(uploadDir)) {
@@ -32,11 +33,67 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
   fileFilter: (req, file, cb) => {
     if (!file.mimetype.startsWith("image/")) {
-      cb(new Error("يسمح فقط بالصور"));
+      return cb(new Error("يسمح فقط بالصور"));
     }
     cb(null, true);
   }
 });
+
+function getBaseUrl(req) {
+  const envUrl =
+    process.env.PUBLIC_BASE_URL ||
+    process.env.APP_URL ||
+    process.env.BASE_URL;
+
+  if (envUrl) {
+    return envUrl.replace(/\/+$/, "");
+  }
+
+  const forwardedProto =
+    String(req.headers["x-forwarded-proto"] || "")
+      .split(",")[0]
+      .trim();
+
+  const protocol = forwardedProto || req.protocol || "https";
+  const host = req.get("host");
+
+  return `${protocol}://${host}`;
+}
+
+function buildImageUrl(req, imagePath) {
+  if (!imagePath) return null;
+  if (/^https?:\/\//i.test(imagePath)) return imagePath;
+  return `${getBaseUrl(req)}/${String(imagePath).replace(/^\/+/, "")}`;
+}
+
+let imageColumnChecked = false;
+
+async function ensureImageColumn() {
+  if (imageColumnChecked) return;
+
+  try {
+    await db.query(
+      "ALTER TABLE captains ADD COLUMN image_url VARCHAR(500) NULL"
+    );
+  } catch (err) {
+    if (err?.code !== "ER_DUP_FIELDNAME") {
+      throw err;
+    }
+  }
+
+  imageColumnChecked = true;
+}
+
+function uploadCaptainImage(req, res, next) {
+  upload.single("image")(req, res, (err) => {
+    if (!err) return next();
+
+    return res.status(400).json({
+      success: false,
+      message: err.message || "فشل رفع الصورة"
+    });
+  });
+}
 
 const router = express.Router();
 
@@ -44,6 +101,56 @@ const router = express.Router();
    حماية كل المسارات
 ========================= */
 router.use(auth);
+
+/* =========================
+   GET /captains/me
+========================= */
+router.get("/me", async (req, res) => {
+  try {
+    await ensureImageColumn();
+
+    const captainId = req.user?.id || req.user?.captain_id;
+
+    if (!captainId) {
+      return res.status(401).json({
+        success: false,
+        message: "غير مصرح"
+      });
+    }
+
+    const [[captain]] = await db.query(
+      `
+      SELECT id, name, phone, email, status, branch_id, image_url
+      FROM captains
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [captainId]
+    );
+
+    if (!captain) {
+      return res.status(404).json({
+        success: false,
+        message: "الكابتن غير موجود"
+      });
+    }
+
+    res.json({
+      success: true,
+      captain: {
+        ...captain,
+        image: buildImageUrl(req, captain.image_url),
+        image_full_url: buildImageUrl(req, captain.image_url)
+      }
+    });
+  } catch (err) {
+    console.error("GET CAPTAIN PROFILE ERROR:", err);
+    res.status(500).json({
+      success: false,
+      message: "فشل جلب بيانات الكابتن"
+    });
+  }
+});
 
 /* =========================
    GET /captains
@@ -187,7 +294,7 @@ router.post("/", async (req, res) => {
 ========================= */
 router.put(
   "/profile-image",
-  upload.single("image"),
+  uploadCaptainImage,
   async (req, res) => {
 
     try {
@@ -207,27 +314,44 @@ router.put(
       }
 
       if (!req.file) {
-        return res.json({
+        return res.status(400).json({
           success: false,
           message: "لم يتم رفع صورة"
         });
       }
 
+      await ensureImageColumn();
+
       // جلب الصورة القديمة
       const [[captain]] = await db.query(
-        "SELECT image_url FROM captains WHERE id=?",
+        "SELECT id, image_url FROM captains WHERE id=?",
         [captainId]
       );
 
+      if (!captain) {
+        return res.status(404).json({
+          success: false,
+          message: "الكابتن غير موجود"
+        });
+      }
+
       // حذف الصورة القديمة إن وجدت
       if (captain?.image_url) {
-        const oldPath = captain.image_url.replace(/^\/+/, "");
-        if (fs.existsSync(oldPath)) {
+        const oldPath = path.join(
+          process.cwd(),
+          captain.image_url.replace(/^\/+/, "")
+        );
+
+        if (
+          oldPath.startsWith(path.join(process.cwd(), "uploads")) &&
+          fs.existsSync(oldPath)
+        ) {
           fs.unlinkSync(oldPath);
         }
       }
 
-      const imageUrl = `/uploads/captains/${req.file.filename}`;
+      const imageUrl = `${uploadPublicDir}/${req.file.filename}`;
+      const imageFullUrl = buildImageUrl(req, imageUrl);
 
       await db.query(
         "UPDATE captains SET image_url=? WHERE id=?",
@@ -236,7 +360,9 @@ router.put(
 
       res.json({
         success: true,
-        image_url: imageUrl
+        image_url: imageUrl,
+        image: imageFullUrl,
+        image_full_url: imageFullUrl
       });
 
     } catch (err) {

@@ -5,6 +5,33 @@ import bcrypt from "bcrypt";
 
 const router = express.Router();
 
+function getBaseUrl(req) {
+  const envUrl =
+    process.env.PUBLIC_BASE_URL ||
+    process.env.APP_URL ||
+    process.env.BASE_URL;
+
+  if (envUrl) {
+    return envUrl.replace(/\/+$/, "");
+  }
+
+  const forwardedProto =
+    String(req.headers["x-forwarded-proto"] || "")
+      .split(",")[0]
+      .trim();
+
+  const protocol = forwardedProto || req.protocol || "https";
+  const host = req.get("host");
+
+  return `${protocol}://${host}`;
+}
+
+function buildImageUrl(req, imagePath) {
+  if (!imagePath) return null;
+  if (/^https?:\/\//i.test(imagePath)) return imagePath;
+  return `${getBaseUrl(req)}/${String(imagePath).replace(/^\/+/, "")}`;
+}
+
 /* ======================
    Captain Login
 ====================== */
@@ -99,6 +126,9 @@ router.post("/login", async (req, res) => {
         phone: captain.phone,
         status: captain.status,
         branch_id: captain.branch_id,
+        image_url: captain.image_url || null,
+        image: buildImageUrl(req, captain.image_url),
+        image_full_url: buildImageUrl(req, captain.image_url),
       },
     });
 
