@@ -33,38 +33,11 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
   fileFilter: (req, file, cb) => {
     if (!file.mimetype.startsWith("image/")) {
-      return cb(new Error("يسمح فقط بالصور"));
+      cb(new Error("يسمح فقط بالصور"));
     }
     cb(null, true);
   }
 });
-
-function getBaseUrl(req) {
-  const envUrl =
-    process.env.PUBLIC_BASE_URL ||
-    process.env.APP_URL ||
-    process.env.BASE_URL;
-
-  if (envUrl) {
-    return envUrl.replace(/\/+$/, "");
-  }
-
-  const forwardedProto =
-    String(req.headers["x-forwarded-proto"] || "")
-      .split(",")[0]
-      .trim();
-
-  const protocol = forwardedProto || req.protocol || "https";
-  const host = req.get("host");
-
-  return `${protocol}://${host}`;
-}
-
-function buildImageUrl(req, imagePath) {
-  if (!imagePath) return null;
-  if (/^https?:\/\//i.test(imagePath)) return imagePath;
-  return `${getBaseUrl(req)}/${String(imagePath).replace(/^\/+/, "")}`;
-}
 
 let imageColumnChecked = false;
 
@@ -84,15 +57,16 @@ async function ensureImageColumn() {
   imageColumnChecked = true;
 }
 
-function uploadCaptainImage(req, res, next) {
-  upload.single("image")(req, res, (err) => {
-    if (!err) return next();
+function removeCaptainImage(imagePath) {
+  if (!imagePath) return;
 
-    return res.status(400).json({
-      success: false,
-      message: err.message || "فشل رفع الصورة"
-    });
-  });
+  const normalized = String(imagePath).replace(/^\/+/, "");
+  const fullPath = path.join(process.cwd(), normalized);
+  const uploadsRoot = path.join(process.cwd(), "uploads");
+
+  if (fullPath.startsWith(uploadsRoot) && fs.existsSync(fullPath)) {
+    fs.unlinkSync(fullPath);
+  }
 }
 
 const router = express.Router();
@@ -101,56 +75,6 @@ const router = express.Router();
    حماية كل المسارات
 ========================= */
 router.use(auth);
-
-/* =========================
-   GET /captains/me
-========================= */
-router.get("/me", async (req, res) => {
-  try {
-    await ensureImageColumn();
-
-    const captainId = req.user?.id || req.user?.captain_id;
-
-    if (!captainId) {
-      return res.status(401).json({
-        success: false,
-        message: "غير مصرح"
-      });
-    }
-
-    const [[captain]] = await db.query(
-      `
-      SELECT id, name, phone, email, status, branch_id, image_url
-      FROM captains
-      WHERE id = ?
-      LIMIT 1
-      `,
-      [captainId]
-    );
-
-    if (!captain) {
-      return res.status(404).json({
-        success: false,
-        message: "الكابتن غير موجود"
-      });
-    }
-
-    res.json({
-      success: true,
-      captain: {
-        ...captain,
-        image: buildImageUrl(req, captain.image_url),
-        image_full_url: buildImageUrl(req, captain.image_url)
-      }
-    });
-  } catch (err) {
-    console.error("GET CAPTAIN PROFILE ERROR:", err);
-    res.status(500).json({
-      success: false,
-      message: "فشل جلب بيانات الكابتن"
-    });
-  }
-});
 
 /* =========================
    GET /captains
@@ -244,6 +168,7 @@ router.post("/", async (req, res) => {
     vehicle_number,
     status,
     account_id,
+    image_url,
   } = req.body;
 
   if (!name || !phone || !password || !account_id) {
@@ -263,11 +188,13 @@ router.post("/", async (req, res) => {
       finalBranchId = Number(selectedBranch);
     }
 
-    await db.query(
+    await ensureImageColumn();
+
+    const [result] = await db.query(
       `
       INSERT INTO captains
-      (name, email, phone, password, vehicle_type, vehicle_number, status, branch_id, account_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      (name, email, phone, password, vehicle_type, vehicle_number, status, branch_id, account_id, image_url, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
       `,
       [
         name,
@@ -279,10 +206,11 @@ router.post("/", async (req, res) => {
         status || "available",
         finalBranchId,
         account_id,
+        image_url || null,
       ]
     );
 
-    res.json({ success: true });
+    res.json({ success: true, id: result?.insertId });
   } catch (err) {
     console.error("ADD CAPTAIN ERROR:", err);
     res.status(500).json({ success: false, message: "فشل في إضافة الكابتن" });
@@ -294,7 +222,7 @@ router.post("/", async (req, res) => {
 ========================= */
 router.put(
   "/profile-image",
-  uploadCaptainImage,
+  upload.single("image"),
   async (req, res) => {
 
     try {
@@ -314,7 +242,7 @@ router.put(
       }
 
       if (!req.file) {
-        return res.status(400).json({
+        return res.json({
           success: false,
           message: "لم يتم رفع صورة"
         });
@@ -324,34 +252,14 @@ router.put(
 
       // جلب الصورة القديمة
       const [[captain]] = await db.query(
-        "SELECT id, image_url FROM captains WHERE id=?",
+        "SELECT image_url FROM captains WHERE id=?",
         [captainId]
       );
 
-      if (!captain) {
-        return res.status(404).json({
-          success: false,
-          message: "الكابتن غير موجود"
-        });
-      }
-
       // حذف الصورة القديمة إن وجدت
-      if (captain?.image_url) {
-        const oldPath = path.join(
-          process.cwd(),
-          captain.image_url.replace(/^\/+/, "")
-        );
-
-        if (
-          oldPath.startsWith(path.join(process.cwd(), "uploads")) &&
-          fs.existsSync(oldPath)
-        ) {
-          fs.unlinkSync(oldPath);
-        }
-      }
+      removeCaptainImage(captain?.image_url);
 
       const imageUrl = `${uploadPublicDir}/${req.file.filename}`;
-      const imageFullUrl = buildImageUrl(req, imageUrl);
 
       await db.query(
         "UPDATE captains SET image_url=? WHERE id=?",
@@ -360,9 +268,7 @@ router.put(
 
       res.json({
         success: true,
-        image_url: imageUrl,
-        image: imageFullUrl,
-        image_full_url: imageFullUrl
+        image_url: imageUrl
       });
 
     } catch (err) {
@@ -378,6 +284,62 @@ router.put(
 
   }
 );
+
+/* =========================
+   PUT /captains/:id/profile-image
+   رفع صورة الكابتن (للإدارة)
+========================= */
+router.put(
+  "/:id/profile-image",
+  upload.single("image"),
+  async (req, res) => {
+    try {
+      const captainId = req.params.id;
+
+      if (!req.file) {
+        return res.json({
+          success: false,
+          message: "لم يتم رفع صورة"
+        });
+      }
+
+      await ensureImageColumn();
+
+      const [[captain]] = await db.query(
+        "SELECT image_url FROM captains WHERE id=?",
+        [captainId]
+      );
+
+      if (!captain) {
+        return res.status(404).json({
+          success: false,
+          message: "الكابتن غير موجود"
+        });
+      }
+
+      removeCaptainImage(captain?.image_url);
+
+      const imageUrl = `${uploadPublicDir}/${req.file.filename}`;
+
+      await db.query(
+        "UPDATE captains SET image_url=? WHERE id=?",
+        [imageUrl, captainId]
+      );
+
+      res.json({
+        success: true,
+        image_url: imageUrl
+      });
+    } catch (err) {
+      console.error("UPLOAD CAPTAIN IMAGE (ADMIN) ERROR:", err);
+
+      res.status(500).json({
+        success: false,
+        message: "فشل رفع الصورة"
+      });
+    }
+  }
+);
 /* =========================
    PUT /captains/:id
 ========================= */
@@ -391,6 +353,7 @@ router.put("/:id", async (req, res) => {
     vehicle_number,
     status,
     account_id,
+    image_url,
   } = req.body;
 
   const fields = [];
@@ -404,6 +367,7 @@ router.put("/:id", async (req, res) => {
   if (vehicle_number !== undefined) { fields.push("vehicle_number=?"); values.push(vehicle_number); }
   if (status !== undefined) { fields.push("status=?"); values.push(status); }
   if (account_id !== undefined) { fields.push("account_id=?"); values.push(account_id); }
+  if (image_url !== undefined) { fields.push("image_url=?"); values.push(image_url); }
 
   if (!fields.length) {
     return res.json({
@@ -413,6 +377,8 @@ router.put("/:id", async (req, res) => {
   }
 
   try {
+    await ensureImageColumn();
+
     await db.query(
       `
       UPDATE captains
