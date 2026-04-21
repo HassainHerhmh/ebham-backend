@@ -5,22 +5,35 @@ import auth from "../middlewares/auth.js";
 const router = express.Router();
 router.use(auth);
 
-let accountGroupColumnChecked = false;
-
-async function ensureAccountGroupColumn() {
-  if (accountGroupColumnChecked) return;
-
-  try {
-    await db.query(
-      "ALTER TABLE accounts ADD COLUMN account_group_id INT NULL"
-    );
-  } catch (err) {
-    if (err?.code !== "ER_DUP_FIELDNAME") {
-      throw err;
-    }
+router.use((req, res, next) => {
+  if (["customer", "captain", "agent"].includes(req.user?.role)) {
+    return res.status(403).json({
+      success: false,
+      message: "غير مصرح بالوصول إلى دليل الحسابات",
+    });
   }
 
-  accountGroupColumnChecked = true;
+  next();
+});
+
+async function ensureAccountColumnsExist() {
+  const [rows] = await db.query(`
+    SELECT COLUMN_NAME
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'accounts'
+      AND COLUMN_NAME IN ('account_group_id', 'financial_statement_id', 'parent_id')
+  `);
+
+  const existing = new Set(rows.map((row) => row.COLUMN_NAME));
+
+  if (!existing.has("account_group_id")) {
+    throw new Error("accounts.account_group_id column is missing. Run scripts/add-account-group-column.sql");
+  }
+
+  if (!existing.has("financial_statement_id") || !existing.has("parent_id")) {
+    throw new Error("accounts table is missing required columns for secure account management");
+  }
 }
 
 function getRootFinancialStatementId(name) {
@@ -35,12 +48,54 @@ function getRootFinancialStatementId(name) {
   return null;
 }
 
+async function ensureNoCircularParent(accountId, nextParentId) {
+  if (!nextParentId) return;
+
+  if (Number(accountId) === Number(nextParentId)) {
+    throw new Error("لا يمكن ربط الحساب بنفسه كحساب أب");
+  }
+
+  const visited = new Set([Number(accountId)]);
+  let currentParentId = Number(nextParentId);
+
+  while (currentParentId) {
+    if (visited.has(currentParentId)) {
+      throw new Error("لا يمكن إنشاء دورة في شجرة الحسابات");
+    }
+
+    visited.add(currentParentId);
+
+    const [[row]] = await db.query(
+      "SELECT parent_id FROM accounts WHERE id=?",
+      [currentParentId]
+    );
+
+    if (!row) {
+      throw new Error("الحساب الأب غير موجود");
+    }
+
+    currentParentId = row.parent_id ? Number(row.parent_id) : 0;
+  }
+}
+
+function auditAccountMutation(action, req, details) {
+  console.info("ACCOUNT_AUDIT", {
+    action,
+    actor_id: req.user?.id || null,
+    actor_role: req.user?.role || null,
+    branch_id: req.user?.branch_id || null,
+    target_account_id: details.accountId || null,
+    details,
+    at: new Date().toISOString(),
+  });
+}
+
 /* ======================================================
    📥 جلب الحسابات
 ====================================================== */
 router.get("/", async (req, res) => {
   try {
-    await ensureAccountGroupColumn();
+    await ensureAccountColumnsExist();
 
     const { is_admin_branch, branch_id } = req.user;
 
@@ -129,7 +184,7 @@ router.get("/", async (req, res) => {
 ====================================================== */
 router.post("/", async (req, res) => {
   try {
-    await ensureAccountGroupColumn();
+    await ensureAccountColumnsExist();
 
     const { name_ar, name_en, parent_id, account_level, account_group_id } = req.body;
     const { id: user_id, branch_id } = req.user;
@@ -147,6 +202,8 @@ router.post("/", async (req, res) => {
         message: "الحساب الفرعي يجب أن يرتبط بحساب أب",
       });
     }
+
+    await ensureNoCircularParent(null, parent_id || null);
 
     // لو له أب → يرث منه القوائم المالية والفرع إن وجد
     if (parent_id) {
@@ -204,10 +261,19 @@ router.post("/", async (req, res) => {
       ]
     );
 
+    auditAccountMutation("create", req, {
+      accountId: null,
+      parent_id: parent_id || null,
+      account_group_id: account_group_id || null,
+      account_level: account_level || "رئيسي",
+      financial_statement_id: finalFinancialId,
+      name_ar,
+    });
+
     res.json({ success: true });
   } catch (err) {
     console.error("ADD ACCOUNT ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, message: err.message || "فشل إضافة الحساب" });
   }
 });
 
@@ -218,7 +284,7 @@ router.post("/", async (req, res) => {
 ====================================================== */
 router.put("/:id", async (req, res) => {
   try {
-    await ensureAccountGroupColumn();
+    await ensureAccountColumnsExist();
 
     const { name_ar, name_en, parent_id, account_level, account_group_id } = req.body;
 
@@ -241,6 +307,8 @@ router.put("/:id", async (req, res) => {
         message: "الحساب الفرعي يجب أن يرتبط بحساب أب",
       });
     }
+
+    await ensureNoCircularParent(req.params.id, nextParentId);
 
     const updates = [];
     const params = [];
@@ -296,10 +364,19 @@ router.put("/:id", async (req, res) => {
       params
     );
 
+    auditAccountMutation("update", req, {
+      accountId: Number(req.params.id),
+      parent_id: nextParentId,
+      account_group_id: account_group_id !== undefined ? account_group_id || null : undefined,
+      account_level: nextLevel,
+      financial_statement_id: finalFinancialId,
+      name_ar: nextName,
+    });
+
     res.json({ success: true });
   } catch (err) {
     console.error("UPDATE ACCOUNT ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, message: err.message || "فشل تحديث الحساب" });
   }
 });
 

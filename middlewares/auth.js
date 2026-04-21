@@ -80,14 +80,18 @@ export default async function auth(req, res, next) {
       const [rows] = await db.query(
         `
         SELECT 
-          id,
-          name,
-          phone,
-          role,
-          branch_id,
-          agent_id
-        FROM users
-        WHERE id=? LIMIT 1
+          u.id,
+          u.name,
+          u.phone,
+          u.role,
+          u.branch_id,
+          u.agent_id,
+          u.status,
+          COALESCE(u.is_admin, 0) AS is_admin,
+          COALESCE(b.is_admin, 0) AS is_admin_branch
+        FROM users u
+        LEFT JOIN branches b ON b.id = u.branch_id
+        WHERE u.id=? LIMIT 1
         `,
         [decoded.id]
       );
@@ -102,6 +106,13 @@ export default async function auth(req, res, next) {
       return res.status(401).json({
         success: false,
         message: "المستخدم غير موجود",
+      });
+    }
+
+    if (userRecord.status !== undefined && userRecord.status !== null && userRecord.status !== "active") {
+      return res.status(403).json({
+        success: false,
+        message: "الحساب معطل",
       });
     }
 
@@ -122,8 +133,13 @@ export default async function auth(req, res, next) {
     // 5. السماح بتغيير الفرع (اختياري)
     const headerBranch = req.headers["x-branch-id"];
 
-    if (headerBranch) {
+    if (headerBranch && (req.user.is_admin_branch || req.user.is_admin)) {
       req.user.branch_id = Number(headerBranch);
+    } else if (headerBranch) {
+      return res.status(403).json({
+        success: false,
+        message: "غير مصرح بتغيير الفرع",
+      });
     }
 
     console.log("✅ AUTH OK:", req.user);
