@@ -711,36 +711,32 @@ router.put("/status/:id", async (req, res) => {
     const orderId = req.params.id;
     await conn.beginTransaction();
 
-let timeField = null;
+    let timeField = null;
 
-// عند الاعتماد → مؤكد = يبدأ المعالجة
-if (status === "confirmed")  timeField = "processing_at";
-      await conn.beginTransaction();
-      const orderId = req.params.id;
-// عند التوصيل
-if (status === "delivering") timeField = "delivering_at";
+    // عند الاعتماد → مؤكد = يبدأ المعالجة
+    if (status === "confirmed")  timeField = "processing_at";
+    // عند التوصيل
+    if (status === "delivering") timeField = "delivering_at";
+    // عند الاكتمال
+    if (status === "completed")  timeField = "completed_at";
+    // عند الإلغاء
+    if (status === "cancelled")  timeField = "cancelled_at";
 
-// عند الاكتمال
-if (status === "completed")  timeField = "completed_at";
-
-// عند الإلغاء
-if (status === "cancelled")  timeField = "cancelled_at";
-
-if (timeField) {
-  await conn.query(
-    `UPDATE wassel_orders 
-     SET status = ?, ${timeField} = NOW(), updated_by = ?
-     WHERE id = ?`,
-    [status, req.user.id, orderId]
-  );
-} else {
-  await conn.query(
-    `UPDATE wassel_orders 
-     SET status = ?, updated_by = ?
-     WHERE id = ?`,
-    [status, req.user.id, orderId]
-  );
-}
+    if (timeField) {
+      await conn.query(
+        `UPDATE wassel_orders 
+         SET status = ?, ${timeField} = NOW(), updated_by = ?
+         WHERE id = ?`,
+        [status, req.user.id, orderId]
+      );
+    } else {
+      await conn.query(
+        `UPDATE wassel_orders 
+         SET status = ?, updated_by = ?
+         WHERE id = ?`,
+        [status, req.user.id, orderId]
+      );
+    }
 
 
     if (status === "delivering") {
