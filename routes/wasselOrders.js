@@ -823,9 +823,11 @@ router.post("/assign", async (req, res) => {
       [captainId]
     );
 
+
     const [[order]] = await db.query(`
       SELECT
         w.id,
+        w.order_number,
         c.name AS customer_name
       FROM wassel_orders w
       LEFT JOIN customers c ON c.id = w.customer_id
@@ -835,13 +837,15 @@ router.post("/assign", async (req, res) => {
 
     const captainName = captain?.name || "كابتن";
     const customerName = order?.customer_name || "عميل غير معروف";
+    const orderNumber = order?.order_number || orderId;
 
     /* realtime للكابتن المحدد فقط */
     io.to("captain_" + captainId).emit(
       "new_wassel_order_assigned",
       {
         order_id: orderId,
-        message: `🚚 تم إسناد طلب وصل لي رقم #${orderId} للعميل ${customerName}`
+        order_number: orderNumber,
+        message: `🚚 تم إسناد طلب وصل لي رقم #${orderNumber} للعميل ${customerName}`
       }
     );
 
@@ -850,9 +854,10 @@ router.post("/assign", async (req, res) => {
       await sendFCMNotification(
         captain.fcm_token,
         "🚚 طلب وصل لي جديد",
-        `تم إسناد طلب رقم #${orderId} للعميل ${customerName}`,
+        `تم إسناد طلب رقم #${orderNumber} للعميل ${customerName}`,
         {
           orderId: String(orderId),
+          orderNumber: String(orderNumber),
           type: "wassel_order_assigned"
         }
       );
@@ -862,9 +867,10 @@ router.post("/assign", async (req, res) => {
     io.emit("admin_notification", {
       type: "wassel_assigned",
       order_id: orderId,
+      order_number: orderNumber,
       captain_name: captainName,
       customer_name: customerName,
-      message: `👨‍✈️ تم إسناد طلب وصل لي #${orderId} إلى ${captainName} للعميل ${customerName}`
+      message: `👨‍✈️ تم إسناد طلب وصل لي #${orderNumber} إلى ${captainName} للعميل ${customerName}`
     });
 
     res.json({ success: true });
