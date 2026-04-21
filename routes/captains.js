@@ -83,6 +83,8 @@ router.get("/", async (req, res) => {
   try {
     const { is_admin_branch, branch_id } = req.user;
     const selectedBranch = req.headers["x-branch-id"];
+    const selectedBranchId =
+      selectedBranch && selectedBranch !== "all" ? Number(selectedBranch) : null;
 
     let rows;
 
@@ -123,14 +125,14 @@ router.get("/", async (req, res) => {
     `;
 
     if (is_admin_branch) {
-      if (selectedBranch && Number(selectedBranch) !== Number(branch_id)) {
+      if (Number.isFinite(selectedBranchId)) {
         [rows] = await db.query(
           `
           ${baseSelect}
           WHERE c.branch_id = ?
           ORDER BY c.id DESC
           `,
-          [Number(selectedBranch)]
+          [selectedBranchId]
         );
       } else {
         [rows] = await db.query(`
