@@ -23,6 +23,18 @@ async function ensureAccountGroupColumn() {
   accountGroupColumnChecked = true;
 }
 
+function getRootFinancialStatementId(name) {
+  if (["الأصول", "حقوق الملكية"].includes(name)) {
+    return 1;
+  }
+
+  if (["الإيرادات", "المصروفات"].includes(name)) {
+    return 2;
+  }
+
+  return null;
+}
+
 /* ======================================================
    📥 جلب الحسابات
 ====================================================== */
@@ -120,6 +132,13 @@ router.post("/", async (req, res) => {
     let finalBranchId = null;
     let finalFinancialId = null;
 
+    if (account_level === "فرعي" && !parent_id) {
+      return res.json({
+        success: false,
+        message: "الحساب الفرعي يجب أن يرتبط بحساب أب",
+      });
+    }
+
     // لو له أب → يرث منه القوائم المالية والفرع إن وجد
     if (parent_id) {
       const [[parent]] = await db.query(
@@ -134,12 +153,7 @@ router.post("/", async (req, res) => {
       finalFinancialId = parent.financial_statement_id;
       finalBranchId = parent.branch_id || branch_id || null;
     } else {
-      // حساب جذري: تحديد الحساب الختامي
-      if (["الأصول", "حقوق الملكية"].includes(name_ar)) {
-        finalFinancialId = 1; // الميزانية العمومية
-      } else if (["الإيرادات", "المصروفات"].includes(name_ar)) {
-        finalFinancialId = 2; // أرباح وخسائر
-      }
+      finalFinancialId = getRootFinancialStatementId(name_ar);
     }
 
     // الحسابات الجذرية فقط تتبع المنطق القديم للفرع
@@ -199,6 +213,26 @@ router.put("/:id", async (req, res) => {
 
     const { name_ar, name_en, parent_id, account_level, account_group_id } = req.body;
 
+    const [[currentAccount]] = await db.query(
+      "SELECT name_ar, parent_id, account_level FROM accounts WHERE id=?",
+      [req.params.id]
+    );
+
+    if (!currentAccount) {
+      return res.status(404).json({ success: false, message: "الحساب غير موجود" });
+    }
+
+    const nextName = name_ar !== undefined ? name_ar : currentAccount.name_ar;
+    const nextParentId = parent_id !== undefined ? parent_id || null : currentAccount.parent_id;
+    const nextLevel = account_level !== undefined ? account_level : currentAccount.account_level;
+
+    if (nextLevel === "فرعي" && !nextParentId) {
+      return res.json({
+        success: false,
+        message: "الحساب الفرعي يجب أن يرتبط بحساب أب",
+      });
+    }
+
     const updates = [];
     const params = [];
 
@@ -222,6 +256,25 @@ router.put("/:id", async (req, res) => {
       updates.push("account_group_id=?");
       params.push(account_group_id || null);
     }
+
+    let finalFinancialId = null;
+    if (nextParentId) {
+      const [[parent]] = await db.query(
+        "SELECT financial_statement_id FROM accounts WHERE id=?",
+        [nextParentId]
+      );
+
+      if (!parent) {
+        return res.json({ success: false, message: "الحساب الأب غير موجود" });
+      }
+
+      finalFinancialId = parent.financial_statement_id || null;
+    } else {
+      finalFinancialId = getRootFinancialStatementId(nextName);
+    }
+
+    updates.push("financial_statement_id=?");
+    params.push(finalFinancialId);
 
     if (!updates.length) {
       return res.json({ success: false, message: "لا توجد بيانات للتحديث" });
