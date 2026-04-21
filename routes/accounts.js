@@ -5,11 +5,31 @@ import auth from "../middlewares/auth.js";
 const router = express.Router();
 router.use(auth);
 
+let accountGroupColumnChecked = false;
+
+async function ensureAccountGroupColumn() {
+  if (accountGroupColumnChecked) return;
+
+  try {
+    await db.query(
+      "ALTER TABLE accounts ADD COLUMN account_group_id INT NULL"
+    );
+  } catch (err) {
+    if (err?.code !== "ER_DUP_FIELDNAME") {
+      throw err;
+    }
+  }
+
+  accountGroupColumnChecked = true;
+}
+
 /* ======================================================
    📥 جلب الحسابات
 ====================================================== */
 router.get("/", async (req, res) => {
   try {
+    await ensureAccountGroupColumn();
+
     const { is_admin_branch, branch_id } = req.user;
 
     let where = "";
@@ -37,17 +57,20 @@ router.get("/", async (req, res) => {
         a.name_ar,
         a.name_en,
         a.parent_id,
+        a.account_group_id,
         a.account_level,
         a.created_at,
 
         b.name AS branch_name,
         p.name_ar AS parent_name,
+        ag.name_ar AS group_name,
         u.name AS created_by,
         fs.name AS financial_statement
 
       FROM accounts a
       LEFT JOIN branches b ON b.id = a.branch_id
       LEFT JOIN accounts p ON p.id = a.parent_id
+      LEFT JOIN account_groups ag ON ag.id = a.account_group_id
       LEFT JOIN users u ON u.id = a.created_by
       LEFT JOIN financial_statements fs ON fs.id = a.financial_statement_id
       WHERE ${where}
@@ -85,7 +108,9 @@ router.get("/", async (req, res) => {
 ====================================================== */
 router.post("/", async (req, res) => {
   try {
-    const { name_ar, name_en, parent_id, account_level } = req.body;
+    await ensureAccountGroupColumn();
+
+    const { name_ar, name_en, parent_id, account_level, account_group_id } = req.body;
     const { id: user_id, branch_id } = req.user;
 
     if (!name_ar) {
@@ -140,14 +165,15 @@ router.post("/", async (req, res) => {
     await db.query(
       `
       INSERT INTO accounts
-      (code, name_ar, name_en, parent_id, account_level, branch_id, financial_statement_id, created_by, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      (code, name_ar, name_en, parent_id, account_group_id, account_level, branch_id, financial_statement_id, created_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
       `,
       [
         newCode,
         name_ar,
         name_en || null,
         parent_id || null,
+        account_group_id || null,
         account_level || "رئيسي",
         finalBranchId,
         finalFinancialId,
@@ -169,7 +195,9 @@ router.post("/", async (req, res) => {
 ====================================================== */
 router.put("/:id", async (req, res) => {
   try {
-    const { name_ar, name_en } = req.body;
+    await ensureAccountGroupColumn();
+
+    const { name_ar, name_en, parent_id, account_level, account_group_id } = req.body;
 
     const updates = [];
     const params = [];
@@ -181,6 +209,18 @@ router.put("/:id", async (req, res) => {
     if (name_en !== undefined) {
       updates.push("name_en=?");
       params.push(name_en);
+    }
+    if (parent_id !== undefined) {
+      updates.push("parent_id=?");
+      params.push(parent_id || null);
+    }
+    if (account_level !== undefined) {
+      updates.push("account_level=?");
+      params.push(account_level);
+    }
+    if (account_group_id !== undefined) {
+      updates.push("account_group_id=?");
+      params.push(account_group_id || null);
     }
 
     if (!updates.length) {
