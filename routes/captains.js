@@ -39,6 +39,31 @@ const upload = multer({
   }
 });
 
+function getBaseUrl(req) {
+  const envUrl =
+    process.env.PUBLIC_BASE_URL ||
+    process.env.APP_URL ||
+    process.env.BASE_URL;
+
+  if (envUrl) {
+    return envUrl.replace(/\/+$/, "");
+  }
+
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "")
+    .split(",")[0]
+    .trim();
+  const protocol = forwardedProto || req.protocol || "https";
+  const host = req.get("host");
+
+  return `${protocol}://${host}`;
+}
+
+function buildImageUrl(req, imagePath) {
+  if (!imagePath) return null;
+  if (/^https?:\/\//i.test(imagePath)) return imagePath;
+  return `${getBaseUrl(req)}/${String(imagePath).replace(/^\/+/, "")}`;
+}
+
 let imageColumnChecked = false;
 
 async function ensureImageColumn() {
@@ -81,10 +106,11 @@ router.use(auth);
 ========================= */
 router.get("/", async (req, res) => {
   try {
-    const { is_admin_branch, branch_id } = req.user;
+    const { is_admin, is_admin_branch, branch_id } = req.user;
     const selectedBranch = req.headers["x-branch-id"];
     const selectedBranchId =
       selectedBranch && selectedBranch !== "all" ? Number(selectedBranch) : null;
+    const canViewAllBranches = Boolean(is_admin_branch || is_admin);
 
     let rows;
 
@@ -124,7 +150,7 @@ router.get("/", async (req, res) => {
       LEFT JOIN accounts a ON a.id = c.account_id
     `;
 
-    if (is_admin_branch) {
+    if (canViewAllBranches) {
       if (Number.isFinite(selectedBranchId)) {
         [rows] = await db.query(
           `

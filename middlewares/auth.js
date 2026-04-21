@@ -137,10 +137,13 @@ export default async function auth(req, res, next) {
 
     if (
       headerBranch &&
+      headerBranch !== "all" &&
       req.user.role !== "captain" &&
       (req.user.is_admin_branch || req.user.is_admin)
     ) {
       req.user.branch_id = Number(headerBranch);
+    } else if (headerBranch === "all" && req.user.role !== "captain" && (req.user.is_admin_branch || req.user.is_admin)) {
+      req.user.branch_id = null;
     } else if (headerBranch && req.user.role !== "captain") {
       return res.status(403).json({
         success: false,
