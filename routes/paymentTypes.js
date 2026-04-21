@@ -65,15 +65,27 @@ router.get("/", async (req, res) => {
 ========================= */
 router.post("/", async (req, res) => {
   try {
-    const { code, name_ar, name_en, sort_order } = req.body;
+    const { name_ar, name_en, sort_order } = req.body;
     const { id: user_id, branch_id } = req.user;
 
-    if (!code || !name_ar || !sort_order) {
+    if (!name_ar) {
       return res.status(400).json({
         success: false,
-        message: "الرقم والاسم والترتيب مطلوبة",
+        message: "الاسم مطلوب",
       });
     }
+
+    const [[codesRow]] = await db.query(
+      "SELECT COALESCE(MAX(code), 0) AS maxCode FROM payment_types"
+    );
+
+    const [[sortRow]] = await db.query(
+      "SELECT COALESCE(MAX(sort_order), 0) AS maxSortOrder FROM payment_types WHERE branch_id = ?",
+      [branch_id]
+    );
+
+    const nextCode = Number(codesRow?.maxCode || 0) + 1;
+    const nextSortOrder = sort_order ? Number(sort_order) : Number(sortRow?.maxSortOrder || 0) + 1;
 
     await db.query(
       `
@@ -81,7 +93,7 @@ router.post("/", async (req, res) => {
       (code, name_ar, name_en, sort_order, branch_id, created_by)
       VALUES (?, ?, ?, ?, ?, ?)
       `,
-      [code, name_ar, name_en || null, sort_order, branch_id, user_id]
+      [nextCode, name_ar, name_en || null, nextSortOrder, branch_id, user_id]
     );
 
     res.json({ success: true });
@@ -101,20 +113,30 @@ router.put("/:id", async (req, res) => {
   try {
     const { name_ar, name_en, sort_order } = req.body;
 
-    if (!name_ar || !sort_order) {
+    if (!name_ar) {
       return res.status(400).json({
         success: false,
-        message: "الاسم والترتيب مطلوبان",
+        message: "الاسم مطلوب",
       });
     }
+
+    const fields = ["name_ar = ?", "name_en = ?"];
+    const params = [name_ar, name_en || null];
+
+    if (sort_order !== undefined && sort_order !== null && sort_order !== "") {
+      fields.push("sort_order = ?");
+      params.push(sort_order);
+    }
+
+    params.push(req.params.id);
 
     await db.query(
       `
       UPDATE payment_types
-      SET name_ar = ?, name_en = ?, sort_order = ?
+      SET ${fields.join(", ")}
       WHERE id = ?
       `,
-      [name_ar, name_en || null, sort_order, req.params.id]
+      params
     );
 
     res.json({ success: true });
