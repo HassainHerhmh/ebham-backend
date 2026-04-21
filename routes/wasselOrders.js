@@ -715,7 +715,8 @@ let timeField = null;
 
 // عند الاعتماد → مؤكد = يبدأ المعالجة
 if (status === "confirmed")  timeField = "processing_at";
-
+      await conn.beginTransaction();
+      const orderId = req.params.id;
 // عند التوصيل
 if (status === "delivering") timeField = "delivering_at";
 
