@@ -14,6 +14,7 @@ router.post("/account-statement", async (req, res) => {
       from_date,
       to_date,
       report_mode,
+      detailed_type,
     } = req.body;
 
     const { branch_id, is_admin_branch } = req.user;
@@ -125,6 +126,10 @@ router.post("/account-statement", async (req, res) => {
       finalParams.push(to_date);
     }
 
+    if (report_mode !== "summary") {
+      finalWhere.push(`IFNULL(je.reference_type, '') NOT IN ('opening', 'opening_balance')`);
+    }
+
     let sql;
 
     if (report_mode === "summary") {
@@ -224,7 +229,8 @@ router.post("/account-statement", async (req, res) => {
       const currencyRows = rowsByCurrency.get(curId) || [];
       let runningBalance = Number(openingBalances[curId] || 0);
 
-      finalRows.push({
+      if (detailed_type !== "no_open" && runningBalance !== 0) {
+        finalRows.push({
         id: `op-${curId}`,
         journal_date: from_date || "",
         reference_id: "",
@@ -237,7 +243,8 @@ router.post("/account-statement", async (req, res) => {
         credit: runningBalance > 0 ? Math.abs(runningBalance) : 0,
         balance: Number(runningBalance.toFixed(2)),
         is_opening: true,
-      });
+        });
+      }
 
       currencyRows.forEach((row) => {
         const debit = Number(row.debit || 0);

@@ -23,6 +23,23 @@ async function ensureCashBoxAccountColumn() {
   cashBoxAccountColumnChecked = true;
 }
 
+async function ensureCurrencyExists(conn, currencyId) {
+  const id = Number(currencyId);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error("العملة مطلوبة");
+  }
+
+  const [[currency]] = await conn.query(
+    "SELECT id FROM currencies WHERE id = ? AND is_active = 1",
+    [id]
+  );
+
+  if (!currency) {
+    throw new Error("العملة المحددة غير موجودة أو غير مفعلة");
+  }
+}
+
 /* =========================
    GET /receipt-vouchers
 ========================= */
@@ -53,7 +70,8 @@ router.get("/", async (req, res) => {
         cb.name_ar AS cash_box_name,
         b.name_ar  AS bank_name,
         u.name     AS user_name,
-        br.name    AS branch_name
+        br.name    AS branch_name,
+        rt.name_ar AS receipt_type_name
       FROM receipt_vouchers rv
       LEFT JOIN currencies  c  ON c.id  = rv.currency_id
       LEFT JOIN accounts    a  ON a.id  = rv.account_id
@@ -61,6 +79,7 @@ router.get("/", async (req, res) => {
       LEFT JOIN banks       b  ON b.id  = rv.bank_account_id
       LEFT JOIN users       u  ON u.id  = rv.created_by
       LEFT JOIN branches    br ON br.id = rv.branch_id
+      LEFT JOIN receipt_types rt ON rt.id = rv.receipt_type
       ${where}
       ORDER BY rv.id DESC
       `,
@@ -101,6 +120,7 @@ router.post("/", async (req, res) => {
     const { id: user_id, branch_id } = req.user;
 
     await conn.beginTransaction();
+    await ensureCurrencyExists(conn, currency_id);
 
     // توليد رقم سند موحّد
     const [[row]] = await conn.query(`
@@ -230,6 +250,7 @@ router.post("/", async (req, res) => {
    PUT /receipt-vouchers/:id
 ========================= */
 router.put("/:id", async (req, res) => {
+  const conn = await db.getConnection();
   try {
     const {
       voucher_date,
@@ -246,7 +267,10 @@ router.put("/:id", async (req, res) => {
       handling,
     } = req.body;
 
-    await db.query(
+    await conn.beginTransaction();
+    await ensureCurrencyExists(conn, currency_id);
+
+    await conn.query(
       `
       UPDATE receipt_vouchers
       SET
@@ -281,10 +305,14 @@ router.put("/:id", async (req, res) => {
       ]
     );
 
+    await conn.commit();
     res.json({ success: true });
   } catch (err) {
+    await conn.rollback();
     console.error("UPDATE RECEIPT VOUCHER ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, message: err.message });
+  } finally {
+    conn.release();
   }
 });
 
