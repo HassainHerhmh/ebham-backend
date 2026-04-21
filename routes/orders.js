@@ -1187,8 +1187,8 @@ io.emit("admin_notification", {
   order_number: orderNumber,
   message:
     req.user?.role === "customer"
-      ? `🧾 العميل ${customer?.name} أنشأ طلب رقم #${orderId}`
-      : `👨‍💼 المستخدم ${creatorName} أنشأ طلب للعميل ${customer?.name} رقم #${orderId}`
+      ? `🧾 العميل ${customer?.name} أنشأ طلب رقم #${orderNumber}`
+      : `👨‍💼 المستخدم ${creatorName} أنشأ طلب للعميل ${customer?.name} رقم #${orderNumber}`
 });
 
 
@@ -1864,6 +1864,7 @@ router.put("/:id/status", async (req, res) => {
       const [[orderContacts]] = await conn.query(
         `SELECT
           o.id,
+          COALESCE(o.order_number, o.id) AS order_number,
           o.captain_id,
           c.fcm_token AS customer_token,
           cap.fcm_token AS captain_token,
@@ -1878,14 +1879,15 @@ router.put("/:id/status", async (req, res) => {
       if (orderContacts) {
         const actorLabel = getActorLabel(req.user?.role);
         const actorName = await getActorName(conn, req.user);
+        const orderDisplayNumber = orderContacts.order_number || orderId;
         let title = "تحديث في طلبك 📦";
         let body = "";
 
-        if (status === "processing") body = `بدأ المطعم في تحضير طلبك رقم #${orderId} 👨‍🍳`;
-        else if (status === "ready") body = `أبشر! طلبك رقم #${orderId} جاهز للاستلام 🥯`;
-        else if (status === "delivering") body = `الكابتن استلم طلبك رقم #${orderId} وهو في الطريق إليك 🏍️`;
-        else if (status === "completed") body = `تم توصيل الطلب رقم #${orderId} بنجاح، بالعافية! ❤️`;
-        else if (status === "cancelled") body = `نعتذر منك، تم إلغاء طلبك رقم #${orderId} ❌`;
+        if (status === "processing") body = `بدأ المطعم في تحضير طلبك رقم #${orderDisplayNumber} 👨‍🍳`;
+        else if (status === "ready") body = `أبشر! طلبك رقم #${orderDisplayNumber} جاهز للاستلام 🥯`;
+        else if (status === "delivering") body = `الكابتن استلم طلبك رقم #${orderDisplayNumber} وهو في الطريق إليك 🏍️`;
+        else if (status === "completed") body = `تم توصيل الطلب رقم #${orderDisplayNumber} بنجاح، بالعافية! ❤️`;
+        else if (status === "cancelled") body = `نعتذر منك، تم إلغاء طلبك رقم #${orderDisplayNumber} ❌`;
 
         if (body && orderContacts.customer_token) {
           await sendFCMNotification(orderContacts.customer_token, title, body, {
@@ -1899,8 +1901,8 @@ router.put("/:id/status", async (req, res) => {
           await sendFCMNotification(
             orderContacts.captain_token,
             "📦 طلب جاهز",
-            `الطلب رقم #${orderId} للعميل ${orderContacts.customer_name} جاهز في المطعم.`,
-            { orderId: String(orderId), type: "order_ready" }
+            `الطلب رقم #${orderDisplayNumber} للعميل ${orderContacts.customer_name} جاهز في المطعم.`,
+            { orderId: String(orderId), orderNumber: String(orderDisplayNumber), type: "order_ready" }
           );
         }
 
@@ -1909,7 +1911,8 @@ router.put("/:id/status", async (req, res) => {
         io.emit("admin_notification", {
           type: "order_status_updated",
           order_id: orderId,
-          message: `📦 ${actorLabel} ${actorName} حدّث طلب #${orderId} للعميل ${orderContacts.customer_name} إلى (${getStatusLabel(status)})`
+          order_number: orderDisplayNumber,
+          message: `📦 ${actorLabel} ${actorName} حدّث طلب #${orderDisplayNumber} للعميل ${orderContacts.customer_name} إلى (${getStatusLabel(status)})`
         });
 
         if (orderContacts.captain_id) {
@@ -1920,14 +1923,14 @@ router.put("/:id/status", async (req, res) => {
             [
               orderContacts.captain_id,
               "تحديث حالة الطلب",
-              `📦 تحديث الطلب #${orderId} إلى (${getStatusLabel(status)})`,
+              `📦 تحديث الطلب #${orderDisplayNumber} إلى (${getStatusLabel(status)})`,
               "order_status",
               orderId
             ]
           );
 
           io.to("captain_" + orderContacts.captain_id).emit("new_notification", {
-            message: `📦 تحديث الطلب #${orderId} إلى (${getStatusLabel(status)})`,
+            message: `📦 تحديث الطلب #${orderDisplayNumber} إلى (${getStatusLabel(status)})`,
             createdAt: new Date()
           });
         }
@@ -1998,6 +2001,7 @@ router.post("/:id/assign", async (req, res) => {
     const [[order]] = await db.query(`
       SELECT 
         o.id,
+        COALESCE(o.order_number, o.id) AS order_number,
         c.name AS customer_name
       FROM orders o
       LEFT JOIN customers c ON c.id = o.customer_id
@@ -2005,6 +2009,7 @@ router.post("/:id/assign", async (req, res) => {
     `, [orderId]);
 
     const customerName = order?.customer_name || "غير معروف";
+    const orderDisplayNumber = order?.order_number || orderId;
 
 /* =========================
    🔔 حفظ الإشعار في الداتابيز
@@ -2016,7 +2021,7 @@ await db.query(
   [
     captain_id,
     "طلب جديد",
-    `🚀 وصلك طلب رقم #${orderId} للعميل ${customerName}`,
+    `🚀 وصلك طلب رقم #${orderDisplayNumber} للعميل ${customerName}`,
     "new_order",
     orderId
   ]
@@ -2030,14 +2035,15 @@ io.to("captain_" + captain_id).emit("new_order_assigned", {
   type: "new_order",
 
   order_id: orderId,
+  order_number: orderDisplayNumber,
 
   message:
-    `🚀 وصلك طلب رقم #${orderId} للعميل ${customerName} — عجل عليه يا وحش`
+    `🚀 وصلك طلب رقم #${orderDisplayNumber} للعميل ${customerName} — عجل عليه يا وحش`
 
 });
 
 io.to("captain_" + captain_id).emit("new_notification", {
-  message: `🚀 وصلك طلب رقم #${orderId} للعميل ${customerName}`,
+  message: `🚀 وصلك طلب رقم #${orderDisplayNumber} للعميل ${customerName}`,
   createdAt: new Date()
 });
 
@@ -2058,13 +2064,14 @@ console.log("📡 realtime + DB notification saved for captain:", captain_id);
           title: "🚀 طلب جديد",
 
           body:
-            `طلب رقم #${orderId} للعميل ${customerName}`
+            `طلب رقم #${orderDisplayNumber} للعميل ${customerName}`
 
         },
 
         data: {
 
           orderId: String(orderId),
+          orderNumber: String(orderDisplayNumber),
 
           customerName: customerName,
 
@@ -2086,11 +2093,12 @@ console.log("📡 realtime + DB notification saved for captain:", captain_id);
       type: "captain_assigned",
 
       order_id: orderId,
+      order_number: orderDisplayNumber,
 
       captain_id: captain_id,
 
       message:
-        `👨‍✈️ تم تعيين الكابتن ${captain?.name} للطلب رقم #${orderId} الخاص بالعميل ${customerName}`
+        `👨‍✈️ تم تعيين الكابتن ${captain?.name} للطلب رقم #${orderDisplayNumber} الخاص بالعميل ${customerName}`
 
     });
 

@@ -666,9 +666,9 @@ router.post("/", async (req, res) => {
     let adminMessage = "";
 
     if (req.user?.role === "customer") {
-      adminMessage = `🧾 العميل ${customerName} أضاف طلب وصل لي رقم #${orderId}`;
+      adminMessage = `🧾 العميل ${customerName} أضاف طلب وصل لي رقم #${orderNumber}`;
     } else {
-      adminMessage = `🧾 المستخدم ${actorName} أضاف طلب وصل لي للعميل ${customerName} رقم #${orderId}`;
+      adminMessage = `🧾 المستخدم ${actorName} أضاف طلب وصل لي للعميل ${customerName} رقم #${orderNumber}`;
     }
 
     /* ======================

@@ -239,9 +239,9 @@ router.post("/", async (req, res) => {
     let adminMessage = "";
 
     if (req.user?.role === "customer") {
-      adminMessage = `🧾 العميل ${customerName} أضاف طلب يدوي رقم #${orderId}`;
+      adminMessage = `🧾 العميل ${customerName} أضاف طلب يدوي رقم #${orderNumber}`;
     } else {
-      adminMessage = `🧾 المستخدم ${actorName} أضاف طلب يدوي للعميل ${customerName} رقم #${orderId}`;
+      adminMessage = `🧾 المستخدم ${actorName} أضاف طلب يدوي للعميل ${customerName} رقم #${orderNumber}`;
     }
 
     io.emit("admin_notification", {
