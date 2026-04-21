@@ -23,6 +23,23 @@ async function ensureCashBoxAccountColumn() {
   cashBoxAccountColumnChecked = true;
 }
 
+async function ensureCurrencyExists(conn, currencyId) {
+  const id = Number(currencyId);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error("العملة مطلوبة");
+  }
+
+  const [[currency]] = await conn.query(
+    "SELECT id FROM currencies WHERE id = ? AND is_active = 1",
+    [id]
+  );
+
+  if (!currency) {
+    throw new Error("العملة المحددة غير موجودة أو غير مفعلة");
+  }
+}
+
 /* =====================================================
    🟢 GET /payment-vouchers
 ===================================================== */
@@ -53,7 +70,15 @@ router.get("/", async (req, res) => {
         cb.name_ar AS cash_box_name,
         b.name_ar AS bank_name,
         u.name AS user_name,
-        br.name AS branch_name
+        br.name AS branch_name,
+        COALESCE(
+          pt.name_ar,
+          CASE pv.payment_type
+            WHEN 'cash' THEN 'نقد'
+            WHEN 'bank' THEN 'بنوك'
+            ELSE pv.payment_type
+          END
+        ) AS payment_type_name
       FROM payment_vouchers pv
       LEFT JOIN currencies c ON c.id = pv.currency_id
       LEFT JOIN accounts a ON a.id = pv.account_id
@@ -61,6 +86,7 @@ router.get("/", async (req, res) => {
       LEFT JOIN banks b ON b.id = pv.bank_account_id
       LEFT JOIN users u ON u.id = pv.created_by
       LEFT JOIN branches br ON br.id = pv.branch_id
+      LEFT JOIN payment_types pt ON pt.id = pv.payment_type
       ${where}
       ORDER BY pv.id DESC
       `,
@@ -99,6 +125,7 @@ router.post("/", async (req, res) => {
     const { id: user_id, branch_id } = req.user;
 
     await conn.beginTransaction();
+    await ensureCurrencyExists(conn, currency_id);
 
     // 0) توليد رقم سند تسلسلي موحّد بين القبض/الصرف/القيود
     const [[row]] = await conn.query(`
@@ -229,6 +256,7 @@ router.post("/", async (req, res) => {
    ✏️ PUT /payment-vouchers/:id
 ===================================================== */
 router.put("/:id", async (req, res) => {
+  const conn = await db.getConnection();
   try {
     const {
       voucher_date,
@@ -245,7 +273,10 @@ router.put("/:id", async (req, res) => {
       handling,
     } = req.body;
 
-    await db.query(
+    await conn.beginTransaction();
+    await ensureCurrencyExists(conn, currency_id);
+
+    await conn.query(
       `
       UPDATE payment_vouchers
       SET
@@ -280,10 +311,14 @@ router.put("/:id", async (req, res) => {
       ]
     );
 
+    await conn.commit();
     res.json({ success: true });
   } catch (err) {
+    await conn.rollback();
     console.error("UPDATE PAYMENT VOUCHER ERROR:", err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ success: false, message: err.message });
+  } finally {
+    conn.release();
   }
 });
 
