@@ -86,19 +86,26 @@ router.post("/", async (req, res) => {
     const {
       name_ar,
       name_en,
-      code,
       cash_box_group_id,
       parent_account_id,
     } = req.body;
 
     const { id: user_id, branch_id } = req.user;
 
-    if (!name_ar || !code || !cash_box_group_id || !parent_account_id) {
+    if (!name_ar || !cash_box_group_id || !parent_account_id) {
       return res.status(400).json({
         success: false,
         message: "جميع الحقول مطلوبة",
       });
     }
+
+    const [[{ maxCode }]] = await db.query(`
+      SELECT COALESCE(MAX(code), 10000) AS maxCode
+      FROM accounts
+      WHERE code >= 10000
+    `);
+
+    const newCode = Number(maxCode) + 1;
 
     // 1️⃣ إنشاء حساب فرعي تحت الحساب الأب
     const [accResult] = await db.query(
@@ -108,7 +115,7 @@ router.post("/", async (req, res) => {
       VALUES (?, ?, ?, ?, 'فرعي', ?, ?)
       `,
       [
-        code,
+        newCode,
         name_ar,
         name_en || null,
         parent_account_id,
@@ -129,7 +136,7 @@ router.post("/", async (req, res) => {
       [
         name_ar,
         name_en || null,
-        code,
+        newCode,
         cash_box_group_id,
         newAccountId,
         branch_id,
