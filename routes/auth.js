@@ -27,7 +27,12 @@ const googleClient = new OAuth2Client();
 ====================================================== */
 router.post("/login", async (req, res) => {
   try {
-    const { identifier, password } = req.body;
+    const { identifier, password, website } = req.body;
+    const invalidLoginMessage = "بيانات الدخول غير صحيحة";
+
+    if (website) {
+      return res.json({ success: false, message: invalidLoginMessage });
+    }
 
     const [rows] = await db.query(
       `
@@ -55,7 +60,7 @@ router.post("/login", async (req, res) => {
     );
 
     if (!rows.length) {
-      return res.json({ success: false, message: "المستخدم غير موجود" });
+      return res.json({ success: false, message: invalidLoginMessage });
     }
 
     const user = rows[0];
@@ -66,7 +71,7 @@ router.post("/login", async (req, res) => {
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.json({ success: false, message: "كلمة المرور غير صحيحة" });
+      return res.json({ success: false, message: invalidLoginMessage });
     }
 
     const token = jwt.sign(
