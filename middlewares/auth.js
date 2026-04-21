@@ -106,7 +106,12 @@ export default async function auth(req, res, next) {
       });
     }
 
-    if (userRecord.status !== undefined && userRecord.status !== null && userRecord.status !== "active") {
+    if (
+      userRecord.role !== "captain" &&
+      userRecord.status !== undefined &&
+      userRecord.status !== null &&
+      userRecord.status !== "active"
+    ) {
       return res.status(403).json({
         success: false,
         message: "الحساب معطل",
