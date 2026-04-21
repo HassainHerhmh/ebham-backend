@@ -39,19 +39,16 @@ export default async function auth(req, res, next) {
       const [rows] = await db.query(
         `
         SELECT 
-          id,
-          name,
-          phone,
-          branch_id,
-          'captain' AS role,
-          status
+          *
         FROM captains
         WHERE id=? LIMIT 1
         `,
         [decoded.id]
       );
 
-      userRecord = rows[0];
+      userRecord = rows[0]
+        ? { ...rows[0], role: "captain" }
+        : null;
     }
 
 
@@ -122,7 +119,7 @@ export default async function auth(req, res, next) {
   name: userRecord.name,
   phone: userRecord.phone,
   role: userRecord.role,
-  branch_id: userRecord.branch_id || null,
+  branch_id: userRecord.branch_id || decoded.branch_id || null,
     agent_id: userRecord.agent_id || null,
   status: userRecord.status || null,
   is_admin: userRecord.is_admin || 0,
@@ -133,9 +130,13 @@ export default async function auth(req, res, next) {
     // 5. السماح بتغيير الفرع (اختياري)
     const headerBranch = req.headers["x-branch-id"];
 
-    if (headerBranch && (req.user.is_admin_branch || req.user.is_admin)) {
+    if (
+      headerBranch &&
+      req.user.role !== "captain" &&
+      (req.user.is_admin_branch || req.user.is_admin)
+    ) {
       req.user.branch_id = Number(headerBranch);
-    } else if (headerBranch) {
+    } else if (headerBranch && req.user.role !== "captain") {
       return res.status(403).json({
         success: false,
         message: "غير مصرح بتغيير الفرع",

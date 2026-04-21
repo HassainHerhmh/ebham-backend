@@ -177,7 +177,9 @@ const corsOptions = {
   allowedHeaders: [
     "Content-Type",
     "Authorization",
-    "x-branch-id"
+    "x-branch-id",
+    "Cache-Control",
+    "Pragma"
   ]
 };
 

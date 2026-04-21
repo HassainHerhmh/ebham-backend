@@ -149,7 +149,13 @@ router.get("/", async (req, res) => {
       );
     }
 
-    res.json({ success: true, captains: rows || [] });
+    const captains = (rows || []).map((captain) => ({
+      ...captain,
+      image: buildImageUrl(req, captain.image_url),
+      image_full_url: buildImageUrl(req, captain.image_url)
+    }));
+
+    res.json({ success: true, captains });
   } catch (err) {
     console.error("GET CAPTAINS ERROR:", err);
     res.status(500).json({ success: false, message: "فشل في جلب الكباتن" });

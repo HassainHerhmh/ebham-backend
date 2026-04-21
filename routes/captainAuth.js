@@ -124,6 +124,7 @@ router.post("/login", async (req, res) => {
         id: captain.id,
         name: captain.name,
         phone: captain.phone,
+        role: "captain",
         status: captain.status,
         branch_id: captain.branch_id,
         image_url: captain.image_url || null,
