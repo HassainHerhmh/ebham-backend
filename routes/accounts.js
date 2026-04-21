@@ -95,10 +95,10 @@ router.post("/", async (req, res) => {
     let finalBranchId = null;
     let finalFinancialId = null;
 
-    // لو له أب → يرث منه القوائم المالية فقط
+    // لو له أب → يرث منه القوائم المالية والفرع إن وجد
     if (parent_id) {
       const [[parent]] = await db.query(
-        "SELECT financial_statement_id FROM accounts WHERE id=?",
+        "SELECT financial_statement_id, branch_id FROM accounts WHERE id=?",
         [parent_id]
       );
 
@@ -107,6 +107,7 @@ router.post("/", async (req, res) => {
       }
 
       finalFinancialId = parent.financial_statement_id;
+      finalBranchId = parent.branch_id || branch_id || null;
     } else {
       // حساب جذري: تحديد الحساب الختامي
       if (["الأصول", "حقوق الملكية"].includes(name_ar)) {
@@ -116,13 +117,15 @@ router.post("/", async (req, res) => {
       }
     }
 
-    // منطق الفرع الصحيح
-    if (account_level === "فرعي") {
-      // الفرعي دائمًا يتبع فرع المستخدم
-      finalBranchId = branch_id;
-    } else {
-      // الرئيسي دائمًا عام
-      finalBranchId = null;
+    // الحسابات الجذرية فقط تتبع المنطق القديم للفرع
+    if (!parent_id) {
+      if (account_level === "فرعي") {
+        // الفرعي الجذري يتبع فرع المستخدم
+        finalBranchId = branch_id;
+      } else {
+        // الرئيسي الجذري يبقى عامًا
+        finalBranchId = null;
+      }
     }
 
    const [[{ maxCode }]] = await db.query(`
