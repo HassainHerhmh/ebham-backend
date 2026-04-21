@@ -77,7 +77,15 @@ router.get("/", async (req, res) => {
         p.name_ar AS parent_name,
         ag.name_ar AS group_name,
         u.name AS created_by,
-        fs.name AS financial_statement
+        COALESCE(
+          fs.name,
+          parent_fs.name,
+          CASE
+            WHEN a.parent_id IS NULL AND a.name_ar IN ('الأصول', 'حقوق الملكية') THEN 'الميزانية العمومية'
+            WHEN a.parent_id IS NULL AND a.name_ar IN ('الإيرادات', 'المصروفات') THEN 'أرباح وخسائر'
+            ELSE NULL
+          END
+        ) AS financial_statement
 
       FROM accounts a
       LEFT JOIN branches b ON b.id = a.branch_id
@@ -85,6 +93,7 @@ router.get("/", async (req, res) => {
       LEFT JOIN account_groups ag ON ag.id = a.account_group_id
       LEFT JOIN users u ON u.id = a.created_by
       LEFT JOIN financial_statements fs ON fs.id = a.financial_statement_id
+      LEFT JOIN financial_statements parent_fs ON parent_fs.id = p.financial_statement_id
       WHERE ${where}
       ORDER BY a.code ASC
       `,
