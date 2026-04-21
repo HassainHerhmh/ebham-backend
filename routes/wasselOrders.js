@@ -2,6 +2,7 @@ import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
 import admin from "firebase-admin";
+import { ensureOrderNumberSchema, getNextOrderNumber } from "../utils/orderNumbers.js";
 const router = express.Router();
 
 
@@ -83,6 +84,14 @@ router.get("/:customerId/balance", async (req, res) => {
     حماية باقي المسارات
 ========================= */
 router.use(auth);
+router.use(async (req, res, next) => {
+  try {
+    await ensureOrderNumberSchema();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 
 /* ==============================================
     2️⃣ جلب قائمة البنوك
@@ -415,6 +424,7 @@ router.get("/", async (req, res) => {
     let query = `
       SELECT 
         w.*,
+        COALESCE(w.order_number, w.id) AS order_number,
         COALESCE(wt.name, CAST(w.order_type AS CHAR)) AS order_type_name,
         tm.name AS transport_method_name,
         c.name AS customer_name,
@@ -574,8 +584,11 @@ router.post("/", async (req, res) => {
     /* ======================
        الإدخال
     ====================== */
+    const orderNumber = await getNextOrderNumber();
+
     const [result] = await db.query(`
       INSERT INTO wassel_orders (
+        order_number,
         customer_id,
         order_type,
         transport_method_id,
@@ -605,8 +618,9 @@ router.post("/", async (req, res) => {
         is_manual,
         created_at
 
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,NOW())
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,NOW())
     `, [
+      orderNumber,
       customer_id || null,
       order_type || null,
       transport_method_id || null,
@@ -663,6 +677,7 @@ router.post("/", async (req, res) => {
     io.emit("admin_notification", {
       type: "wassel_order_created",
       order_id: orderId,
+      order_number: orderNumber,
       actor_name: actorName,
       customer_name: customerName,
       message: adminMessage
@@ -670,7 +685,8 @@ router.post("/", async (req, res) => {
 
     res.json({
       success: true,
-      order_id: orderId
+      order_id: orderId,
+      order_number: orderNumber
     });
 
   } catch (err) {
@@ -1055,6 +1071,7 @@ router.get("/:id", async (req, res) => {
 const [[order]] = await db.query(`
   SELECT
     w.id,
+    COALESCE(w.order_number, w.id) AS order_number,
     w.order_type,
     COALESCE(wt.name, w.order_type) AS order_type_name,
     w.transport_method_id,
@@ -1162,6 +1179,7 @@ router.put("/:id/status", auth, async (req, res) => {
     const [[currentOrder]] = await db.query(`
       SELECT
         w.id,
+        COALESCE(w.order_number, w.id) AS order_number,
         w.status,
         w.captain_id,
         c.name AS customer_name,
@@ -1222,6 +1240,7 @@ router.put("/:id/status", auth, async (req, res) => {
     const [[order]] = await db.query(`
       SELECT
         w.id,
+        COALESCE(w.order_number, w.id) AS order_number,
         w.status,
         c.name AS customer_name,
         cap.name AS captain_name,
@@ -1271,6 +1290,7 @@ router.put("/:id/status", auth, async (req, res) => {
     io.emit("admin_notification", {
       type: "wassel_status",
       order_id: id,
+      order_number: order?.order_number || id,
       actor_name: actorName,
       customer_name: order.customer_name,
       status: status,

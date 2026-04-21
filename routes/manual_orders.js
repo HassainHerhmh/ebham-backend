@@ -2,9 +2,18 @@ import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
 import admin from "firebase-admin";
+import { ensureOrderNumberSchema, getNextOrderNumber } from "../utils/orderNumbers.js";
 
 const router = express.Router();
 router.use(auth);
+router.use(async (req, res, next) => {
+  try {
+    await ensureOrderNumberSchema();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 
 /* ==============================================
    جلب الطلبات اليدوية
@@ -16,6 +25,7 @@ const [rows] = await db.query(`
 
 SELECT 
   w.id,
+  COALESCE(w.order_number, w.id) AS order_number,
 
   ANY_VALUE(w.customer_id) AS customer_id,
   ANY_VALUE(w.restaurant_id) AS restaurant_id,
@@ -164,8 +174,11 @@ router.post("/", async (req, res) => {
         String(d.getMinutes()).padStart(2, "0") + ":00";
     }
 
+    const orderNumber = await getNextOrderNumber(conn);
+
     const [orderRes] = await conn.query(`
       INSERT INTO wassel_orders (
+        order_number,
         customer_id,
         restaurant_id,
         to_address,
@@ -180,8 +193,9 @@ router.post("/", async (req, res) => {
         user_id,
         created_at
       )
-      VALUES (?,?,?,?,?,?,?,?,?, 'pending', 1, ?, NOW())
+      VALUES (?,?,?,?,?,?,?,?,?,?, 'pending', 1, ?, NOW())
     `, [
+      orderNumber,
       customer_id,
       restaurant_id || null,
       to_address,
@@ -233,12 +247,13 @@ router.post("/", async (req, res) => {
     io.emit("admin_notification", {
       type: "manual_order_created",
       order_id: orderId,
+      order_number: orderNumber,
       actor_name: actorName,
       customer_name: customerName,
       message: adminMessage
     });
 
-    res.json({ success: true, order_id: orderId });
+    res.json({ success: true, order_id: orderId, order_number: orderNumber });
 
   } catch (err) {
     await conn.rollback();
@@ -904,6 +919,7 @@ router.get("/customer-orders", async (req, res) => {
     const [rows] = await db.query(`
    SELECT
   w.id,
+  COALESCE(w.order_number, w.id) AS order_number,
   w.status,
   w.total_amount,
   w.delivery_fee,

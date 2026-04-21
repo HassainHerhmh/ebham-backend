@@ -3,6 +3,7 @@ import db from "../db.js";
 import auth from "../middlewares/auth.js";
 import admin from "firebase-admin";
 import { addPointsAfterOrder } from "./loyalty.js";
+import { ensureOrderNumberSchema, getNextOrderNumber } from "../utils/orderNumbers.js";
 
 function getStatusLabel(status) {
   switch (status) {
@@ -282,6 +283,14 @@ router.post("/calc-fees", auth, async (req, res) => {
 حماية المسار
 ==================== */
 router.use(auth);
+router.use(async (req, res, next) => {
+  try {
+    await ensureOrderNumberSchema();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 
 /* =====================================================
    GET /orders/agent-summary
@@ -330,6 +339,7 @@ router.get("/agent-summary", async (req, res) => {
   `
   SELECT
     o.id,
+    COALESCE(o.order_number, o.id) AS order_number,
     o.status,
     o.created_at,
     o.captain_id,
@@ -357,6 +367,7 @@ router.get("/agent-summary", async (req, res) => {
  if (!orderMap[row.id]) {
   orderMap[row.id] = {
     id: row.id,
+    order_number: row.order_number,
     status: row.status,
     created_at: row.created_at,
     captain_id: row.captain_id || null,
@@ -425,6 +436,7 @@ router.get("/app", async (req, res) => {
     const [orders] = await db.query(`
       SELECT
         id,
+        COALESCE(order_number, id) AS order_number,
         restaurant_id,
         status,
         total_amount,
@@ -584,6 +596,7 @@ router.get("/", async (req, res) => {
     const baseQuery = `
       SELECT 
         o.id,
+        COALESCE(o.order_number, o.id) AS order_number,
         o.scheduled_at, o.processing_at, o.ready_at, o.delivering_at, o.completed_at, o.cancelled_at,
         GROUP_CONCAT(r.id ORDER BY r.id SEPARATOR '||') AS restaurant_ids,
         GROUP_CONCAT(r.name ORDER BY r.id SEPARATOR '||') AS restaurant_names,
@@ -913,9 +926,12 @@ if (scheduled_at) {
 
 
     // إنشاء رأس الطلب (Order Header)
+    const orderNumber = await getNextOrderNumber();
+
     const [result] = await db.query(
   `
 INSERT INTO orders (
+order_number,
 customer_id,
 address_id,
 restaurant_id,
@@ -935,9 +951,10 @@ bank_id,
 scheduled_at,
 status
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
  `,
 [
+  orderNumber,
   customer_id,
   address_id,
   mainRestaurantId,
@@ -1167,6 +1184,7 @@ const creatorName = req.user?.name || "العميل";
 io.emit("admin_notification", {
   type: "order_created",
   order_id: orderId,
+  order_number: orderNumber,
   message:
     req.user?.role === "customer"
       ? `🧾 العميل ${customer?.name} أنشأ طلب رقم #${orderId}`
@@ -1175,7 +1193,7 @@ io.emit("admin_notification", {
 
 
 
-    res.json({ success: true, order_id: orderId, total: grandTotal });
+    res.json({ success: true, order_id: orderId, order_number: orderNumber, total: grandTotal });
 
   } catch (err) {
     console.error("ADD ORDER ERROR:", err);
@@ -1334,6 +1352,7 @@ router.get("/:id", async (req, res) => {
 const [rows] = await db.query(`
 SELECT 
   o.id,
+  COALESCE(o.order_number, o.id) AS order_number,
   o.status,
   o.created_at,
   o.processing_at,
@@ -1439,6 +1458,7 @@ if(rows.length){
 const [[manual]] = await db.query(`
 SELECT
   w.*,
+  COALESCE(w.order_number, w.id) AS order_number,
 
   w.to_address AS customer_address,
   NULL AS neighborhood_name,
