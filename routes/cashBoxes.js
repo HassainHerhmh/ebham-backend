@@ -7,12 +7,32 @@ const router = express.Router();
 // حماية كل المسارات
 router.use(auth);
 
+let cashBoxAccountColumnChecked = false;
+
+async function ensureCashBoxAccountColumn() {
+  if (cashBoxAccountColumnChecked) return;
+
+  try {
+    await db.query(
+      "ALTER TABLE cash_boxes ADD COLUMN account_id INT NULL AFTER parent_account_id"
+    );
+  } catch (err) {
+    if (err?.code !== "ER_DUP_FIELDNAME") {
+      throw err;
+    }
+  }
+
+  cashBoxAccountColumnChecked = true;
+}
+
 /* =====================================================
    🟢 GET /cash-boxes
    جلب الصناديق حسب الفرع
 ===================================================== */
 router.get("/", async (req, res) => {
   try {
+    await ensureCashBoxAccountColumn();
+
     const search = req.query.search || "";
     const { is_admin_branch, branch_id } = req.user;
     const headerBranch = req.headers["x-branch-id"];
@@ -51,12 +71,14 @@ router.get("/", async (req, res) => {
         cb.name_ar,
         cb.name_en,
         cg.name_ar AS cashbox_group_name,
-        a.name_ar AS account_name,
+        parent_acc.name_ar AS account_name,
+        linked_acc.name_ar AS linked_account_name,
         u.name AS user_name,
         b.name AS branch_name
       FROM cash_boxes cb
       LEFT JOIN cashbox_groups cg ON cg.id = cb.cash_box_group_id
-      LEFT JOIN accounts a ON a.id = cb.parent_account_id
+      LEFT JOIN accounts parent_acc ON parent_acc.id = cb.parent_account_id
+      LEFT JOIN accounts linked_acc ON linked_acc.id = cb.account_id
       LEFT JOIN users u ON u.id = cb.created_by
       LEFT JOIN branches b ON b.id = cb.branch_id
       ${where}
@@ -83,6 +105,8 @@ router.get("/", async (req, res) => {
 ===================================================== */
 router.post("/", async (req, res) => {
   try {
+    await ensureCashBoxAccountColumn();
+
     const {
       name_ar,
       name_en,
@@ -130,14 +154,15 @@ router.post("/", async (req, res) => {
     await db.query(
       `
       INSERT INTO cash_boxes
-      (name_ar, name_en, code, cash_box_group_id, parent_account_id, branch_id, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      (name_ar, name_en, code, cash_box_group_id, parent_account_id, account_id, branch_id, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         name_ar,
         name_en || null,
         newCode,
         cash_box_group_id,
+        parent_account_id,
         newAccountId,
         branch_id,
         user_id,

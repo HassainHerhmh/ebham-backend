@@ -4,6 +4,24 @@ import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 
+let cashBoxAccountColumnChecked = false;
+
+async function ensureCashBoxAccountColumn() {
+  if (cashBoxAccountColumnChecked) return;
+
+  try {
+    await db.query(
+      "ALTER TABLE cash_boxes ADD COLUMN account_id INT NULL AFTER parent_account_id"
+    );
+  } catch (err) {
+    if (err?.code !== "ER_DUP_FIELDNAME") {
+      throw err;
+    }
+  }
+
+  cashBoxAccountColumnChecked = true;
+}
+
 /* ==============================================
    🟢 GET /customer-guarantees/:customerId/balance
    جلب رصيد عميل واحد (يستخدم في صفحة إضافة طلب)
@@ -196,8 +214,18 @@ router.post("/", async (req, res) => {
 
     let sourceAccountId = null;
     const table = type === "cash" ? "cash_boxes" : "banks";
-    const [[row]] = await conn.query(`SELECT parent_account_id FROM ${table} WHERE id=?`, [source_id]);
-    sourceAccountId = row?.parent_account_id;
+
+    if (type === "cash") {
+      await ensureCashBoxAccountColumn();
+      const [[row]] = await conn.query(
+        "SELECT COALESCE(account_id, parent_account_id) AS account_id FROM cash_boxes WHERE id=?",
+        [source_id]
+      );
+      sourceAccountId = row?.account_id;
+    } else {
+      const [[row]] = await conn.query(`SELECT parent_account_id FROM ${table} WHERE id=?`, [source_id]);
+      sourceAccountId = row?.parent_account_id;
+    }
 
     if (!sourceAccountId) throw new Error("الحساب المصدر غير موجود أو غير مرتبط بشجرة الحسابات");
 

@@ -5,6 +5,24 @@ import auth from "../middlewares/auth.js";
 const router = express.Router();
 router.use(auth);
 
+let cashBoxAccountColumnChecked = false;
+
+async function ensureCashBoxAccountColumn() {
+  if (cashBoxAccountColumnChecked) return;
+
+  try {
+    await db.query(
+      "ALTER TABLE cash_boxes ADD COLUMN account_id INT NULL AFTER parent_account_id"
+    );
+  } catch (err) {
+    if (err?.code !== "ER_DUP_FIELDNAME") {
+      throw err;
+    }
+  }
+
+  cashBoxAccountColumnChecked = true;
+}
+
 /* =========================
    GET /receipt-vouchers
 ========================= */
@@ -132,11 +150,13 @@ router.post("/", async (req, res) => {
     let boxAccount = null;
 
     if (cash_box_account_id) {
+      await ensureCashBoxAccountColumn();
+
       const [[box]] = await conn.query(
-        "SELECT parent_account_id FROM cash_boxes WHERE id = ?",
+        "SELECT COALESCE(account_id, parent_account_id) AS account_id FROM cash_boxes WHERE id = ?",
         [cash_box_account_id]
       );
-      boxAccount = box?.parent_account_id;
+      boxAccount = box?.account_id;
     }
 
     if (bank_account_id) {
