@@ -1086,10 +1086,14 @@ const [[order]] = await db.query(`
     w.from_address,
     w.from_lat,
     w.from_lng,
+    ca_from.address AS from_address_detail,
+    COALESCE(n_from.name, ca_from.district) AS from_neighborhood_name,
 
     w.to_address,
     w.to_lat,
     w.to_lng,
+    ca_to.address AS to_address_detail,
+    COALESCE(n_to.name, ca_to.district) AS to_neighborhood_name,
 
     w.delivery_fee,
     w.extra_fee,
@@ -1112,6 +1116,10 @@ const [[order]] = await db.query(`
   LEFT JOIN customers c ON c.id = w.customer_id
   LEFT JOIN wassel_transport_methods tm ON tm.id = w.transport_method_id
   LEFT JOIN wassel_order_types wt ON wt.id = w.order_type
+  LEFT JOIN customer_addresses ca_from ON ca_from.id = w.from_address_id
+  LEFT JOIN neighborhoods n_from ON n_from.id = ca_from.district
+  LEFT JOIN customer_addresses ca_to ON ca_to.id = w.to_address_id
+  LEFT JOIN neighborhoods n_to ON n_to.id = ca_to.district
   WHERE w.id = ?
   LIMIT 1
 `, [orderId]);
@@ -1125,10 +1133,16 @@ const [[order]] = await db.query(`
 
     }
 
-    /* =========================
-       جلب المنتجات (هذا هو الجزء المفقود)
-    ========================= */
 
+    // دمج اسم الحي مع العنوان التفصيلي (مثل الطلبات العادية)
+    order.from_full_address = order.from_neighborhood_name
+      ? `${order.from_neighborhood_name} - ${order.from_address_detail || order.from_address || ''}`.trim()
+      : (order.from_address_detail || order.from_address || '');
+    order.to_full_address = order.to_neighborhood_name
+      ? `${order.to_neighborhood_name} - ${order.to_address_detail || order.to_address || ''}`.trim()
+      : (order.to_address_detail || order.to_address || '');
+
+    // المنتجات
     const [items] = await db.query(`
       SELECT
         id,
@@ -1139,16 +1153,7 @@ const [[order]] = await db.query(`
       FROM wassel_order_items
       WHERE order_id = ?
     `, [orderId]);
-
-    /* =========================
-       إضافة المنتجات إلى الطلب
-    ========================= */
-
     order.items = items;
-
-    /* =========================
-       إرسال النتيجة
-    ========================= */
 
     res.json({
       success: true,
