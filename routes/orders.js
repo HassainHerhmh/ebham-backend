@@ -1378,7 +1378,10 @@ SELECT
   o.total_amount,
   o.discount_amount,
   o.coupon_code,
-  o.payment_method
+  o.payment_method,
+  o.bank_id,
+  pm.company AS bank_name,
+  pm.account_number AS bank_account_number
 
 FROM orders o
 
@@ -1389,6 +1392,9 @@ ON a.id = o.address_id
 
 LEFT JOIN neighborhoods n
 ON n.id = a.district
+
+LEFT JOIN payment_methods pm
+ON pm.id = o.bank_id
 
 WHERE o.id=?
 `,[orderId]);
