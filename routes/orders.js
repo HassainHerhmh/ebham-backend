@@ -1642,7 +1642,7 @@ router.put("/:id/status", async (req, res) => {
         const [orderRows] = await conn.query(
           `SELECT
             o.*,
-            pm.account_id AS bank_account_id,
+            COALESCE(bpa.account_id, pm.account_id) AS bank_account_id,
             cap.name AS captain_name,
             cg.type AS guarantee_type,
             cg.account_id AS direct_acc_id,
@@ -1652,6 +1652,9 @@ router.put("/:id/status", async (req, res) => {
           FROM orders o
           LEFT JOIN customer_guarantees cg ON cg.customer_id = o.customer_id
           LEFT JOIN payment_methods pm ON o.bank_id = pm.id
+          LEFT JOIN branch_payment_accounts bpa
+            ON bpa.payment_method_id = o.bank_id
+            AND bpa.branch_id = o.branch_id
           LEFT JOIN captains cap ON cap.id = o.captain_id
           LEFT JOIN commissions c_comm
             ON (c_comm.account_id = o.captain_id
@@ -1899,6 +1902,7 @@ router.put("/:id/status", async (req, res) => {
           }
         }
       }
+      await ensureBankCaptainCompensationEntry(conn, orderId, req);
     }
 
     await conn.commit();
@@ -1994,6 +1998,97 @@ router.put("/:id/status", async (req, res) => {
 /* =====================================================
    دالة مساعدة لإدراج القيود (insertJournalEntry)
 ===================================================== */
+async function ensureBankCaptainCompensationEntry(conn, orderId, req) {
+  const [[order]] = await conn.query(
+    `SELECT
+      o.id,
+      COALESCE(o.order_number, o.id) AS order_number,
+      o.payment_method,
+      o.delivery_fee,
+      o.extra_store_fee,
+      COALESCE(bpa.account_id, pm.account_id) AS bank_account_id,
+      c_comm.agent_account_id AS cap_acc_id
+    FROM orders o
+    LEFT JOIN payment_methods pm ON o.bank_id = pm.id
+    LEFT JOIN branch_payment_accounts bpa
+      ON bpa.payment_method_id = o.bank_id
+      AND bpa.branch_id = o.branch_id
+    LEFT JOIN commissions c_comm
+      ON c_comm.account_id = o.captain_id
+      AND c_comm.account_type = 'captain'
+      AND c_comm.is_active = 1
+    WHERE o.id = ?
+    LIMIT 1`,
+    [orderId]
+  );
+
+  if (!order || String(order.payment_method || "").toLowerCase() !== "bank") return;
+  if (!order.bank_account_id || !order.cap_acc_id) return;
+
+  const [[totals]] = await conn.query(
+    `SELECT COALESCE(SUM(price * quantity), 0) AS restaurant_total
+     FROM order_items
+     WHERE order_id = ?`,
+    [orderId]
+  );
+
+  const compensationTotal =
+    Number(totals?.restaurant_total || 0) +
+    Number(order.delivery_fee || 0) +
+    Number(order.extra_store_fee || 0);
+
+  if (compensationTotal <= 0) return;
+
+  const [[existing]] = await conn.query(
+    `SELECT COUNT(*) AS count
+     FROM journal_entries
+     WHERE reference_type = 'order'
+       AND reference_id = ?
+       AND (
+         (account_id = ? AND ABS(debit - ?) < 0.01)
+         OR
+         (account_id = ? AND ABS(credit - ?) < 0.01)
+       )`,
+    [
+      orderId,
+      order.bank_account_id,
+      compensationTotal,
+      order.cap_acc_id,
+      compensationTotal,
+    ]
+  );
+
+  if (Number(existing?.count || 0) >= 2) return;
+
+  const [[baseCur]] = await conn.query("SELECT id FROM currencies WHERE is_local=1 LIMIT 1");
+  const journalTypeId = 5;
+  const orderDisplayNumber = order.order_number || orderId;
+
+  await insertJournalEntry(
+    conn,
+    journalTypeId,
+    orderId,
+    baseCur.id,
+    order.bank_account_id,
+    compensationTotal,
+    0,
+    `تعويض الكابتن من البنك عن فاتورة المطعم والرسوم طلب #${orderDisplayNumber}`,
+    req
+  );
+
+  await insertJournalEntry(
+    conn,
+    journalTypeId,
+    orderId,
+    baseCur.id,
+    order.cap_acc_id,
+    0,
+    compensationTotal,
+    `تعويض البنك للكابتن طلب #${orderDisplayNumber}`,
+    req
+  );
+}
+
 async function insertJournalEntry(conn, type, refId, cur, acc, debit, credit, notes, req) {
   return conn.query(
     `INSERT INTO journal_entries 
