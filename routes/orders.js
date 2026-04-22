@@ -1659,6 +1659,7 @@ router.put("/:id/status", async (req, res) => {
         if (!order) {
           throw new Error("الطلب غير موجود");
         }
+        const orderDisplayNumber = order.order_number || orderId;
 
         let mainDebitAccount = null;
         if (order.guarantee_type === "account" && order.direct_acc_id) {
@@ -1681,7 +1682,7 @@ router.put("/:id/status", async (req, res) => {
             settings.coupon_discount_account,
             discount,
             0,
-            `دعم كوبون طلب #${orderId}`,
+            `دعم كوبون طلب #${orderDisplayNumber}`,
             req
           );
 
@@ -1693,7 +1694,7 @@ router.put("/:id/status", async (req, res) => {
             order.cap_acc_id,
             0,
             discount,
-            `تعويض خصم الكوبون للكابتن #${orderId}`,
+            `تعويض خصم الكوبون للكابتن #${orderDisplayNumber}`,
             req
           );
         }
@@ -1746,7 +1747,7 @@ router.put("/:id/status", async (req, res) => {
               mainDebitAccount,
               resItem.net_amount,
               0,
-              `قيمة وجبات من ${resItem.restaurant_name} طلب #${orderId}${discountText}`,
+              `قيمة وجبات من ${resItem.restaurant_name} طلب #${orderDisplayNumber}${discountText}`,
               req
             );
 
@@ -1758,7 +1759,7 @@ router.put("/:id/status", async (req, res) => {
               resItem.res_acc_id,
               0,
               resItem.net_amount,
-              `صافي مبيعات طلب #${orderId}${discountText}`,
+              `صافي مبيعات طلب #${orderDisplayNumber}${discountText}`,
               req
             );
 
@@ -1776,7 +1777,7 @@ router.put("/:id/status", async (req, res) => {
                 resItem.res_acc_id,
                 resComm,
                 0,
-                `خصم عمولة ${resItem.restaurant_name} طلب #${orderId}`,
+                `خصم عمولة ${resItem.restaurant_name} طلب #${orderDisplayNumber}`,
                 req
               );
 
@@ -1788,7 +1789,7 @@ router.put("/:id/status", async (req, res) => {
                 settings.commission_income_account,
                 0,
                 resComm,
-                `إيراد عمولة مطعم #${orderId}`,
+                `إيراد عمولة مطعم #${orderDisplayNumber}`,
                 req
               );
             }
@@ -1808,7 +1809,7 @@ router.put("/:id/status", async (req, res) => {
             mainDebitAccount,
             deliveryTotal,
             0,
-            `رسوم توصيل طلب #${orderId}`,
+            `رسوم توصيل طلب #${orderDisplayNumber}`,
             req
           );
 
@@ -1820,7 +1821,7 @@ router.put("/:id/status", async (req, res) => {
             order.cap_acc_id,
             0,
             deliveryTotal,
-            `إيراد توصيل للكابتن طلب #${orderId}`,
+            `إيراد توصيل للكابتن طلب #${orderDisplayNumber}`,
             req
           );
         }
@@ -1839,7 +1840,7 @@ router.put("/:id/status", async (req, res) => {
             order.cap_acc_id,
             captainCommission,
             0,
-            `خصم عمولة الكابتن طلب #${orderId}`,
+            `خصم عمولة الكابتن طلب #${orderDisplayNumber}`,
             req
           );
 
@@ -1851,7 +1852,7 @@ router.put("/:id/status", async (req, res) => {
             settings.courier_commission_account,
             0,
             captainCommission,
-            `وسيط عمولات الكباتن طلب #${orderId}`,
+            `وسيط عمولات الكباتن طلب #${orderDisplayNumber}`,
             req
           );
         }
@@ -2483,9 +2484,10 @@ await conn.commit();
 ========================= */
 
 const [[orderData]] = await db.query(
-  "SELECT captain_id FROM orders WHERE id=?",
+  "SELECT captain_id, COALESCE(order_number, id) AS order_number FROM orders WHERE id=?",
   [orderId]
 );
+const orderDisplayNumber = orderData?.order_number || orderId;
 
 if (orderData?.captain_id) {
 
@@ -2496,7 +2498,7 @@ if (orderData?.captain_id) {
     [
       orderData.captain_id,
       "تم إلغاء الطلب",
-      `❌ تم إلغاء الطلب رقم #${orderId}`,
+      `❌ تم إلغاء الطلب رقم #${orderDisplayNumber}`,
       "cancel_order",
       orderId
     ]
@@ -2505,7 +2507,7 @@ if (orderData?.captain_id) {
   const io = req.app.get("io");
 
   io.to("captain_" + orderData.captain_id).emit("new_notification", {
-    message: `❌ تم إلغاء الطلب رقم #${orderId}`,
+    message: `❌ تم إلغاء الطلب رقم #${orderDisplayNumber}`,
     createdAt: new Date()
   });
 }
@@ -2514,7 +2516,8 @@ if (orderData?.captain_id) {
     ========================= */
     try {
       const [[cancelContacts]] = await conn.query(`
-        SELECT c.fcm_token AS customer_token, cap.fcm_token AS captain_token 
+        SELECT c.fcm_token AS customer_token, cap.fcm_token AS captain_token,
+               COALESCE(o.order_number, o.id) AS order_number
         FROM orders o
         LEFT JOIN customers c ON o.customer_id = c.id
         LEFT JOIN captains cap ON o.captain_id = cap.id
@@ -2522,13 +2525,14 @@ if (orderData?.captain_id) {
       `, [orderId]);
 
       // إشعار للعميل
+      const cancelOrderNumber = cancelContacts?.order_number || orderDisplayNumber;
       if (cancelContacts?.customer_token) {
-        await sendFCMNotification(cancelContacts.customer_token, "❌ تم إلغاء الطلب", `تم إلغاء طلبك رقم #${orderId}. السبب: ${reason}`);
+        await sendFCMNotification(cancelContacts.customer_token, "❌ تم إلغاء الطلب", `تم إلغاء طلبك رقم #${cancelOrderNumber}. السبب: ${reason}`);
       }
       
       // إشعار للكابتن (لينتبه ولا يذهب للمطعم)
       if (cancelContacts?.captain_token) {
-        await sendFCMNotification(cancelContacts.captain_token, "⚠️ تم إلغاء الطلب", `انتبه! تم إلغاء الطلب رقم #${orderId}`);
+        await sendFCMNotification(cancelContacts.captain_token, "⚠️ تم إلغاء الطلب", `انتبه! تم إلغاء الطلب رقم #${cancelOrderNumber}`);
       }
     } catch (e) {
       console.error("FCM Cancel Error:", e.message);
