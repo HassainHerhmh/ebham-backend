@@ -31,7 +31,11 @@ SELECT
   ANY_VALUE(w.restaurant_id) AS restaurant_id,
   ANY_VALUE(w.captain_id) AS captain_id,
 
-  ANY_VALUE(w.total_amount) AS total_amount,
+  (
+    COALESCE(SUM(COALESCE(i.qty, 0) * COALESCE(i.price, 0)), 0)
+    + ANY_VALUE(COALESCE(w.delivery_fee, 0))
+    + ANY_VALUE(COALESCE(w.extra_fee, 0))
+  ) AS total_amount,
   ANY_VALUE(w.delivery_fee) AS delivery_fee,
   ANY_VALUE(w.payment_method) AS payment_method,
   ANY_VALUE(w.status) AS status,
