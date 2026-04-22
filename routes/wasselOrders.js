@@ -428,26 +428,24 @@ router.get("/", async (req, res) => {
         COALESCE(wt.name, CAST(w.order_type AS CHAR)) AS order_type_name,
         tm.name AS transport_method_name,
         c.name AS customer_name,
-        nf.name AS from_neighborhood_name,
-        nt.name AS to_neighborhood_name,
-        COALESCE(caf.address, w.from_address) AS from_customer_address,
-        COALESCE(cat.address, w.to_address) AS to_customer_address,
-        COALESCE(cat.address, w.to_address) AS customer_address,
-        nt.name AS neighborhood_name,
         cap.name AS captain_name,
         u1.name AS creator_name,
-        u2.name AS updater_name
+        u2.name AS updater_name,
+        COALESCE(nf.name, ca_from.district, '') AS from_neighborhood_name,
+        ca_from.address AS from_address_detail,
+        COALESCE(nt.name, ca_to.district, '') AS to_neighborhood_name,
+        ca_to.address AS to_address_detail
       FROM wassel_orders w
       LEFT JOIN wassel_order_types wt ON wt.id = w.order_type
       LEFT JOIN wassel_transport_methods tm ON tm.id = w.transport_method_id
       LEFT JOIN customers c ON c.id = w.customer_id
-      LEFT JOIN customer_addresses caf ON caf.id = w.from_address_id
-      LEFT JOIN neighborhoods nf ON caf.district = nf.id
-      LEFT JOIN customer_addresses cat ON cat.id = w.to_address_id
-      LEFT JOIN neighborhoods nt ON cat.district = nt.id
       LEFT JOIN captains cap ON cap.id = w.captain_id
       LEFT JOIN users u1 ON u1.id = w.user_id
       LEFT JOIN users u2 ON u2.id = w.updated_by
+      LEFT JOIN customer_addresses ca_from ON ca_from.id = w.from_address_id
+      LEFT JOIN neighborhoods nf ON nf.id = ca_from.district
+      LEFT JOIN customer_addresses ca_to ON ca_to.id = w.to_address_id
+      LEFT JOIN neighborhoods nt ON nt.id = ca_to.district
       WHERE w.is_manual = 0
     `;
 
@@ -803,14 +801,59 @@ router.put("/status/:id", async (req, res) => {
     }
 
     await conn.commit();
-    const [[updatedOrder]] = await db.query(
-      "SELECT COALESCE(order_number, id) AS order_number FROM wassel_orders WHERE id = ? LIMIT 1",
-      [orderId]
-    );
+    // جلب بيانات الطلب بعد التحديث
+    const [[order]] = await db.query(`
+      SELECT
+        w.id,
+        COALESCE(w.order_number, w.id) AS order_number,
+        w.status,
+        c.name AS customer_name,
+        cap.name AS captain_name,
+        u.name AS user_name
+      FROM wassel_orders w
+      LEFT JOIN customers c ON c.id = w.customer_id
+      LEFT JOIN captains cap ON cap.id = ?
+      LEFT JOIN users u ON u.id = ?
+      WHERE w.id = ?
+      LIMIT 1
+    `, [req.user.id, req.user.id, orderId]);
+
+    // تحديد من قام بالتحديث
+    let actorName = "النظام";
+    let actorIcon = "⚙️";
+    if (order?.captain_name) {
+      actorName = order.captain_name;
+      actorIcon = "👨‍✈️";
+    } else if (order?.user_name) {
+      actorName = order.user_name;
+      actorIcon = "🧑‍💼";
+    }
+    // تحويل الحالة للعربي
+    const statusMap = {
+      pending: "قيد الانتظار",
+      confirmed: "قيد المعالجة",
+      preparing: "قيد التحضير",
+      delivering: "قيد التوصيل",
+      completed: "مكتمل",
+      cancelled: "ملغي",
+      scheduled: "مجدول"
+    };
+    const statusText = statusMap[status] || status;
+    // إرسال Socket Notification
+    const io = req.app.get("io");
+    io.emit("admin_notification", {
+      type: "wassel_status",
+      order_id: orderId,
+      order_number: order?.order_number || orderId,
+      actor_name: actorName,
+      customer_name: order.customer_name,
+      status: status,
+      message: `${actorIcon} ${actorName} حدّث حالة طلب العميل ${order.customer_name} رقم #${order?.order_number || orderId} إلى ${statusText}`
+    });
     res.json({
       success: true,
       order_id: orderId,
-      order_number: updatedOrder?.order_number || orderId,
+      order_number: order?.order_number || orderId,
       order_type: "wassel"
     });
   } catch (err) {
@@ -1104,18 +1147,12 @@ const [[order]] = await db.query(`
     w.status,
 
     w.from_address,
-    COALESCE(caf.address, w.from_address) AS from_customer_address,
-    nf.name AS from_neighborhood_name,
     w.from_lat,
     w.from_lng,
     ca_from.address AS from_address_detail,
     COALESCE(n_from.name, ca_from.district) AS from_neighborhood_name,
 
     w.to_address,
-    COALESCE(cat.address, w.to_address) AS to_customer_address,
-    COALESCE(cat.address, w.to_address) AS customer_address,
-    nt.name AS to_neighborhood_name,
-    nt.name AS neighborhood_name,
     w.to_lat,
     w.to_lng,
     ca_to.address AS to_address_detail,
@@ -1140,10 +1177,6 @@ const [[order]] = await db.query(`
 
   FROM wassel_orders w
   LEFT JOIN customers c ON c.id = w.customer_id
-  LEFT JOIN customer_addresses caf ON caf.id = w.from_address_id
-  LEFT JOIN neighborhoods nf ON caf.district = nf.id
-  LEFT JOIN customer_addresses cat ON cat.id = w.to_address_id
-  LEFT JOIN neighborhoods nt ON cat.district = nt.id
   LEFT JOIN wassel_transport_methods tm ON tm.id = w.transport_method_id
   LEFT JOIN wassel_order_types wt ON wt.id = w.order_type
   LEFT JOIN customer_addresses ca_from ON ca_from.id = w.from_address_id
