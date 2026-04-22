@@ -756,9 +756,10 @@ router.put("/status/:id", async (req, res) => {
       if (!o) throw new Error("الطلب غير موجود");
       if (!o.cap_acc_id) throw new Error("الكابتن غير مرتبط بحساب محاسبي");
 
+      const orderDisplayNumber = o.order_number || orderId;
       const totalCharge = Number(o.delivery_fee) + Number(o.extra_fee);
       const commission = o.commission_type === "percent" ? (totalCharge * o.commission_value) / 100 : Number(o.commission_value || 0);
-      const note = `طلب #${orderId} - ${o.customer_name}`;
+      const note = `طلب #${orderDisplayNumber} - ${o.customer_name}`;
 
       // 1. معالجة الدفع (حسب وسيلة الدفع ونوع الحساب)
       if (o.payment_method === "cod") {
@@ -792,7 +793,16 @@ router.put("/status/:id", async (req, res) => {
     }
 
     await conn.commit();
-    res.json({ success: true });
+    const [[updatedOrder]] = await db.query(
+      "SELECT COALESCE(order_number, id) AS order_number FROM wassel_orders WHERE id = ? LIMIT 1",
+      [orderId]
+    );
+    res.json({
+      success: true,
+      order_id: orderId,
+      order_number: updatedOrder?.order_number || orderId,
+      order_type: "wassel"
+    });
   } catch (err) {
     await conn.rollback();
     res.status(500).json({ success: false, message: err.message });
@@ -1302,11 +1312,14 @@ router.put("/:id/status", auth, async (req, res) => {
       actor_name: actorName,
       customer_name: order.customer_name,
       status: status,
-      message: `${actorIcon} ${actorName} حدّث حالة طلب العميل ${order.customer_name} رقم #${id} إلى ${statusText}`
+      message: `${actorIcon} ${actorName} حدّث حالة طلب العميل ${order.customer_name} رقم #${order?.order_number || id} إلى ${statusText}`
     });
 
     res.json({
       success: true,
+      order_id: id,
+      order_number: order?.order_number || id,
+      order_type: "wassel",
       message: "تم تحديث الحالة"
     });
 

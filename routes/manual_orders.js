@@ -449,6 +449,7 @@ router.put("/status/:id", async (req, res) => {
       if (!o.cap_acc_id) throw new Error("الكابتن بلا حساب");
       if (!o.restaurant_acc_id) throw new Error("المورد بلا حساب");
 
+      const orderDisplayNumber = o.order_number || orderId;
       const itemsAmount = Number(o.total_amount) - Number(o.delivery_fee);
       const deliveryFee = Number(o.delivery_fee);
       const totalAmount = Number(o.total_amount);
@@ -463,7 +464,7 @@ router.put("/status/:id", async (req, res) => {
           ? (itemsAmount * o.agent_comm_value) / 100
           : Number(o.agent_comm_value || 0);
 
-      const note = `طلب يدوي #${orderId} - ${o.customer_name}`;
+      const note = `طلب يدوي #${orderDisplayNumber} - ${o.customer_name}`;
 
       if (o.payment_method === "cod") {
         await insertJournal(
@@ -663,6 +664,7 @@ router.put("/status/:id", async (req, res) => {
     const [[orderInfo]] = await db.query(`
       SELECT
         w.id,
+        COALESCE(w.order_number, w.id) AS order_number,
         w.status,
         c.id AS customer_id,
         c.name AS customer_name,
@@ -676,6 +678,8 @@ router.put("/status/:id", async (req, res) => {
       WHERE w.id = ?
       LIMIT 1
     `, [req.user.id, req.user.id, orderId]);
+
+    const orderDisplayNumber = orderInfo?.order_number || orderId;
 
     let actorName = "النظام";
     let actorIcon = "⚙️";
@@ -703,25 +707,33 @@ router.put("/status/:id", async (req, res) => {
     io.emit("admin_notification", {
       type: "manual_order_status",
       order_id: orderId,
+      order_number: orderDisplayNumber,
+      order_type: "manual",
       actor_name: actorName,
       customer_name: orderInfo?.customer_name,
       status,
-      message: `${actorIcon} ${actorName} حدّث حالة الطلب اليدوي للعميل ${orderInfo?.customer_name} رقم #${orderId} إلى ${statusText}`
+      message: `${actorIcon} ${actorName} حدّث حالة الطلب اليدوي للعميل ${orderInfo?.customer_name} رقم #${orderDisplayNumber} إلى ${statusText}`
     });
 
     if (orderInfo?.customer_fcm_token) {
       await sendFCMNotification(
         orderInfo.customer_fcm_token,
         "تحديث حالة الطلب",
-        `تم تحديث طلبك اليدوي رقم #${orderId} إلى ${statusText}`,
+        `تم تحديث طلبك اليدوي رقم #${orderDisplayNumber} إلى ${statusText}`,
         {
           orderId: String(orderId),
+          orderNumber: String(orderDisplayNumber),
           type: "manual_order_status"
         }
       );
     }
 
-    res.json({ success: true });
+    res.json({
+      success: true,
+      order_id: orderId,
+      order_number: orderDisplayNumber,
+      order_type: "manual"
+    });
 
   } catch (err) {
     await conn.rollback();
