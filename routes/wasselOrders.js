@@ -1431,14 +1431,30 @@ async function sendFCMNotification(token, title, body, data = {}) {
 
 // تحديث عنصر طلب يدوي
 router.put("/item/:id", auth, async (req,res)=>{
+  const conn = await db.getConnection();
 
   try{
 
     const { quantity, price } = req.body;
     const itemId = req.params.id;
 
-await db.query(
-    `
+    await conn.beginTransaction();
+
+    const [[item]] = await conn.query(
+      "SELECT order_id FROM wassel_order_items WHERE id = ? LIMIT 1",
+      [itemId]
+    );
+
+    if (!item) {
+      await conn.rollback();
+      return res.status(404).json({
+        success: false,
+        message: "الصنف غير موجود"
+      });
+    }
+
+    await conn.query(
+      `
       UPDATE wassel_order_items
       SET
         qty = COALESCE(?, qty),
@@ -1455,12 +1471,46 @@ await db.query(
       ]
     );
 
+    await conn.query(`
+      UPDATE wassel_orders w
+      SET total_amount = (
+        SELECT COALESCE(SUM(i.total), 0)
+        FROM wassel_order_items i
+        WHERE i.order_id = w.id
+      ) + COALESCE(w.delivery_fee, 0) + COALESCE(w.extra_fee, 0)
+      WHERE w.id = ?
+    `, [item.order_id]);
+
+    const [[orderInfo]] = await conn.query(`
+      SELECT
+        COALESCE(order_number, id) AS order_number,
+        total_amount,
+        is_manual
+      FROM wassel_orders
+      WHERE id = ?
+      LIMIT 1
+    `, [item.order_id]);
+
+    await conn.commit();
+
+    const io = req.app.get("io");
+    io?.emit("admin_notification", {
+      type: orderInfo?.is_manual ? "manual_order_updated" : "wassel_order_updated",
+      order_id: item.order_id,
+      order_number: orderInfo?.order_number || item.order_id,
+      total_amount: orderInfo?.total_amount,
+      message: `تم تحديث أسعار الطلب رقم #${orderInfo?.order_number || item.order_id}`
+    });
+
     res.json({
-      success:true
+      success:true,
+      order_id: item.order_id,
+      total_amount: orderInfo?.total_amount
     });
 
   }
   catch(err){
+    await conn.rollback();
 
     console.error(err);
 
@@ -1468,6 +1518,8 @@ await db.query(
       success:false
     });
 
+  } finally {
+    conn.release();
   }
 
 });

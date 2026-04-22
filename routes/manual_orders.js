@@ -135,6 +135,95 @@ ORDER BY w.id DESC
 /* ==============================================
    حفظ طلب يدوي
 ============================================== */
+router.get("/:id", async (req, res) => {
+  try {
+    const orderId = req.params.id;
+
+    const [[order]] = await db.query(`
+      SELECT
+        w.id,
+        COALESCE(w.order_number, w.id) AS order_number,
+        w.customer_id,
+        w.restaurant_id,
+        w.captain_id,
+        w.total_amount,
+        w.delivery_fee,
+        w.payment_method,
+        w.status,
+        w.notes,
+        w.to_address,
+        w.created_at,
+        w.scheduled_at AS scheduled_time,
+        w.processing_at,
+        w.ready_at,
+        w.delivering_at,
+        w.completed_at,
+        w.cancelled_at,
+        c.name AS customer_name,
+        c.phone AS customer_phone,
+        ca.address AS customer_address,
+        n.name AS neighborhood_name,
+        ca.gps_link AS map_url,
+        ca.latitude AS latitude,
+        ca.longitude AS longitude,
+        r.name AS restaurant_name,
+        r.phone AS restaurant_phone,
+        r.address AS restaurant_address,
+        cap.name AS captain_name,
+        u.name AS user_name
+      FROM wassel_orders w
+      LEFT JOIN customers c ON c.id = w.customer_id
+      LEFT JOIN customer_addresses ca
+        ON ca.id = (
+          SELECT id
+          FROM customer_addresses
+          WHERE customer_id = w.customer_id
+          ORDER BY id DESC
+          LIMIT 1
+        )
+      LEFT JOIN neighborhoods n ON n.id = ca.district
+      LEFT JOIN restaurants r ON r.id = w.restaurant_id
+      LEFT JOIN captains cap ON cap.id = w.captain_id
+      LEFT JOIN users u ON u.id = w.user_id
+      WHERE w.id = ?
+        AND w.is_manual = 1
+      LIMIT 1
+    `, [orderId]);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "الطلب غير موجود"
+      });
+    }
+
+    const [items] = await db.query(`
+      SELECT
+        id,
+        product_name AS name,
+        qty,
+        price,
+        total
+      FROM wassel_order_items
+      WHERE order_id = ?
+      ORDER BY id ASC
+    `, [orderId]);
+
+    order.items = items;
+
+    res.json({
+      success: true,
+      order
+    });
+  } catch (err) {
+    console.error("MANUAL ORDER DETAILS ERROR:", err);
+    res.status(500).json({
+      success: false,
+      message: "فشل في جلب تفاصيل الطلب"
+    });
+  }
+});
+
 router.post("/", async (req, res) => {
   const conn = await db.getConnection();
 
