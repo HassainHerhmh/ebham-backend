@@ -1667,13 +1667,15 @@ router.put("/:id/status", async (req, res) => {
         }
         const orderDisplayNumber = order.order_number || orderId;
 
+        const pMethod = String(order.payment_method || "").toLowerCase();
+        const isBankPayment = pMethod === "bank";
         let mainDebitAccount = null;
-        if (order.guarantee_type === "account" && order.direct_acc_id) {
+        if (isBankPayment) {
+          mainDebitAccount = order.cap_acc_id;
+        } else if (order.guarantee_type === "account" && order.direct_acc_id) {
           mainDebitAccount = order.direct_acc_id;
         } else {
-          const pMethod = String(order.payment_method).toLowerCase();
           if (pMethod === "cod") mainDebitAccount = order.cap_acc_id;
-          else if (pMethod === "bank") mainDebitAccount = order.bank_account_id || 10;
           else mainDebitAccount = settings.customer_guarantee_account || 51;
         }
 
@@ -1722,6 +1724,10 @@ router.put("/:id/status", async (req, res) => {
           WHERE oi.order_id = ?
           GROUP BY oi.restaurant_id`,
           [orderId]
+        );
+        const restaurantTotal = restaurantItems.reduce(
+          (sum, item) => sum + Number(item.net_amount || 0),
+          0
         );
 
         for (const resItem of restaurantItems) {
@@ -1861,6 +1867,36 @@ router.put("/:id/status", async (req, res) => {
             `وسيط عمولات الكباتن طلب #${orderDisplayNumber}`,
             req
           );
+        }
+
+        if (isBankPayment && order.bank_account_id && order.cap_acc_id) {
+          const bankCompensationTotal = restaurantTotal + deliveryTotal;
+
+          if (bankCompensationTotal > 0) {
+            await insertJournalEntry(
+              conn,
+              journalTypeId,
+              orderId,
+              baseCur.id,
+              order.bank_account_id,
+              bankCompensationTotal,
+              0,
+              `تعويض الكابتن من البنك عن فاتورة المطعم والرسوم طلب #${orderDisplayNumber}`,
+              req
+            );
+
+            await insertJournalEntry(
+              conn,
+              journalTypeId,
+              orderId,
+              baseCur.id,
+              order.cap_acc_id,
+              0,
+              bankCompensationTotal,
+              `تعويض البنك للكابتن طلب #${orderDisplayNumber}`,
+              req
+            );
+          }
         }
       }
     }
