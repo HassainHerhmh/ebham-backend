@@ -888,6 +888,7 @@ router.post("/assign", async (req, res) => {
       SELECT
         w.id,
         w.order_number,
+        w.is_manual,
         c.name AS customer_name
       FROM wassel_orders w
       LEFT JOIN customers c ON c.id = w.customer_id
@@ -925,7 +926,7 @@ router.post("/assign", async (req, res) => {
 
     /* إشعار لوحة التحكم */
     io.emit("admin_notification", {
-      type: "wassel_assigned",
+      type: order?.is_manual ? "manual_order_assigned" : "wassel_assigned",
       order_id: orderId,
       order_number: orderNumber,
       captain_name: captainName,
