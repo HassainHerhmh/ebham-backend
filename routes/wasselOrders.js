@@ -428,6 +428,12 @@ router.get("/", async (req, res) => {
         COALESCE(wt.name, CAST(w.order_type AS CHAR)) AS order_type_name,
         tm.name AS transport_method_name,
         c.name AS customer_name,
+        nf.name AS from_neighborhood_name,
+        nt.name AS to_neighborhood_name,
+        COALESCE(caf.address, w.from_address) AS from_customer_address,
+        COALESCE(cat.address, w.to_address) AS to_customer_address,
+        COALESCE(cat.address, w.to_address) AS customer_address,
+        nt.name AS neighborhood_name,
         cap.name AS captain_name,
         u1.name AS creator_name,
         u2.name AS updater_name
@@ -435,6 +441,10 @@ router.get("/", async (req, res) => {
       LEFT JOIN wassel_order_types wt ON wt.id = w.order_type
       LEFT JOIN wassel_transport_methods tm ON tm.id = w.transport_method_id
       LEFT JOIN customers c ON c.id = w.customer_id
+      LEFT JOIN customer_addresses caf ON caf.id = w.from_address_id
+      LEFT JOIN neighborhoods nf ON caf.district = nf.id
+      LEFT JOIN customer_addresses cat ON cat.id = w.to_address_id
+      LEFT JOIN neighborhoods nt ON cat.district = nt.id
       LEFT JOIN captains cap ON cap.id = w.captain_id
       LEFT JOIN users u1 ON u1.id = w.user_id
       LEFT JOIN users u2 ON u2.id = w.updated_by
@@ -1094,12 +1104,18 @@ const [[order]] = await db.query(`
     w.status,
 
     w.from_address,
+    COALESCE(caf.address, w.from_address) AS from_customer_address,
+    nf.name AS from_neighborhood_name,
     w.from_lat,
     w.from_lng,
     ca_from.address AS from_address_detail,
     COALESCE(n_from.name, ca_from.district) AS from_neighborhood_name,
 
     w.to_address,
+    COALESCE(cat.address, w.to_address) AS to_customer_address,
+    COALESCE(cat.address, w.to_address) AS customer_address,
+    nt.name AS to_neighborhood_name,
+    nt.name AS neighborhood_name,
     w.to_lat,
     w.to_lng,
     ca_to.address AS to_address_detail,
@@ -1124,6 +1140,10 @@ const [[order]] = await db.query(`
 
   FROM wassel_orders w
   LEFT JOIN customers c ON c.id = w.customer_id
+  LEFT JOIN customer_addresses caf ON caf.id = w.from_address_id
+  LEFT JOIN neighborhoods nf ON caf.district = nf.id
+  LEFT JOIN customer_addresses cat ON cat.id = w.to_address_id
+  LEFT JOIN neighborhoods nt ON cat.district = nt.id
   LEFT JOIN wassel_transport_methods tm ON tm.id = w.transport_method_id
   LEFT JOIN wassel_order_types wt ON wt.id = w.order_type
   LEFT JOIN customer_addresses ca_from ON ca_from.id = w.from_address_id
