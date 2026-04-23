@@ -39,9 +39,13 @@ router.get("/:id/products", async (req, res) => {
          p.id,
          p.name,
          p.price,
-         p.category_id
+         p.category_id,
+         p.is_parent,
+         COUNT(DISTINCT pc.child_id) AS children_count
        FROM products p
+       LEFT JOIN product_children pc ON pc.parent_id = p.id
        WHERE p.restaurant_id = ?
+       GROUP BY p.id
        ORDER BY p.id ASC`,
       [restaurantId]
     );
