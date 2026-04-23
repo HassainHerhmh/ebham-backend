@@ -723,6 +723,8 @@ p.id,
 p.name,
 p.price,
 p.notes,
+p.is_parent,
+COUNT(DISTINCT pc2.child_id) AS children_count,
 
 GROUP_CONCAT(pc.category_id) AS category_ids,
 
@@ -737,6 +739,9 @@ FROM products p
 
 LEFT JOIN product_categories pc
   ON pc.product_id = p.id
+
+LEFT JOIN product_children pc2
+  ON pc2.parent_id = p.id
 
 LEFT JOIN ads
   ON ads.restaurant_id = p.restaurant_id
