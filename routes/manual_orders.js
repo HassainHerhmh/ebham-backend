@@ -246,6 +246,14 @@ router.post("/", async (req, res) => {
       adminMessage = `🧾 المستخدم ${actorName} أضاف طلب يدوي للعميل ${customerName} رقم #${orderNumber}`;
     }
 
+
+    // إضافة إشعار في جدول notifications للكابتن (إذا تم تعيين كابتن لاحقاً يمكن تحديث الكابتن_id)
+    await db.query(
+      `INSERT INTO notifications (captain_id, type, reference_id, message, is_read, created_at)
+       VALUES (?, ?, ?, ?, 0, NOW())`,
+      [null, "manual_order_created", orderId, adminMessage]
+    );
+
     io.emit("admin_notification", {
       type: "manual_order_created",
       order_id: orderId,
@@ -705,6 +713,24 @@ router.put("/status/:id", async (req, res) => {
       };
 
     const statusText = statusMap[status] || status;
+
+
+
+    // إذا تم تعيين كابتن للطلب اليدوي، أضف إشعار موجه للكابتن
+    if (orderInfo?.captain_name && o.cap_acc_id && o.captain_id) {
+      await db.query(
+        `INSERT INTO notifications (captain_id, type, reference_id, message, is_read, created_at)
+         VALUES (?, ?, ?, ?, 0, NOW())`,
+        [o.captain_id, "manual_order_status", orderId, `${actorIcon} ${actorName} حدّث حالة الطلب اليدوي للعميل ${orderInfo?.customer_name} رقم #${orderDisplayNumber} إلى ${statusText}`]
+      );
+    } else {
+      // إذا لم يكن هناك كابتن، أضف إشعار عام (بدون كابتن)
+      await db.query(
+        `INSERT INTO notifications (captain_id, type, reference_id, message, is_read, created_at)
+         VALUES (?, ?, ?, ?, 0, NOW())`,
+        [null, "manual_order_status", orderId, `${actorIcon} ${actorName} حدّث حالة الطلب اليدوي للعميل ${orderInfo?.customer_name} رقم #${orderDisplayNumber} إلى ${statusText}`]
+      );
+    }
 
     io.emit("admin_notification", {
       type: "manual_order_status",
