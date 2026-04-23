@@ -2,8 +2,11 @@ import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
 import upload, { uploadToCloudinary } from "../middlewares/upload.js";
+
 function extractLatLng(url) {
   if (!url) return null;
+
+  const decodedUrl = decodeURIComponent(String(url));
 
   const match = url.match(/@([-0-9.]+),([-0-9.]+)/);
   if (match) {
@@ -13,7 +16,7 @@ function extractLatLng(url) {
     };
   }
 
-  const qMatch = url.match(/q=([-0-9.]+),([-0-9.]+)/);
+  const qMatch = decodedUrl.match(/[?&](?:q|query)=([-0-9.]+),\s*([-0-9.]+)/);
   if (qMatch) {
     return {
       lat: parseFloat(qMatch[1]),
@@ -21,7 +24,56 @@ function extractLatLng(url) {
     };
   }
 
+  const llMatch = decodedUrl.match(/[?&]ll=([-0-9.]+),\s*([-0-9.]+)/);
+  if (llMatch) {
+    return {
+      lat: parseFloat(llMatch[1]),
+      lng: parseFloat(llMatch[2])
+    };
+  }
+
+  const dataMatch = decodedUrl.match(/!3d([-0-9.]+)!4d([-0-9.]+)/);
+  if (dataMatch) {
+    return {
+      lat: parseFloat(dataMatch[1]),
+      lng: parseFloat(dataMatch[2])
+    };
+  }
+
   return null;
+}
+
+async function resolveMapUrl(url) {
+  if (!url) return url;
+
+  const trimmedUrl = String(url).trim();
+
+  if (!/(maps\.app\.goo\.gl|goo\.gl\/maps)/i.test(trimmedUrl)) {
+    return trimmedUrl;
+  }
+
+  try {
+    const response = await fetch(trimmedUrl, {
+      method: "GET",
+      redirect: "follow",
+      headers: {
+        "User-Agent": "Mozilla/5.0"
+      }
+    });
+
+    return response.url || trimmedUrl;
+  } catch (err) {
+    console.error("RESOLVE MAP URL ERROR:", err.message);
+    return trimmedUrl;
+  }
+}
+
+async function getLatLngFromMapUrl(url) {
+  const directLocation = extractLatLng(url);
+  if (directLocation) return directLocation;
+
+  const resolvedUrl = await resolveMapUrl(url);
+  return extractLatLng(resolvedUrl);
 }
 
 const router = express.Router();
@@ -394,7 +446,7 @@ if (req.file) {
       "SELECT COALESCE(MAX(sort_order), 0) AS maxOrder FROM restaurants WHERE branch_id=?",
       [finalBranchId]
     );
-const location = extractLatLng(map_url);
+const location = await getLatLngFromMapUrl(map_url);
 const latitude = location?.lat || null;
 const longitude = location?.lng || null;
 
@@ -489,7 +541,7 @@ if (map_url !== undefined) {
   updates.push("map_url=?");
   params.push(map_url || null);
 
-  const location = extractLatLng(map_url);
+  const location = await getLatLngFromMapUrl(map_url);
   updates.push("latitude=?");
   params.push(location?.lat || null);
 
