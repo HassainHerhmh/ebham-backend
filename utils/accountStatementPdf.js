@@ -18,8 +18,10 @@ const AR_FONT_PATH = path.join(__dirname, '../public/fonts/Cairo-Regular.ttf');
  * @param {string} outPath - مسار حفظ ملف PDF
  * @param {Object} options - خيارات (مثل اسم العميل)
  */
-function generateAccountStatementPDF(data, outPath, options = {}) {
+async function generateAccountStatementPDF(data, outPath, options = {}) {
   const doc = new PDFDocument({ size: 'A4', margin: 40, layout: 'portrait', lang: 'ar' });
+  const outputStream = fs.createWriteStream(outPath);
+  doc.pipe(outputStream);
   doc.registerFont('arabic', AR_FONT_PATH);
   doc.font('arabic');
 
@@ -77,7 +79,12 @@ function generateAccountStatementPDF(data, outPath, options = {}) {
   });
 
   doc.end();
-  doc.pipe(fs.createWriteStream(outPath));
+
+  await new Promise((resolve, reject) => {
+    outputStream.on('finish', resolve);
+    outputStream.on('error', reject);
+    doc.on('error', reject);
+  });
 }
 
 function formatDate(dateStr) {

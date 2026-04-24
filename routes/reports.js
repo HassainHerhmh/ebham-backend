@@ -14,22 +14,7 @@ router.use(auth);
 router.post("/account-statement/pdf", async (req, res) => {
   try {
     // نفس منطق جلب البيانات من راوت /account-statement
-    const {
-      account_id,
-      currency_id,
-      from_date,
-      to_date,
-      report_mode,
-      detailed_type,
-    } = req.body;
-
-    const { branch_id, is_admin_branch } = req.user;
-    // ... (نفس منطق جلب البيانات)
-    // لإعادة استخدام الكود، نستدعي راوت الحساب ونأخذ list فقط
-    // أو نعيد كتابة المنطق هنا (اختصارًا سنستخدم استدعاء داخلي)
-
     // استدعاء داخلي للراوت الحالي لجلب البيانات
-    const fetch = require("node-fetch");
     const baseUrl = req.protocol + '://' + req.get('host');
     const apiRes = await fetch(baseUrl + "/api/reports/account-statement", {
       method: "POST",
@@ -40,17 +25,23 @@ router.post("/account-statement/pdf", async (req, res) => {
       },
       body: JSON.stringify(req.body)
     });
+
+    if (!apiRes.ok) {
+      const errorText = await apiRes.text();
+      return res.status(apiRes.status).json({
+        success: false,
+        message: "فشل جلب بيانات كشف الحساب",
+        details: errorText,
+      });
+    }
+
     const json = await apiRes.json();
     if (!json.success) return res.status(400).json({ success: false, message: "فشل جلب البيانات" });
     const list = json.list || [];
 
     // توليد ملف PDF مؤقت
     const tmpPath = path.join(os.tmpdir(), `account-statement-${Date.now()}.pdf`);
-    await new Promise((resolve) => {
-      generateAccountStatementPDF(list, tmpPath, { customerName: req.body.customer_name || "" });
-      // انتظر حتى يتم إنشاء الملف
-      setTimeout(resolve, 700); // pdfkit يحتاج وقت بسيط
-    });
+    await generateAccountStatementPDF(list, tmpPath, { customerName: req.body.customer_name || "" });
 
     // إرسال الملف للتحميل
     res.download(tmpPath, "كشف-حساب.pdf", (err) => {
@@ -359,16 +350,16 @@ router.get("/commissions", auth, async (req, res) => {
         DATE(o.created_at) AS order_date,
 
         -- الكابتن
-        cap.name AS captain_name,
+        MAX(cap.name) AS captain_name,
 
         -- المطعم
-        r.name AS restaurant_name,
+        MAX(r.name) AS restaurant_name,
 
         -- الطلب
         o.id AS order_id,
 
         -- إجمالي الطلب
-        o.total_amount,
+        MAX(o.total_amount) AS total_amount,
 
         -- عمولة المطعم
         SUM(
@@ -380,11 +371,13 @@ router.get("/commissions", auth, async (req, res) => {
         ) AS restaurant_commission,
 
         -- عمولة الكابتن
-        CASE
-          WHEN cc.commission_type = 'percent'
-          THEN (o.delivery_fee * cc.commission_value / 100)
-          ELSE cc.commission_value
-        END AS captain_commission
+        MAX(
+          CASE
+            WHEN cc.commission_type = 'percent'
+            THEN (o.delivery_fee * cc.commission_value / 100)
+            ELSE cc.commission_value
+          END
+        ) AS captain_commission
 
 
       FROM orders o
