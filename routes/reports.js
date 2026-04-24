@@ -1,11 +1,11 @@
+
 import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
-
-const { generateAccountStatementPDF } = require("../utils/accountStatementPdf");
-const fs = require("fs");
-const os = require("os");
-const path = require("path");
+import { generateAccountStatementPDF } from "../utils/accountStatementPdf.js";
+import fs from "fs";
+import os from "os";
+import path from "path";
 
 const router = express.Router();
 router.use(auth);
