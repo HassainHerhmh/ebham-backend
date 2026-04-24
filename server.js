@@ -609,6 +609,12 @@ io.on("connection", (socket) => {
 
   console.log("🔌 Client connected:", socket.id);
 
+  socket.on("join_user", (userId) => {
+    if (!userId) return;
+    socket.join("user_" + userId);
+    console.log("✅ User joined room:", userId);
+  });
+
   // 1. انضمام الكابتن لغرفة خاصة به (موجود مسبقاً)
   socket.on("join_captain", (captainId) => {
     socket.join("captain_" + captainId);
