@@ -2,8 +2,64 @@ import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
 
+const { generateAccountStatementPDF } = require("../utils/accountStatementPdf");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
 const router = express.Router();
 router.use(auth);
+
+// راوت توليد وتحميل كشف الحساب PDF
+router.post("/account-statement/pdf", async (req, res) => {
+  try {
+    // نفس منطق جلب البيانات من راوت /account-statement
+    const {
+      account_id,
+      currency_id,
+      from_date,
+      to_date,
+      report_mode,
+      detailed_type,
+    } = req.body;
+
+    const { branch_id, is_admin_branch } = req.user;
+    // ... (نفس منطق جلب البيانات)
+    // لإعادة استخدام الكود، نستدعي راوت الحساب ونأخذ list فقط
+    // أو نعيد كتابة المنطق هنا (اختصارًا سنستخدم استدعاء داخلي)
+
+    // استدعاء داخلي للراوت الحالي لجلب البيانات
+    const fetch = require("node-fetch");
+    const baseUrl = req.protocol + '://' + req.get('host');
+    const apiRes = await fetch(baseUrl + "/api/reports/account-statement", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "cookie": req.headers.cookie || ""
+      },
+      body: JSON.stringify(req.body)
+    });
+    const json = await apiRes.json();
+    if (!json.success) return res.status(400).json({ success: false, message: "فشل جلب البيانات" });
+    const list = json.list || [];
+
+    // توليد ملف PDF مؤقت
+    const tmpPath = path.join(os.tmpdir(), `account-statement-${Date.now()}.pdf`);
+    await new Promise((resolve) => {
+      generateAccountStatementPDF(list, tmpPath, { customerName: req.body.customer_name || "" });
+      // انتظر حتى يتم إنشاء الملف
+      setTimeout(resolve, 700); // pdfkit يحتاج وقت بسيط
+    });
+
+    // إرسال الملف للتحميل
+    res.download(tmpPath, "كشف-حساب.pdf", (err) => {
+      fs.unlink(tmpPath, () => {}); // حذف الملف المؤقت بعد التحميل
+    });
+  } catch (err) {
+    console.error("ACCOUNT STATEMENT PDF ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
 
 
 router.post("/account-statement", async (req, res) => {
