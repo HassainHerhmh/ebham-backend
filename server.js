@@ -233,6 +233,10 @@ import usersRoutes from "./routes/users.js";
 
 app.use("/api/users", auth, usersRoutes);
 
+import userAttendanceRoutes from "./routes/userAttendance.js";
+
+app.use("/api/user-attendance", userAttendanceRoutes);
+
 
 
 /* =========================
