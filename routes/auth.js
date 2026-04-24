@@ -8,6 +8,7 @@ import crypto from "crypto";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import authMiddleware from "../middlewares/auth.js"; // تأكد من استيراد ميدلوير التحقق
+import { checkInUserAttendance } from "../utils/userAttendance.js";
 
 const router = express.Router();
 
@@ -85,6 +86,11 @@ router.post("/login", async (req, res) => {
       { expiresIn: "7d" }
     );
 
+    const attendanceSession = await checkInUserAttendance(
+      user.id,
+      user.branch_id || null
+    );
+
     // (اختياري) تحديث آخر دخول للموظفين أيضاً إذا كان الجدول يدعم ذلك
     // await db.query("UPDATE users SET last_login = NOW() WHERE id = ?", [user.id]);
 
@@ -105,6 +111,7 @@ router.post("/login", async (req, res) => {
         agent_id: user.agent_id,
         agent_name: user.agent_name,
         is_admin_branch: user.is_admin_branch === 1,
+        current_session_start: attendanceSession?.login_time || null,
         token,
       },
     });
