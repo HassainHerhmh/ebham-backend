@@ -1,9 +1,9 @@
 // كشف حساب PDF - utility
 // يتطلب: npm install pdfkit arabic-font
 
-const PDFDocument = require('pdfkit');
-const fs = require('fs');
-const path = require('path');
+import PDFDocument from 'pdfkit';
+import fs from 'fs';
+import path from 'path';
 
 // استخدم خط عربي مناسب (مثلاً Cairo أو Amiri)
 const AR_FONT_PATH = path.join(__dirname, '../public/fonts/Cairo-Regular.ttf');
@@ -83,4 +83,4 @@ function formatDate(dateStr) {
   return `${d.getDate().toString().padStart(2, '0')}-${(d.getMonth()+1).toString().padStart(2, '0')}-${d.getFullYear()}`;
 }
 
-module.exports = { generateAccountStatementPDF };
+export { generateAccountStatementPDF };
