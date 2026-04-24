@@ -458,6 +458,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
 ====================================================== */
 router.put("/:id/disable", async (req, res) => {
   try {
+    const io = req.app.get("io");
     const [[existingUser]] = await pool.query(
       `SELECT id, status FROM users WHERE id = ? LIMIT 1`,
       [req.params.id]
@@ -473,6 +474,13 @@ router.put("/:id/disable", async (req, res) => {
       `UPDATE users SET status = ? WHERE id = ?`,
       [nextStatus, req.params.id]
     );
+
+    if (nextStatus === "disabled") {
+      io?.to(`user_${existingUser.id}`).emit("user_disabled", {
+        user_id: Number(existingUser.id),
+        message: "تم تعطيل حسابك",
+      });
+    }
 
     res.json({ success: true, status: nextStatus });
   } catch (err) {
