@@ -171,7 +171,8 @@ router.get("/report", async (req, res) => {
       LEFT JOIN branches b ON b.id = uas.branch_id
       ${whereClause}
       ORDER BY uas.login_time DESC, uas.id DESC
-      `
+      `,
+      params
     );
 
     const summary = {
