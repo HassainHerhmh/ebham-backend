@@ -35,6 +35,7 @@ router.post("/account-statement/pdf", async (req, res) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...(req.headers.authorization ? { Authorization: req.headers.authorization } : {}),
         "cookie": req.headers.cookie || ""
       },
       body: JSON.stringify(req.body)
