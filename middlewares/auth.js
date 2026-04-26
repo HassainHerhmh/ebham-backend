@@ -142,6 +142,12 @@ export default async function auth(req, res, next) {
       (req.user.is_admin_branch || req.user.is_admin)
     ) {
       req.user.branch_id = Number(headerBranch);
+    } else if (
+      headerBranch &&
+      headerBranch !== "all" &&
+      req.user.role === "customer"
+    ) {
+      req.user.branch_id = Number(headerBranch);
     } else if (headerBranch === "all" && req.user.role !== "captain" && (req.user.is_admin_branch || req.user.is_admin)) {
       req.user.branch_id = null;
     } else if (headerBranch && req.user.role !== "captain") {

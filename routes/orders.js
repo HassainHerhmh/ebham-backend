@@ -420,7 +420,10 @@ router.get("/app", async (req, res) => {
     }
 
     const customerId = user.id;
-    const branchId = user.branch_id;
+    const branchId =
+      user.branch_id ||
+      Number(req.headers["x-branch-id"] || 0) ||
+      null;
 
     if (!branchId) {
       return res.status(400).json({
