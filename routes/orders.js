@@ -2720,3 +2720,4 @@ async function sendFCMNotification(token, title, body, data = {}) {
   }
 }
 export default router;
+
