@@ -65,6 +65,36 @@ async function getActorName(conn, user) {
   return dashboardUser?.name || "غير معروف";
 }
 
+async function resolveNormalOrderId(executor, orderIdentifier) {
+  const [[row]] = await executor.query(
+    `
+    SELECT id
+    FROM orders
+    WHERE CAST(id AS CHAR) = ?
+       OR CAST(order_number AS CHAR) = ?
+    LIMIT 1
+    `,
+    [orderIdentifier, orderIdentifier]
+  );
+
+  return row?.id ? String(row.id) : null;
+}
+
+async function resolveWasselOrderId(executor, orderIdentifier) {
+  const [[row]] = await executor.query(
+    `
+    SELECT id
+    FROM wassel_orders
+    WHERE CAST(id AS CHAR) = ?
+       OR CAST(order_number AS CHAR) = ?
+    LIMIT 1
+    `,
+    [orderIdentifier, orderIdentifier]
+  );
+
+  return row?.id ? String(row.id) : null;
+}
+
 const router = express.Router();
 
 
@@ -1343,7 +1373,8 @@ router.get("/wassel_orders", async (req, res) => {
 router.get("/:id", async (req, res) => {
   try {
 
-    const orderId = req.params.id;
+    const orderIdentifier = String(req.params.id);
+    const orderId = await resolveNormalOrderId(db, orderIdentifier);
 
 /* =========================
    1️⃣ البحث في الطلبات العادية
@@ -1461,6 +1492,8 @@ if(rows.length){
    2️⃣ البحث في الطلبات اليدوية
 ========================= */
 
+const manualOrderId = orderId || await resolveWasselOrderId(db, orderIdentifier);
+
 const [[manual]] = await db.query(`
 SELECT
   w.*,
@@ -1481,7 +1514,7 @@ LEFT JOIN restaurants r
 ON r.id = w.restaurant_id
 
 WHERE w.id=?
-`,[orderId]);
+`,[manualOrderId]);
 
 
 if(!manual){
@@ -1539,13 +1572,21 @@ router.put("/:id/status", async (req, res) => {
 
   try {
     const { status } = req.body;
-    const orderId = req.params.id;
+    const orderIdentifier = String(req.params.id);
+    const orderId = await resolveNormalOrderId(conn, orderIdentifier);
     const updated_by = req.user.id;
 
     if (!status) {
       return res.status(400).json({
         success: false,
         message: "الحالة غير محددة"
+      });
+    }
+
+    if (!orderId) {
+      return res.status(404).json({
+        success: false,
+        message: "الطلب غير موجود"
       });
     }
 
@@ -2590,13 +2631,21 @@ router.put("/:id/cancel", async (req, res) => {
 
   try {
 
-    const orderId = req.params.id;
+    const orderIdentifier = String(req.params.id);
+    const orderId = await resolveNormalOrderId(conn, orderIdentifier);
     const { reason } = req.body;
 
     if (!reason) {
       return res.status(400).json({
         success: false,
         message: "سبب الإلغاء مطلوب"
+      });
+    }
+
+    if (!orderId) {
+      return res.status(404).json({
+        success: false,
+        message: "الطلب غير موجود"
       });
     }
 
@@ -2720,4 +2769,3 @@ async function sendFCMNotification(token, title, body, data = {}) {
   }
 }
 export default router;
-
