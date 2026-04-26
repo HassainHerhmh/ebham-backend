@@ -4,6 +4,52 @@ import auth from "../middlewares/auth.js";
 
 const router = express.Router();
 
+let neighborhoodsGeoSchemaReady = false;
+
+const normalizeBoundaryPoints = (points) => {
+  if (!Array.isArray(points)) return [];
+
+  return points
+    .map((point) => ({
+      lat: Number(point?.lat),
+      lng: Number(point?.lng),
+    }))
+    .filter(
+      (point) =>
+        Number.isFinite(point.lat) &&
+        Number.isFinite(point.lng) &&
+        Math.abs(point.lat) <= 90 &&
+        Math.abs(point.lng) <= 180
+    );
+};
+
+const parseBoundaryPoints = (value) => {
+  if (!value) return [];
+
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    return normalizeBoundaryPoints(parsed);
+  } catch {
+    return [];
+  }
+};
+
+async function ensureNeighborhoodsGeoSchema() {
+  if (neighborhoodsGeoSchemaReady) return;
+
+  try {
+    await db.query(
+      "ALTER TABLE neighborhoods ADD COLUMN boundary_points LONGTEXT NULL"
+    );
+  } catch (error) {
+    if (error?.code !== "ER_DUP_FIELDNAME") {
+      throw error;
+    }
+  }
+
+  neighborhoodsGeoSchemaReady = true;
+}
+
 
 /* =========================
    GET /neighborhoods/by-branch/:branchId  (عام للتطبيق)
@@ -11,11 +57,12 @@ const router = express.Router();
 
 router.get("/by-branch/:branchId", async (req, res) => {
   try {
+    await ensureNeighborhoodsGeoSchema();
     const { branchId } = req.params;
 
     const [rows] = await db.query(
       `
-      SELECT id, name
+      SELECT id, name, boundary_points
       FROM neighborhoods
       WHERE branch_id = ?
       ORDER BY name ASC
@@ -23,7 +70,13 @@ router.get("/by-branch/:branchId", async (req, res) => {
       [branchId]
     );
 
-    res.json({ success: true, neighborhoods: rows });
+    res.json({
+      success: true,
+      neighborhoods: (rows || []).map((item) => ({
+        ...item,
+        boundary_points: parseBoundaryPoints(item.boundary_points),
+      })),
+    });
   } catch (err) {
     console.error("GET NEIGHBORHOODS BY BRANCH ERROR:", err);
     res.status(500).json({ success: false });
@@ -46,6 +99,7 @@ router.get("/", async (req, res) => {
   if (selectedBranch === "all") selectedBranch = null;
 
   try {
+    await ensureNeighborhoodsGeoSchema();
     let rows;
 
     if (is_admin_branch) {
@@ -60,6 +114,7 @@ router.get("/", async (req, res) => {
             n.name,
             n.delivery_fee,
             n.branch_id,
+            n.boundary_points,
             b.name AS branch_name
           FROM neighborhoods n
           LEFT JOIN branches b ON b.id = n.branch_id
@@ -78,6 +133,7 @@ router.get("/", async (req, res) => {
             n.name,
             n.delivery_fee,
             n.branch_id,
+            n.boundary_points,
             b.name AS branch_name
           FROM neighborhoods n
           LEFT JOIN branches b ON b.id = n.branch_id
@@ -96,6 +152,7 @@ router.get("/", async (req, res) => {
           n.name,
           n.delivery_fee,
           n.branch_id,
+          n.boundary_points,
           b.name AS branch_name
         FROM neighborhoods n
         LEFT JOIN branches b ON b.id = n.branch_id
@@ -107,7 +164,13 @@ router.get("/", async (req, res) => {
       );
     }
 
-    res.json({ success: true, neighborhoods: rows });
+    res.json({
+      success: true,
+      neighborhoods: (rows || []).map((item) => ({
+        ...item,
+        boundary_points: parseBoundaryPoints(item.boundary_points),
+      })),
+    });
   } catch (err) {
     console.error("GET NEIGHBORHOODS ERROR:", err);
     res.status(500).json({ success: false });
@@ -119,7 +182,8 @@ router.get("/", async (req, res) => {
 ========================= */
 router.post("/", async (req, res) => {
   try {
-    const { name, delivery_fee } = req.body;
+    await ensureNeighborhoodsGeoSchema();
+    const { name, delivery_fee, boundary_points } = req.body;
     const { is_admin_branch, branch_id } = req.user;
     const selectedBranch = req.headers["x-branch-id"];
 
@@ -137,12 +201,19 @@ router.post("/", async (req, res) => {
       return res.json({ success: false, message: "الفرع غير محدد" });
     }
 
+    const normalizedPoints = normalizeBoundaryPoints(boundary_points);
+
     await db.query(
       `
-      INSERT INTO neighborhoods (branch_id, name, delivery_fee)
-      VALUES (?, ?, ?)
+      INSERT INTO neighborhoods (branch_id, name, delivery_fee, boundary_points)
+      VALUES (?, ?, ?, ?)
       `,
-      [finalBranchId, name, delivery_fee || 0]
+      [
+        finalBranchId,
+        name,
+        delivery_fee || 0,
+        normalizedPoints.length ? JSON.stringify(normalizedPoints) : null,
+      ]
     );
 
     res.json({ success: true });
@@ -156,12 +227,14 @@ router.post("/", async (req, res) => {
    PUT /neighborhoods/:id
 ========================= */
 router.put("/:id", async (req, res) => {
-  const { name, delivery_fee } = req.body;
+  const { name, delivery_fee, boundary_points } = req.body;
   const { is_admin_branch, branch_id } = req.user;
   const selectedBranch = req.headers["x-branch-id"];
 
   try {
+    await ensureNeighborhoodsGeoSchema();
     let finalBranchId = branch_id;
+    const normalizedPoints = normalizeBoundaryPoints(boundary_points);
 
     if (is_admin_branch && selectedBranch) {
       finalBranchId = selectedBranch;
@@ -170,10 +243,16 @@ router.put("/:id", async (req, res) => {
     await db.query(
       `
       UPDATE neighborhoods
-      SET name = ?, delivery_fee = ?, branch_id = ?
+      SET name = ?, delivery_fee = ?, branch_id = ?, boundary_points = ?
       WHERE id = ?
       `,
-      [name, delivery_fee || 0, finalBranchId, req.params.id]
+      [
+        name,
+        delivery_fee || 0,
+        finalBranchId,
+        normalizedPoints.length ? JSON.stringify(normalizedPoints) : null,
+        req.params.id,
+      ]
     );
 
     res.json({ success: true });
