@@ -164,6 +164,7 @@ router.post("/", async (req, res) => {
     await conn.beginTransaction();
 
     let scheduledAt = null;
+    let status = "pending";
 
     if (scheduled_time) {
       const d = new Date(scheduled_time);
@@ -174,6 +175,8 @@ router.post("/", async (req, res) => {
         String(d.getDate()).padStart(2, "0") + " " +
         String(d.getHours()).padStart(2, "0") + ":" +
         String(d.getMinutes()).padStart(2, "0") + ":00";
+
+      status = "scheduled";
     }
 
     const orderNumber = await getNextOrderNumber(conn);
@@ -195,7 +198,7 @@ router.post("/", async (req, res) => {
         user_id,
         created_at
       )
-      VALUES (?,?,?,?,?,?,?,?,?,?, 'pending', 1, ?, NOW())
+      VALUES (?,?,?,?,?,?,?,?,?,?, ?, 1, ?, NOW())
     `, [
       orderNumber,
       customer_id,
@@ -207,6 +210,7 @@ router.post("/", async (req, res) => {
       payment_method_id,
       scheduledAt,
       notes,
+      status,
       req.user.id
     ]);
 
