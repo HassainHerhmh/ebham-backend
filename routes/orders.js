@@ -70,11 +70,16 @@ async function resolveNormalOrderId(executor, orderIdentifier) {
     `
     SELECT id
     FROM orders
-    WHERE CAST(id AS CHAR) = ?
-       OR CAST(order_number AS CHAR) = ?
+    WHERE CAST(order_number AS CHAR) = ?
+       OR CAST(id AS CHAR) = ?
+    ORDER BY CASE
+      WHEN CAST(order_number AS CHAR) = ? THEN 0
+      WHEN CAST(id AS CHAR) = ? THEN 1
+      ELSE 2
+    END
     LIMIT 1
     `,
-    [orderIdentifier, orderIdentifier]
+    [orderIdentifier, orderIdentifier, orderIdentifier, orderIdentifier]
   );
 
   return row?.id ? String(row.id) : null;
@@ -85,11 +90,16 @@ async function resolveWasselOrderId(executor, orderIdentifier) {
     `
     SELECT id
     FROM wassel_orders
-    WHERE CAST(id AS CHAR) = ?
-       OR CAST(order_number AS CHAR) = ?
+    WHERE CAST(order_number AS CHAR) = ?
+       OR CAST(id AS CHAR) = ?
+    ORDER BY CASE
+      WHEN CAST(order_number AS CHAR) = ? THEN 0
+      WHEN CAST(id AS CHAR) = ? THEN 1
+      ELSE 2
+    END
     LIMIT 1
     `,
-    [orderIdentifier, orderIdentifier]
+    [orderIdentifier, orderIdentifier, orderIdentifier, orderIdentifier]
   );
 
   return row?.id ? String(row.id) : null;
@@ -1532,7 +1542,7 @@ SELECT
   total
 FROM wassel_order_items
 WHERE order_id=?
-`,[orderId]);
+`,[manualOrderId]);
 
 
 manual.restaurants = [{
