@@ -247,12 +247,15 @@ router.post("/", async (req, res) => {
     }
 
 
-    // إضافة إشعار في جدول notifications للكابتن (إذا تم تعيين كابتن لاحقاً يمكن تحديث الكابتن_id)
-    await db.query(
-      `INSERT INTO notifications (captain_id, type, reference_id, message, is_read, created_at)
-       VALUES (?, ?, ?, ?, 0, NOW())`,
-      [null, "manual_order_created", orderId, adminMessage]
-    );
+    // لا نسجل إشعار الكابتن في الجدول قبل تعيين كابتن فعلي للطلب،
+    // لأن notifications.captain_id لا يقبل NULL.
+    if (req.user?.captain_id) {
+      await db.query(
+        `INSERT INTO notifications (captain_id, type, reference_id, message, is_read, created_at)
+         VALUES (?, ?, ?, ?, 0, NOW())`,
+        [req.user.captain_id, "manual_order_created", orderId, adminMessage]
+      );
+    }
 
     io.emit("admin_notification", {
       type: "manual_order_created",
