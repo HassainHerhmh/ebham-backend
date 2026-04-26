@@ -1018,6 +1018,104 @@ router.get("/customer-orders", async (req, res) => {
 
 });
 
+router.get("/:id", async (req, res) => {
+  try {
+    const orderId = Number(req.params.id);
+
+    if (!Number.isFinite(orderId) || orderId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "رقم الطلب غير صالح"
+      });
+    }
+
+    const customerId = req.user.id;
+
+    const [rows] = await db.query(`
+      SELECT
+        w.id,
+        COALESCE(w.order_number, w.id) AS order_number,
+        w.customer_id,
+        w.restaurant_id,
+        w.captain_id,
+        w.status,
+        w.total_amount,
+        w.delivery_fee,
+        w.payment_method,
+        w.notes,
+        w.to_address,
+        w.created_at,
+        w.scheduled_at AS scheduled_time,
+        w.processing_at,
+        w.ready_at,
+        w.delivering_at,
+        w.completed_at,
+        w.cancelled_at,
+        r.name AS restaurant_name,
+        r.image_url AS restaurant_image,
+        cap.name AS captain_name,
+        JSON_ARRAYAGG(
+          JSON_OBJECT(
+            'name', i.product_name,
+            'qty', i.qty,
+            'price', i.price,
+            'total', i.total
+          )
+        ) AS items
+      FROM wassel_orders w
+      LEFT JOIN restaurants r
+        ON r.id = w.restaurant_id
+      LEFT JOIN captains cap
+        ON cap.id = w.captain_id
+      LEFT JOIN wassel_order_items i
+        ON i.order_id = w.id
+      WHERE w.id = ?
+      AND w.customer_id = ?
+      AND w.is_manual = 1
+      GROUP BY
+        w.id,
+        w.customer_id,
+        w.restaurant_id,
+        w.captain_id,
+        w.status,
+        w.total_amount,
+        w.delivery_fee,
+        w.payment_method,
+        w.notes,
+        w.to_address,
+        w.created_at,
+        w.scheduled_at,
+        w.processing_at,
+        w.ready_at,
+        w.delivering_at,
+        w.completed_at,
+        w.cancelled_at,
+        r.name,
+        r.image_url,
+        cap.name
+      LIMIT 1
+    `, [orderId, customerId]);
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "الطلب غير موجود"
+      });
+    }
+
+    res.json({
+      success: true,
+      order: rows[0]
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: "فشل في جلب تفاصيل الطلب"
+    });
+  }
+});
+
 //////////////////////
 async function sendFCMNotification(token, title, body, data = {}) {
   if (!token) return;
