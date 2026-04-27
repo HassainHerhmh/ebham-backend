@@ -1415,6 +1415,7 @@ if(rows.length){
   const [items] = await db.query(`
     SELECT 
       oi.id,
+      oi.product_id,
       oi.name,
       oi.price,
       oi.quantity,
@@ -1448,6 +1449,8 @@ if(rows.length){
     map[it.restaurant_id].total += subtotal;
 
     map[it.restaurant_id].items.push({
+      id: it.product_id || it.id,
+      product_id: it.product_id || null,
       name: it.name,
       price: it.price,
       quantity: it.quantity,
