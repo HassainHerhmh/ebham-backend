@@ -973,6 +973,7 @@ router.get("/customer-orders", async (req, res) => {
   w.payment_method,
   w.notes,
   w.created_at,
+  w.scheduled_at AS scheduled_time,
   w.processing_at,
   w.ready_at,
   w.delivering_at,
