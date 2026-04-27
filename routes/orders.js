@@ -442,6 +442,7 @@ router.get("/app", async (req, res) => {
         COALESCE(order_number, id) AS order_number,
         restaurant_id,
         status,
+        scheduled_at,
         total_amount,
         created_at
       FROM orders
