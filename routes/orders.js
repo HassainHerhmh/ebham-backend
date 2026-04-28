@@ -420,10 +420,7 @@ router.get("/app", async (req, res) => {
     }
 
     const customerId = user.id;
-    const branchId =
-      user.branch_id ||
-      Number(req.headers["x-branch-id"] || 0) ||
-      null;
+    const branchId = user.branch_id;
 
     if (!branchId) {
       return res.status(400).json({
@@ -442,7 +439,6 @@ router.get("/app", async (req, res) => {
         COALESCE(order_number, id) AS order_number,
         restaurant_id,
         status,
-        scheduled_at,
         total_amount,
         created_at
       FROM orders
@@ -702,6 +698,38 @@ router.get("/", async (req, res) => {
         longitude: lngs[i] || null
       }));
     });
+
+   /* ======================
+   إنزال الطلب المجدول قبل 40 دقيقة
+====================== */
+
+const now = new Date();
+
+for (const order of rows) {
+  if (order.status === "scheduled" && order.scheduled_at) {
+    const scheduledTime = new Date(order.scheduled_at);
+
+    const diffMinutes =
+      (scheduledTime.getTime() - now.getTime()) / 60000;
+
+    // إذا بقي 40 دقيقة أو أقل
+    if (diffMinutes <= 40 && diffMinutes >= 0) {
+      await db.query(
+        `
+        UPDATE orders
+        SET
+          status = 'pending',
+          updated_by = ?
+        WHERE id = ?
+        `,
+        [req.user.id || null, order.id]
+      );
+
+      // تحديث مباشر في المصفوفة
+      order.status = "pending";
+    }
+  }
+}
 
     res.json({
       success: true,
@@ -1415,7 +1443,6 @@ if(rows.length){
   const [items] = await db.query(`
     SELECT 
       oi.id,
-      oi.product_id,
       oi.name,
       oi.price,
       oi.quantity,
@@ -1449,8 +1476,6 @@ if(rows.length){
     map[it.restaurant_id].total += subtotal;
 
     map[it.restaurant_id].items.push({
-      id: it.product_id || it.id,
-      product_id: it.product_id || null,
       name: it.name,
       price: it.price,
       quantity: it.quantity,
