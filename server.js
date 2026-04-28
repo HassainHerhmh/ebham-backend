@@ -1,6 +1,4 @@
-// ====== مسار رفع الصور العام ======
-import uploadRoutes from "./routes/upload.js";
-app.use("/upload", uploadRoutes);
+
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -221,6 +219,11 @@ app.get("/ping", (req, res) => {
    عرض مجلد uploads
 ========================= */
 app.use("/uploads", express.static("uploads"));
+
+
+// ====== مسار رفع الصور العام ======
+import uploadRoutes from "./routes/upload.js";
+app.use("/upload", uploadRoutes);
 
 /* =========================
    Auth Routes
