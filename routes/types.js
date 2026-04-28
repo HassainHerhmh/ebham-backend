@@ -1,6 +1,6 @@
 import express from "express";
 import db from "../db.js";
-import upload from "../middlewares/upload.js";
+import upload, { uploadToCloudinary } from "../middlewares/upload.js";
 
 const router = express.Router();
 
@@ -36,16 +36,26 @@ router.post("/", upload.single("image"), async (req, res) => {
       });
     }
 
-    const image_url = req.file
-      ? `/uploads/${req.file.filename}`
-      : bodyImageUrl || null;
+    let image_url = bodyImageUrl || null;
+
+    if (req.file) {
+      const result = await uploadToCloudinary(req.file.buffer, "types");
+      image_url = result.secure_url;
+    }
 
     await db.query(
-      "INSERT INTO types (name, image_url, sort_order, created_at) VALUES (?, ?, ?, NOW())",
+      `
+      INSERT INTO types (name, image_url, sort_order, created_at)
+      VALUES (?, ?, ?, NOW())
+      `,
       [name, image_url, sort_order || 0]
     );
 
-    res.json({ success: true, message: "✅ تم إضافة النوع بنجاح" });
+    res.json({
+      success: true,
+      message: "✅ تم إضافة النوع بنجاح",
+      image_url,
+    });
   } catch (err) {
     console.error("❌ خطأ في إضافة النوع:", err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
@@ -72,9 +82,12 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     }
 
     if (req.file || bodyImageUrl) {
-      const image_url = req.file
-        ? `/uploads/${req.file.filename}`
-        : bodyImageUrl;
+      let image_url = bodyImageUrl || null;
+
+      if (req.file) {
+        const result = await uploadToCloudinary(req.file.buffer, "types");
+        image_url = result.secure_url;
+      }
 
       updates.push("image_url=?");
       params.push(image_url);
@@ -94,13 +107,15 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       params
     );
 
-    res.json({ success: true, message: "✅ تم تعديل النوع" });
+    res.json({
+      success: true,
+      message: "✅ تم تعديل النوع",
+    });
   } catch (err) {
     console.error("❌ خطأ في تعديل النوع:", err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
 });
-
 
 /* ======================================================
    🗑️ حذف نوع
