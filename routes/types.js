@@ -10,7 +10,14 @@ const router = express.Router();
 router.get("/", async (_, res) => {
   try {
     const [rows] = await db.query(`
-      SELECT id, name, image_url, sort_order, created_at
+      SELECT 
+        id, 
+        name, 
+        image_url,
+        image_outline_url,
+        image_color_url,
+        sort_order, 
+        created_at
       FROM types
       ORDER BY sort_order ASC
     `);
@@ -25,97 +32,189 @@ router.get("/", async (_, res) => {
 /* ======================================================
    ✅ إضافة نوع جديد
 ====================================================== */
-router.post("/", upload.single("image"), async (req, res) => {
-  try {
-    const { name, sort_order, image_url: bodyImageUrl } = req.body;
+router.post(
+  "/",
+  upload.fields([
+    { name: "image", maxCount: 1 },
+    { name: "image_outline", maxCount: 1 },
+    { name: "image_color", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      const {
+        name,
+        sort_order,
+        image_url: bodyImageUrl,
+        image_outline_url: bodyOutlineUrl,
+        image_color_url: bodyColorUrl,
+      } = req.body;
 
-    if (!name) {
-      return res.status(400).json({
-        success: false,
-        message: "❌ اسم النوع مطلوب",
+      if (!name) {
+        return res.status(400).json({
+          success: false,
+          message: "❌ اسم النوع مطلوب",
+        });
+      }
+
+      let image_url = bodyImageUrl || null;
+      let image_outline_url = bodyOutlineUrl || null;
+      let image_color_url = bodyColorUrl || null;
+
+      if (req.files?.image?.[0]) {
+        const result = await uploadToCloudinary(
+          req.files.image[0].buffer,
+          "types"
+        );
+        image_url = result.secure_url;
+      }
+
+      if (req.files?.image_outline?.[0]) {
+        const result = await uploadToCloudinary(
+          req.files.image_outline[0].buffer,
+          "types"
+        );
+        image_outline_url = result.secure_url;
+      }
+
+      if (req.files?.image_color?.[0]) {
+        const result = await uploadToCloudinary(
+          req.files.image_color[0].buffer,
+          "types"
+        );
+        image_color_url = result.secure_url;
+      }
+
+      await db.query(
+        `
+        INSERT INTO types 
+          (name, image_url, image_outline_url, image_color_url, sort_order, created_at)
+        VALUES (?, ?, ?, ?, ?, NOW())
+        `,
+        [
+          name,
+          image_url,
+          image_outline_url,
+          image_color_url,
+          sort_order || 0,
+        ]
+      );
+
+      res.json({
+        success: true,
+        message: "✅ تم إضافة النوع بنجاح",
+        image_url,
+        image_outline_url,
+        image_color_url,
       });
+    } catch (err) {
+      console.error("❌ خطأ في إضافة النوع:", err);
+      res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
     }
-
-    let image_url = bodyImageUrl || null;
-
-    if (req.file) {
-      const result = await uploadToCloudinary(req.file.buffer, "types");
-      image_url = result.secure_url;
-    }
-
-    await db.query(
-      `
-      INSERT INTO types (name, image_url, sort_order, created_at)
-      VALUES (?, ?, ?, NOW())
-      `,
-      [name, image_url, sort_order || 0]
-    );
-
-    res.json({
-      success: true,
-      message: "✅ تم إضافة النوع بنجاح",
-      image_url,
-    });
-  } catch (err) {
-    console.error("❌ خطأ في إضافة النوع:", err);
-    res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
-});
+);
 
 /* ======================================================
    ✏️ تعديل نوع
 ====================================================== */
-router.put("/:id", upload.single("image"), async (req, res) => {
-  try {
-    const { name, sort_order, image_url: bodyImageUrl } = req.body;
-    const updates = [];
-    const params = [];
+router.put(
+  "/:id",
+  upload.fields([
+    { name: "image", maxCount: 1 },
+    { name: "image_outline", maxCount: 1 },
+    { name: "image_color", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      const {
+        name,
+        sort_order,
+        image_url: bodyImageUrl,
+        image_outline_url: bodyOutlineUrl,
+        image_color_url: bodyColorUrl,
+      } = req.body;
 
-    if (name !== undefined) {
-      updates.push("name=?");
-      params.push(name);
-    }
+      const updates = [];
+      const params = [];
 
-    if (sort_order !== undefined) {
-      updates.push("sort_order=?");
-      params.push(sort_order);
-    }
-
-    if (req.file || bodyImageUrl) {
-      let image_url = bodyImageUrl || null;
-
-      if (req.file) {
-        const result = await uploadToCloudinary(req.file.buffer, "types");
-        image_url = result.secure_url;
+      if (name !== undefined) {
+        updates.push("name=?");
+        params.push(name);
       }
 
-      updates.push("image_url=?");
-      params.push(image_url);
-    }
+      if (sort_order !== undefined) {
+        updates.push("sort_order=?");
+        params.push(sort_order);
+      }
 
-    if (!updates.length) {
-      return res.status(400).json({
-        success: false,
-        message: "❌ لا توجد بيانات لتحديثها",
+      if (bodyImageUrl || req.files?.image?.[0]) {
+        let image_url = bodyImageUrl || null;
+
+        if (req.files?.image?.[0]) {
+          const result = await uploadToCloudinary(
+            req.files.image[0].buffer,
+            "types"
+          );
+          image_url = result.secure_url;
+        }
+
+        updates.push("image_url=?");
+        params.push(image_url);
+      }
+
+      if (bodyOutlineUrl || req.files?.image_outline?.[0]) {
+        let image_outline_url = bodyOutlineUrl || null;
+
+        if (req.files?.image_outline?.[0]) {
+          const result = await uploadToCloudinary(
+            req.files.image_outline[0].buffer,
+            "types"
+          );
+          image_outline_url = result.secure_url;
+        }
+
+        updates.push("image_outline_url=?");
+        params.push(image_outline_url);
+      }
+
+      if (bodyColorUrl || req.files?.image_color?.[0]) {
+        let image_color_url = bodyColorUrl || null;
+
+        if (req.files?.image_color?.[0]) {
+          const result = await uploadToCloudinary(
+            req.files.image_color[0].buffer,
+            "types"
+          );
+          image_color_url = result.secure_url;
+        }
+
+        updates.push("image_color_url=?");
+        params.push(image_color_url);
+      }
+
+      if (!updates.length) {
+        return res.status(400).json({
+          success: false,
+          message: "❌ لا توجد بيانات لتحديثها",
+        });
+      }
+
+      params.push(req.params.id);
+
+      await db.query(
+        `UPDATE types SET ${updates.join(", ")} WHERE id=?`,
+        params
+      );
+
+      res.json({
+        success: true,
+        message: "✅ تم تعديل النوع",
       });
+    } catch (err) {
+      console.error("❌ خطأ في تعديل النوع:", err);
+      res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
     }
-
-    params.push(req.params.id);
-
-    await db.query(
-      `UPDATE types SET ${updates.join(", ")} WHERE id=?`,
-      params
-    );
-
-    res.json({
-      success: true,
-      message: "✅ تم تعديل النوع",
-    });
-  } catch (err) {
-    console.error("❌ خطأ في تعديل النوع:", err);
-    res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
-});
+);
 
 /* ======================================================
    🗑️ حذف نوع
