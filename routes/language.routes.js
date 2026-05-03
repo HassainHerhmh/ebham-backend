@@ -1,6 +1,7 @@
 import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
+import { tx } from "../utils/localeMessage.js";
 
 const router = express.Router();
 
@@ -37,11 +38,12 @@ const ensureLanguageValue = (dbValue) => {
 /* =========================================
    راوت عام: اللغات المتاحة
 ========================================= */
-router.get("/available", async (_req, res) => {
+router.get("/available", async (req, res) => {
+  const en = req.locale === "en";
   return res.json({
     success: true,
     data: [
-      { code: "ar", name: "العربية" },
+      { code: "ar", name: en ? "Arabic" : "العربية" },
       { code: "en", name: "English" },
     ],
   });
@@ -59,7 +61,7 @@ router.get("/my-language", auth, async (req, res) => {
     if (!isPositiveInt(userId)) {
       return res.status(401).json({
         success: false,
-        message: "غير مصرح",
+        message: tx(req, "غير مصرح", "Unauthorized"),
       });
     }
 
@@ -72,7 +74,10 @@ router.get("/my-language", auth, async (req, res) => {
     if (!rows?.length) {
       return res.status(404).json({
         success: false,
-        message: table === "customers" ? "العميل غير موجود" : "المستخدم غير موجود",
+        message:
+          table === "customers"
+            ? tx(req, "العميل غير موجود", "Customer not found")
+            : tx(req, "المستخدم غير موجود", "User not found"),
       });
     }
 
@@ -84,7 +89,11 @@ router.get("/my-language", auth, async (req, res) => {
     console.error("GET /language/my-language ERROR:", err);
     return res.status(500).json({
       success: false,
-      message: "فشل في جلب لغة المستخدم",
+      message: tx(
+        req,
+        "فشل في جلب لغة المستخدم",
+        "Failed to fetch user language"
+      ),
     });
   }
 });
@@ -102,14 +111,14 @@ router.put("/my-language", auth, async (req, res) => {
     if (!isPositiveInt(userId)) {
       return res.status(401).json({
         success: false,
-        message: "غير مصرح",
+        message: tx(req, "غير مصرح", "Unauthorized"),
       });
     }
 
     if (!ALLOWED_LANGUAGES.includes(language)) {
       return res.status(400).json({
         success: false,
-        message: "اللغة غير مدعومة",
+        message: tx(req, "اللغة غير مدعومة", "Language not supported"),
       });
     }
 
@@ -122,20 +131,23 @@ router.put("/my-language", auth, async (req, res) => {
     if (!result?.affectedRows) {
       return res.status(404).json({
         success: false,
-        message: table === "customers" ? "العميل غير موجود" : "المستخدم غير موجود",
+        message:
+          table === "customers"
+            ? tx(req, "العميل غير موجود", "Customer not found")
+            : tx(req, "المستخدم غير موجود", "User not found"),
       });
     }
 
     return res.json({
       success: true,
-      message: "تم تحديث اللغة بنجاح",
+      message: tx(req, "تم تحديث اللغة بنجاح", "Language updated successfully"),
       language,
     });
   } catch (err) {
     console.error("PUT /language/my-language ERROR:", err);
     return res.status(500).json({
       success: false,
-      message: "فشل في تحديث اللغة",
+      message: tx(req, "فشل في تحديث اللغة", "Failed to update language"),
     });
   }
 });
@@ -158,28 +170,36 @@ router.post("/set-language", auth, async (req, res) => {
     if (!isPositiveInt(requesterId)) {
       return res.status(401).json({
         success: false,
-        message: "غير مصرح",
+        message: tx(req, "غير مصرح", "Unauthorized"),
       });
     }
 
     if (!isPositiveInt(userId)) {
       return res.status(400).json({
         success: false,
-        message: "user_id مطلوب ويجب أن يكون رقمًا صحيحًا",
+        message: tx(
+          req,
+          "user_id مطلوب ويجب أن يكون رقمًا صحيحًا",
+          "user_id is required and must be a positive integer"
+        ),
       });
     }
 
     if (!ALLOWED_LANGUAGES.includes(language)) {
       return res.status(400).json({
         success: false,
-        message: "اللغة غير مدعومة",
+        message: tx(req, "اللغة غير مدعومة", "Language not supported"),
       });
     }
 
     if (targetType && !["customer", "user"].includes(targetType)) {
       return res.status(400).json({
         success: false,
-        message: "target_type يجب أن يكون customer أو user",
+        message: tx(
+          req,
+          "target_type يجب أن يكون customer أو user",
+          "target_type must be customer or user"
+        ),
       });
     }
 
@@ -187,7 +207,11 @@ router.post("/set-language", auth, async (req, res) => {
     if (!requesterIsAdmin && Number(requesterId) !== Number(userId)) {
       return res.status(403).json({
         success: false,
-        message: "ليس لديك صلاحية تعديل لغة مستخدم آخر",
+        message: tx(
+          req,
+          "ليس لديك صلاحية تعديل لغة مستخدم آخر",
+          "You are not allowed to change another user's language"
+        ),
       });
     }
 
@@ -200,20 +224,23 @@ router.post("/set-language", auth, async (req, res) => {
     if (!result?.affectedRows) {
       return res.status(404).json({
         success: false,
-        message: table === "customers" ? "العميل غير موجود" : "المستخدم غير موجود",
+        message:
+          table === "customers"
+            ? tx(req, "العميل غير موجود", "Customer not found")
+            : tx(req, "المستخدم غير موجود", "User not found"),
       });
     }
 
     return res.json({
       success: true,
-      message: "تم تحديث اللغة بنجاح",
+      message: tx(req, "تم تحديث اللغة بنجاح", "Language updated successfully"),
       language,
     });
   } catch (err) {
     console.error("POST /language/set-language ERROR:", err);
     return res.status(500).json({
       success: false,
-      message: "فشل في تحديث اللغة",
+      message: tx(req, "فشل في تحديث اللغة", "Failed to update language"),
     });
   }
 });

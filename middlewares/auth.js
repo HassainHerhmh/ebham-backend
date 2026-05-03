@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import db from "../db.js";
+import { tx } from "../utils/localeMessage.js";
 
 export default async function auth(req, res, next) {
   const header = req.headers.authorization;
@@ -8,7 +9,11 @@ export default async function auth(req, res, next) {
   if (!header || !header.startsWith("Bearer ")) {
     return res.status(401).json({
       success: false,
-      message: "غير مصرح - التوكن مفقود",
+      message: tx(
+        req,
+        "غير مصرح - التوكن مفقود",
+        "Unauthorized — token missing"
+      ),
     });
   }
 
@@ -102,7 +107,7 @@ export default async function auth(req, res, next) {
 
       return res.status(401).json({
         success: false,
-        message: "المستخدم غير موجود",
+        message: tx(req, "المستخدم غير موجود", "User not found"),
       });
     }
 
@@ -114,7 +119,7 @@ export default async function auth(req, res, next) {
     ) {
       return res.status(403).json({
         success: false,
-        message: "الحساب معطل",
+        message: tx(req, "الحساب معطل", "Account is disabled"),
       });
     }
 
@@ -153,7 +158,11 @@ export default async function auth(req, res, next) {
     } else if (headerBranch && req.user.role !== "captain") {
       return res.status(403).json({
         success: false,
-        message: "غير مصرح بتغيير الفرع",
+        message: tx(
+          req,
+          "غير مصرح بتغيير الفرع",
+          "Not allowed to switch branch"
+        ),
       });
     }
 
@@ -166,7 +175,7 @@ export default async function auth(req, res, next) {
 
     return res.status(401).json({
       success: false,
-      message: "توكن غير صالح أو منتهي",
+      message: tx(req, "توكن غير صالح أو منتهي", "Invalid or expired token"),
     });
   }
 }

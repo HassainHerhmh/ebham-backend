@@ -198,6 +198,9 @@ app.options("*", cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+import acceptLanguage from "./middlewares/acceptLanguage.js";
+app.use(acceptLanguage);
+
 /* =========================
    📡 Ping Test (فحص الاتصال)
 ========================= */
