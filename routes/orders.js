@@ -406,8 +406,6 @@ router.get("/agent-summary", async (req, res) => {
 ========================*/
 router.get("/app", async (req, res) => {
 
-  console.log("APP ORDERS USER:", req.user);
-
   try {
 
     const user = req.user;
@@ -1097,9 +1095,6 @@ p.quantity
 
 let discount = 0;
 
-console.log("COUPON FROM APP:", coupon_code);
-
-
 if (coupon_code) {
 
 const [[coupon]] = await db.query(
@@ -1112,8 +1107,6 @@ AND (end_date IS NULL OR end_date >= NOW())
 LIMIT 1`,
 [coupon_code]
 );
-
-console.log("COUPON FROM DB:", coupon);
 
  if (coupon) {
 
@@ -1171,17 +1164,6 @@ deliveryFee +
 extraStoreFee -
 discount;
 
-
-/* =========================
-   DEBUG الكوبون
-========================= */
-
-console.log("ORDER TOTAL:", total);
-console.log("DELIVERY FEE:", deliveryFee);
-console.log("EXTRA STORE FEE:", extraStoreFee);
-console.log("DISCOUNT:", discount);
-console.log("FINAL TOTAL:", grandTotal);
-console.log("COUPON:", coupon_code);
 
 /* =========================
    تحديث إجمالي الطلب
@@ -1643,11 +1625,6 @@ router.put("/:id/status", async (req, res) => {
 
         if (orderData && orderData.total_amount > 0) {
           await addPointsAfterOrder(orderData);
-          console.log("⭐ Loyalty Added:", {
-            order: orderId,
-            customer: orderData.customer_id,
-            amount: orderData.total_amount
-          });
         }
       } catch (err) {
         console.error("❌ LOYALTY ERROR:", err.message);
@@ -2217,9 +2194,6 @@ io.to("captain_" + captain_id).emit("new_notification", {
   createdAt: new Date()
 });
 
-console.log("📡 realtime + DB notification saved for captain:", captain_id);
-    
-
     /* =========================
        Push Notification للكابتن
     ========================= */
@@ -2251,8 +2225,6 @@ console.log("📡 realtime + DB notification saved for captain:", captain_id);
 
       });
 
-      console.log("📲 FCM sent to captain:", captain.name);
-
     }
 
     /* =========================
@@ -2271,8 +2243,6 @@ console.log("📡 realtime + DB notification saved for captain:", captain_id);
         `👨‍✈️ تم تعيين الكابتن ${captain?.name} للطلب رقم #${orderDisplayNumber} الخاص بالعميل ${customerName}`
 
     });
-
-    console.log("📡 admin notification sent");
 
     /* =========================
        الرد
@@ -2746,7 +2716,6 @@ async function sendFCMNotification(token, title, body, data = {}) {
         }
       }
     });
-    console.log("📲 FCM Sent to:", token.substring(0, 10) + "...");
   } catch (err) {
     console.error("❌ FCM Error:", err.message);
   }

@@ -204,13 +204,7 @@ app.use(acceptLanguage);
 /* =========================
    📡 Ping Test (فحص الاتصال)
 ========================= */
-app.get("/ping", (req, res) => {
-  console.log("📡 PING FROM APP", {
-    ip: req.ip,
-    time: new Date().toISOString(),
-    ua: req.headers["user-agent"],
-  });
-
+app.get("/ping", (_req, res) => {
   res.json({
     success: true,
     message: "CONNECTED",

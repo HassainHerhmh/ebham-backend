@@ -275,18 +275,8 @@ routerInstance.post("/", upload.single("image"), async (req, res) => {
         });
       }
 
-      console.log("CREATE PRODUCT IMAGE UPLOAD START", {
-        hasFile: true,
-        mimeType: req.file.mimetype,
-        size: req.file.size,
-      });
-
       const uploaded = await uploadToCloudinary(req.file.buffer, "products");
       image_url = uploaded.secure_url;
-
-      console.log("CREATE PRODUCT IMAGE UPLOAD OK", {
-        secure_url: uploaded.secure_url,
-      });
     }
 
     const [result] = await db.query(
@@ -470,22 +460,10 @@ routerInstance.put("/:id", upload.single("image"), async (req, res) => {
         });
       }
 
-      console.log("UPDATE PRODUCT IMAGE UPLOAD START", {
-        productId: req.params.id,
-        hasFile: true,
-        mimeType: req.file.mimetype,
-        size: req.file.size,
-      });
-
       const uploaded = await uploadToCloudinary(req.file.buffer, "products");
 
       updates.push("image_url=?");
       params.push(uploaded.secure_url);
-
-      console.log("UPDATE PRODUCT IMAGE UPLOAD OK", {
-        productId: req.params.id,
-        secure_url: uploaded.secure_url,
-      });
     }
 
     if (updates.length) {

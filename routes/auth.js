@@ -1,6 +1,3 @@
-console.log("GOOGLE_WEB_CLIENT_ID =", process.env.GOOGLE_WEB_CLIENT_ID);
-console.log("GOOGLE_CLIENT_ID =", process.env.GOOGLE_CLIENT_ID);
-
 import express from "express";
 import db from "../db.js";
 import { OAuth2Client } from "google-auth-library";
@@ -14,6 +11,14 @@ import {
   getOtpExpiresAt,
   hashOtpCode,
 } from "../utils/otp.js";
+import {
+  assertOtpNotBanned,
+  getOtpBanStatus,
+  recordOtpFailure,
+  resetOtpSecurity,
+  respondOtpBanned,
+} from "../services/otpBan.service.js";
+import { safeError } from "../utils/safeLog.js";
 
 const router = express.Router();
 
@@ -218,6 +223,12 @@ router.post("/verify-otp", async (req, res) => {
     }
 
     const normalizedPhone = phone.replace(/\s+/g, "").trim();
+
+    const activeBan = await getOtpBanStatus(db, normalizedPhone);
+    if (activeBan) {
+      return respondOtpBanned(res, activeBan);
+    }
+
     const codeHash = hashOtpCode(code, normalizedPhone);
 
     const [otpRows] = await db.query(
@@ -233,6 +244,10 @@ router.post("/verify-otp", async (req, res) => {
     );
 
     if (!otpRows.length) {
+      const failure = await recordOtpFailure(db, normalizedPhone);
+      if (failure.banned && failure.ban) {
+        return respondOtpBanned(res, failure.ban);
+      }
       return res.json({
         success: false,
         message: "رمز غير صحيح أو منتهي",
@@ -241,6 +256,7 @@ router.post("/verify-otp", async (req, res) => {
 
     // حذف الرمز بعد الاستخدام
     await db.query("DELETE FROM otp_codes WHERE phone = ?", [normalizedPhone]);
+    await resetOtpSecurity(db, normalizedPhone);
 
     // البحث عن العميل
     const [customers] = await db.query(
@@ -304,7 +320,7 @@ return res.json({
 });
 
   } catch (err) {
-    console.error("❌ VERIFY OTP ERROR:", err);
+    safeError("VERIFY_OTP", err);
     return res.status(500).json({
       success: false,
       message: "SERVER_ERROR",
@@ -337,6 +353,16 @@ router.post("/send-otp", async (req, res) => {
     }
 
     const normalizedPhone = phone.replace(/\s+/g, "").trim();
+
+    try {
+      await assertOtpNotBanned(db, normalizedPhone);
+    } catch (banErr) {
+      if (banErr.code === "OTP_BANNED") {
+        return respondOtpBanned(res, banErr.ban);
+      }
+      throw banErr;
+    }
+
     const code = generateOtpCode();
     const codeHash = hashOtpCode(code, normalizedPhone);
     const expiresAt = getOtpExpiresAt();
@@ -358,9 +384,8 @@ router.post("/send-otp", async (req, res) => {
         message: smsGateway.buildOtpMessage(code),
         smsType: "otp",
       });
-      console.log(`📤 OTP queued for SMS gateway → ${normalizedPhone}`);
     } catch (smsErr) {
-      console.error("⚠️ SMS queue failed (OTP saved):", smsErr.message);
+      safeError("SMS_QUEUE", smsErr);
     }
 
     return res.json({
@@ -368,7 +393,7 @@ router.post("/send-otp", async (req, res) => {
       message: "تم إرسال رمز التحقق بنجاح",
     });
   } catch (err) {
-    console.error("❌ SEND OTP ERROR:", err);
+    safeError("SEND_OTP", err);
     return res.status(500).json({
       success: false,
       message: "SERVER_ERROR",

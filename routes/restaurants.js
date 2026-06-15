@@ -193,7 +193,9 @@ router.get("/app", async (req, res) => {
       SELECT 
         r.id,
         r.name,
+        r.name_en,
         r.address,
+        r.address_en,
         r.image_url,
         r.sort_order,
         r.branch_id,
