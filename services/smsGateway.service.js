@@ -65,7 +65,7 @@ export async function getSmsServiceStatus() {
 }
 
 export function buildOtpMessage(code) {
-  return `رمز التحقق لتطبيق جو: ${code}\nصالح لمدة 5 دقائق`;
+  return `رمز التحقق لتطبيق جو: ${code}\nصالح لمدة دقيقة واحدة`;
 }
 
 export async function queueSms({ recipientPhone, message, smsType = "otp" }) {

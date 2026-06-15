@@ -10,6 +10,11 @@ import jwt from "jsonwebtoken";
 import authMiddleware from "../middlewares/auth.js"; // تأكد من استيراد ميدلوير التحقق
 import { checkInUserAttendance } from "../utils/userAttendance.js";
 import * as smsGateway from "../services/smsGateway.service.js";
+import {
+  generateOtpCode,
+  getOtpExpiresAt,
+  hashOtpCode,
+} from "../utils/otp.js";
 
 const router = express.Router();
 
@@ -203,17 +208,6 @@ return res.json({
 });
 
 /* ======================================================
-   📱 OTP HELPERS
-====================================================== */
-function generateOtp() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
-
-function hashOtp(code) {
-  return crypto.createHash("sha256").update(code).digest("hex");
-}
-
-/* ======================================================
    🔢 التحقق من OTP (مع تحديث الحالة)
 ====================================================== */
 router.post("/verify-otp", async (req, res) => {
@@ -225,7 +219,7 @@ router.post("/verify-otp", async (req, res) => {
     }
 
     const normalizedPhone = phone.replace(/\s+/g, "").trim();
-    const codeHash = hashOtp(code);
+    const codeHash = hashOtpCode(code, normalizedPhone);
 
     const [otpRows] = await db.query(
       `
@@ -344,9 +338,9 @@ router.post("/send-otp", async (req, res) => {
     }
 
     const normalizedPhone = phone.replace(/\s+/g, "").trim();
-    const code = generateOtp();
-    const codeHash = hashOtp(code);
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+    const code = generateOtpCode();
+    const codeHash = hashOtpCode(code, normalizedPhone);
+    const expiresAt = getOtpExpiresAt();
 
     await db.query(
       `
@@ -358,8 +352,6 @@ router.post("/send-otp", async (req, res) => {
       `,
       [normalizedPhone, codeHash, expiresAt]
     );
-
-    console.log(`📲 OTP for ${normalizedPhone}: ${code}`);
 
     try {
       await smsGateway.queueSms({
