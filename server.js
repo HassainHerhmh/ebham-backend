@@ -1,4 +1,3 @@
-
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -179,6 +178,7 @@ const corsOptions = {
     "Content-Type",
     "Authorization",
     "x-branch-id",
+    "x-gateway-device",
     "Cache-Control",
     "Pragma"
   ]
@@ -223,17 +223,19 @@ app.get("/ping", (req, res) => {
 ========================= */
 app.use("/uploads", express.static("uploads"));
 
-
-// ====== مسار رفع الصور العام ======
-import uploadRoutes from "./routes/upload.js";
-app.use("/upload", uploadRoutes);
-
 /* =========================
    Auth Routes
 ========================= */
 import authRoutes from "./routes/auth.js";
 
 app.use("/api/auth", authRoutes);
+
+/* =========================
+   بوابة SMS (جوال المنصة)
+========================= */
+import smsGatewayRoutes from "./routes/smsGateway.js";
+
+app.use("/api/sms-gateway", smsGatewayRoutes);
 
 /* =========================
    Users Routes

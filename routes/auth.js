@@ -9,6 +9,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import authMiddleware from "../middlewares/auth.js"; // تأكد من استيراد ميدلوير التحقق
 import { checkInUserAttendance } from "../utils/userAttendance.js";
+import * as smsGateway from "../services/smsGateway.service.js";
 
 const router = express.Router();
 
@@ -319,6 +320,19 @@ return res.json({
 });
 
 /* ======================================================
+   📱 حالة بوابة SMS
+====================================================== */
+router.get("/sms-service", async (_req, res) => {
+  try {
+    const status = await smsGateway.getSmsServiceStatus();
+    return res.json({ smsService: { available: status.available } });
+  } catch (err) {
+    console.error("SMS service status error:", err);
+    return res.json({ smsService: { available: false } });
+  }
+});
+
+/* ======================================================
    🔢 إرسال OTP
 ====================================================== */
 router.post("/send-otp", async (req, res) => {
@@ -346,6 +360,17 @@ router.post("/send-otp", async (req, res) => {
     );
 
     console.log(`📲 OTP for ${normalizedPhone}: ${code}`);
+
+    try {
+      await smsGateway.queueSms({
+        recipientPhone: normalizedPhone,
+        message: smsGateway.buildOtpMessage(code),
+        smsType: "otp",
+      });
+      console.log(`📤 OTP queued for SMS gateway → ${normalizedPhone}`);
+    } catch (smsErr) {
+      console.error("⚠️ SMS queue failed (OTP saved):", smsErr.message);
+    }
 
     return res.json({
       success: true,
