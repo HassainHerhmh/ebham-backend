@@ -43,7 +43,7 @@ router.get("/", async (req, res) => {
 
     res.json({ success: true, units: rows });
   } catch (err) {
-    console.error("❌ خطأ في جلب الوحدات:", err);
+    console.error("❌ خطأ في جلب الوحدات:", err?.message || err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
 });
@@ -110,7 +110,7 @@ router.post("/", async (req, res) => {
       message: "✅ تم إضافة الوحدة بنجاح",
     });
   } catch (err) {
-    console.error("❌ خطأ في إضافة الوحدة:", err);
+    console.error("❌ خطأ في إضافة الوحدة:", err?.message || err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
 });
@@ -187,7 +187,7 @@ router.put("/:id", async (req, res) => {
 
     res.json({ success: true, message: "✅ تم تعديل الوحدة" });
   } catch (err) {
-    console.error("❌ خطأ في تعديل الوحدة:", err);
+    console.error("❌ خطأ في تعديل الوحدة:", err?.message || err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
 });
@@ -213,7 +213,7 @@ router.delete("/:id", async (req, res) => {
 
     res.json({ success: true, message: "🗑️ تم حذف الوحدة" });
   } catch (err) {
-    console.error("❌ خطأ في حذف الوحدة:", err);
+    console.error("❌ خطأ في حذف الوحدة:", err?.message || err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
 });

@@ -55,7 +55,7 @@ router.get("/", async (req, res) => {
 
     res.json({ success: true, list: rows });
   } catch (err) {
-    console.error("GET ACCOUNT CEILINGS ERROR:", err);
+    console.error("GET ACCOUNT CEILINGS ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -189,7 +189,7 @@ router.post("/", async (req, res) => {
 
   } catch (err) {
     await conn.rollback();
-    console.error("ADD ACCOUNT CEILING ERROR:", err);
+    console.error("ADD ACCOUNT CEILING ERROR:", err?.message || err);
     res.status(400).json({
       success: false,
       message: err.message,
@@ -225,7 +225,7 @@ router.put("/:id", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("UPDATE ACCOUNT CEILING ERROR:", err);
+    console.error("UPDATE ACCOUNT CEILING ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -241,7 +241,7 @@ router.delete("/:id", async (req, res) => {
     ]);
     res.json({ success: true });
   } catch (err) {
-    console.error("DELETE ACCOUNT CEILING ERROR:", err);
+    console.error("DELETE ACCOUNT CEILING ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });

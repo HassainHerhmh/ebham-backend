@@ -88,7 +88,7 @@ router.get("/status", async (req, res) => {
       session: openSession,
     });
   } catch (error) {
-    console.error("USER ATTENDANCE STATUS ERROR:", error);
+    console.error("USER ATTENDANCE STATUS ERROR:", error?.message || error);
     return res.status(500).json({ success: false, message: "فشل جلب حالة الدوام" });
   }
 });
@@ -103,7 +103,7 @@ router.post("/check-in", async (req, res) => {
       session,
     });
   } catch (error) {
-    console.error("USER ATTENDANCE CHECK-IN ERROR:", error);
+    console.error("USER ATTENDANCE CHECK-IN ERROR:", error?.message || error);
     return res.status(500).json({ success: false, message: "فشل تسجيل الحضور" });
   }
 });
@@ -118,7 +118,7 @@ router.post("/check-out", async (req, res) => {
       session,
     });
   } catch (error) {
-    console.error("USER ATTENDANCE CHECK-OUT ERROR:", error);
+    console.error("USER ATTENDANCE CHECK-OUT ERROR:", error?.message || error);
     return res.status(500).json({ success: false, message: "فشل تسجيل الانصراف" });
   }
 });
@@ -196,7 +196,7 @@ router.get("/report", async (req, res) => {
       sessions: normalizedRows,
     });
   } catch (error) {
-    console.error("USER ATTENDANCE REPORT ERROR:", error);
+    console.error("USER ATTENDANCE REPORT ERROR:", error?.message || error);
     return res.status(500).json({ success: false, message: "فشل تحميل تقرير الدوام" });
   }
 });

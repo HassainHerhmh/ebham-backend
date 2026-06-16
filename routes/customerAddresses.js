@@ -76,7 +76,7 @@ router.get("/customer/:customerId", async (req, res) => {
       addresses: rows,
     });
   } catch (err) {
-    console.error("GET CUSTOMER ADDRESSES ERROR:", err);
+    console.error("GET CUSTOMER ADDRESSES ERROR:", err?.message || err);
     return res.status(500).json({
       success: false,
       message: "حدث خطأ في جلب العناوين",
@@ -185,7 +185,7 @@ router.post("/", async (req, res) => {
       message: "تم حفظ العنوان بنجاح",
     });
   } catch (err) {
-    console.error("ADD CUSTOMER ADDRESS ERROR:", err);
+    console.error("ADD CUSTOMER ADDRESS ERROR:", err?.message || err);
     return res.status(500).json({
       success: false,
       message: "حدث خطأ في السيرفر أثناء الحفظ",
@@ -264,7 +264,7 @@ router.get("/", async (req, res) => {
       addresses: rows,
     });
   } catch (err) {
-    console.error("GET ADDRESSES ERROR:", err);
+    console.error("GET ADDRESSES ERROR:", err?.message || err);
     return res.status(500).json({
       success: false,
       message: "حدث خطأ في جلب البيانات",
@@ -366,7 +366,7 @@ router.put("/:id", async (req, res) => {
       message: "تم تحديث العنوان بنجاح",
     });
   } catch (err) {
-    console.error("UPDATE CUSTOMER ADDRESS ERROR:", err);
+    console.error("UPDATE CUSTOMER ADDRESS ERROR:", err?.message || err);
     return res.status(500).json({
       success: false,
       message: "حدث خطأ أثناء التحديث",
@@ -421,7 +421,7 @@ router.delete("/:id", async (req, res) => {
       message: "تم حذف العنوان بنجاح",
     });
   } catch (err) {
-    console.error("DELETE CUSTOMER ADDRESS ERROR:", err);
+    console.error("DELETE CUSTOMER ADDRESS ERROR:", err?.message || err);
     return res.status(500).json({
       success: false,
       message: "حدث خطأ أثناء الحذف",

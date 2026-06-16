@@ -23,7 +23,7 @@ router.get("/", async (req, res) => {
 
     res.json({ success: true, cities: rows });
   } catch (err) {
-    console.error("GET CITIES ERROR:", err);
+    console.error("GET CITIES ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -46,7 +46,7 @@ router.post("/", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("ADD CITY ERROR:", err);
+    console.error("ADD CITY ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -59,7 +59,7 @@ router.delete("/:id", async (req, res) => {
     await db.query("DELETE FROM cities WHERE id=?", [req.params.id]);
     res.json({ success: true });
   } catch (err) {
-    console.error("DELETE CITY ERROR:", err);
+    console.error("DELETE CITY ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -89,7 +89,7 @@ router.get("/neighborhoods/search", async (req, res) => {
 
     res.json({ success: true, neighborhoods: rows });
   } catch (err) {
-    console.error("SEARCH NEIGHBORHOODS ERROR:", err);
+    console.error("SEARCH NEIGHBORHOODS ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -115,7 +115,7 @@ router.post("/neighborhoods", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("ADD NEIGHBORHOOD ERROR:", err);
+    console.error("ADD NEIGHBORHOOD ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -138,7 +138,7 @@ router.put("/neighborhoods/:id", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("UPDATE NEIGHBORHOOD ERROR:", err);
+    console.error("UPDATE NEIGHBORHOOD ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -155,7 +155,7 @@ router.delete("/neighborhoods/:id", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("DELETE NEIGHBORHOOD ERROR:", err);
+    console.error("DELETE NEIGHBORHOOD ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });

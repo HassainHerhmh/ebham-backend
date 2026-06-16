@@ -269,7 +269,7 @@ router.post("/calc-fees", auth, async (req, res) => {
     });
 
   } catch (err) {
-    console.error("CALC FEES ERROR:", err);
+    console.error("CALC FEES ERROR:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "فشل حساب الرسوم"
@@ -394,7 +394,7 @@ router.get("/agent-summary", async (req, res) => {
       orders: Object.values(orderMap)
     });
   } catch (err) {
-    console.error("AGENT SUMMARY ORDERS ERROR:", err);
+    console.error("AGENT SUMMARY ORDERS ERROR:", err?.message || err);
     res.status(500).json({
       success: false,
       orders: []
@@ -552,7 +552,7 @@ router.get("/app", async (req, res) => {
   }
   catch(err){
 
-    console.error("APP ORDERS ERROR:", err);
+    console.error("APP ORDERS ERROR:", err?.message || err);
 
     res.status(500).json({
       success:false,
@@ -735,7 +735,7 @@ for (const order of rows) {
     });
 
   } catch (err) {
-    console.error("GET ORDERS ERROR:", err);
+    console.error("GET ORDERS ERROR:", err?.message || err);
     res.status(500).json({
       success: false,
       orders: [],
@@ -1210,7 +1210,7 @@ io.emit("admin_notification", {
     res.json({ success: true, order_id: orderId, order_number: orderNumber, total: grandTotal });
 
   } catch (err) {
-    console.error("ADD ORDER ERROR:", err);
+    console.error("ADD ORDER ERROR:", err?.message || err);
     res.status(500).json({ success: false, error: "حدث خطأ أثناء معالجة الطلب" });
   }
 });
@@ -1270,7 +1270,7 @@ router.get("/profile/stats", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("PROFILE STATS ERROR:", err);
+    console.error("PROFILE STATS ERROR:", err?.message || err);
 
     res.status(500).json({
       success: false,
@@ -1343,7 +1343,7 @@ router.get("/wassel_orders", async (req, res) => {
   }
   catch (err) {
 
-    console.error("Wassel Orders Error:", err);
+    console.error("Wassel Orders Error:", err?.message || err);
 
     res.status(500).json({
       success: false,
@@ -1535,7 +1535,7 @@ res.json({
 
 } catch(err){
 
-  console.error("ORDER DETAILS ERROR:", err);
+  console.error("ORDER DETAILS ERROR:", err?.message || err);
 
   res.status(500).json({
     success:false
@@ -2255,7 +2255,7 @@ io.to("captain_" + captain_id).emit("new_notification", {
   }
   catch (err) {
 
-    console.error("ASSIGN CAPTAIN ERROR:", err);
+    console.error("ASSIGN CAPTAIN ERROR:", err?.message || err);
 
     res.status(500).json({
       success: false,
@@ -2684,7 +2684,7 @@ if (orderData?.captain_id) {
 
     await conn.rollback();
 
-    console.error("CANCEL ORDER ERROR:", err);
+    console.error("CANCEL ORDER ERROR:", err?.message || err);
 
     res.status(500).json({
       success: false

@@ -77,7 +77,7 @@ router.get("/public", async (req, res) => {
 
     res.json({ success: true, branches });
   } catch (err) {
-    console.error("GET BRANCHES PUBLIC ERROR:", err);
+    console.error("GET BRANCHES PUBLIC ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -140,7 +140,7 @@ router.get("/", async (req, res) => {
 
     res.json({ success: true, branches });
   } catch (err) {
-    console.error("GET BRANCHES ERROR:", err);
+    console.error("GET BRANCHES ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -182,7 +182,7 @@ router.post("/", async (req, res) => {
       id: result.insertId,
     });
   } catch (err) {
-    console.error("ADD BRANCH ERROR:", err);
+    console.error("ADD BRANCH ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -242,7 +242,7 @@ router.put("/:id", async (req, res) => {
 
     res.json({ success: true, message: "تم تحديث الفرع" });
   } catch (err) {
-    console.error("UPDATE BRANCH ERROR:", err);
+    console.error("UPDATE BRANCH ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -270,7 +270,7 @@ router.delete("/:id", async (req, res) => {
 
     res.json({ success: true, message: "تم الحذف" });
   } catch (err) {
-    console.error("DELETE BRANCH ERROR:", err);
+    console.error("DELETE BRANCH ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });

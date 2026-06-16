@@ -55,7 +55,7 @@ router.get("/", async (req, res) => {
 
     res.json({ success: true, list: rows });
   } catch (err) {
-    console.error("GET PAYMENT TYPES ERROR:", err);
+    console.error("GET PAYMENT TYPES ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -98,7 +98,7 @@ router.post("/", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("ADD PAYMENT TYPE ERROR:", err);
+    console.error("ADD PAYMENT TYPE ERROR:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "خطأ في الإضافة",
@@ -141,7 +141,7 @@ router.put("/:id", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("UPDATE PAYMENT TYPE ERROR:", err);
+    console.error("UPDATE PAYMENT TYPE ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -156,7 +156,7 @@ router.delete("/:id", async (req, res) => {
     ]);
     res.json({ success: true });
   } catch (err) {
-    console.error("DELETE PAYMENT TYPE ERROR:", err);
+    console.error("DELETE PAYMENT TYPE ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });

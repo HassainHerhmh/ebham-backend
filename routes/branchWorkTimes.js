@@ -45,7 +45,7 @@ router.get("/:branchId", async (req, res) => {
       notes: rows.find(r => r.notes)?.notes || "",
     });
   } catch (err) {
-    console.error("GET WORK TIMES ERROR:", err);
+    console.error("GET WORK TIMES ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -99,7 +99,7 @@ router.post("/:branchId", async (req, res) => {
       conn.release();
     }
   } catch (err) {
-    console.error("SAVE WORK TIMES ERROR:", err);
+    console.error("SAVE WORK TIMES ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });

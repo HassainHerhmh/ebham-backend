@@ -48,7 +48,7 @@ router.post("/account-statement/pdf", async (req, res) => {
       fs.unlink(tmpPath, () => {}); // حذف الملف المؤقت بعد التحميل
     });
   } catch (err) {
-    console.error("ACCOUNT STATEMENT PDF ERROR:", err);
+    console.error("ACCOUNT STATEMENT PDF ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -317,7 +317,7 @@ router.post("/account-statement", async (req, res) => {
       list: finalRows,
     });
   } catch (err) {
-    console.error("ACCOUNT STATEMENT ERROR:", err);
+    console.error("ACCOUNT STATEMENT ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -413,7 +413,7 @@ router.get("/commissions", auth, async (req, res) => {
     });
 
   } catch (err) {
-    console.error("COMMISSIONS REPORT ERROR:", err);
+    console.error("COMMISSIONS REPORT ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -615,7 +615,7 @@ router.get("/captain-stats", auth, async (req, res) => {
   }
   catch(err){
 
-    console.error("CAPTAIN STATS ERROR:", err);
+    console.error("CAPTAIN STATS ERROR:", err?.message || err);
 
     res.status(500).json({
       success:false
@@ -820,7 +820,7 @@ router.get("/captain-statement", auth, async (req, res) => {
   }
   catch (err) {
 
-    console.error("CAPTAIN STATEMENT ERROR:", err);
+    console.error("CAPTAIN STATEMENT ERROR:", err?.message || err);
 
     res.status(500).json({
       success: false

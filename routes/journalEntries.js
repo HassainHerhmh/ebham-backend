@@ -53,7 +53,7 @@ router.get("/", async (req, res) => {
 
     res.json({ success: true, list: rows });
   } catch (err) {
-    console.error("GET JOURNAL ENTRIES ERROR:", err);
+    console.error("GET JOURNAL ENTRIES ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -104,7 +104,7 @@ router.post("/", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("CREATE JOURNAL ENTRY ERROR:", err);
+    console.error("CREATE JOURNAL ENTRY ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: "فشل حفظ القيد" });
   }
 });
@@ -151,7 +151,7 @@ router.put("/:id", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("UPDATE JOURNAL ENTRY ERROR:", err);
+    console.error("UPDATE JOURNAL ENTRY ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -171,7 +171,7 @@ router.delete("/by-ref/:ref", async (req, res) => {
       deleted: result.affectedRows,
     });
   } catch (err) {
-    console.error("DELETE BY REF ERROR:", err);
+    console.error("DELETE BY REF ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -187,7 +187,7 @@ router.delete("/:id", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("DELETE JOURNAL ENTRY ERROR:", err);
+    console.error("DELETE JOURNAL ENTRY ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });

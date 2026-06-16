@@ -24,7 +24,7 @@ router.get("/", async (_, res) => {
 
     res.json({ success: true, types: rows });
   } catch (err) {
-    console.error("❌ خطأ في جلب الأنواع:", err);
+    console.error("❌ خطأ في جلب الأنواع:", err?.message || err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
 });
@@ -107,7 +107,7 @@ router.post(
         image_color_url,
       });
     } catch (err) {
-      console.error("❌ خطأ في إضافة النوع:", err);
+      console.error("❌ خطأ في إضافة النوع:", err?.message || err);
       res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
     }
   }
@@ -210,7 +210,7 @@ router.put(
         message: "✅ تم تعديل النوع",
       });
     } catch (err) {
-      console.error("❌ خطأ في تعديل النوع:", err);
+      console.error("❌ خطأ في تعديل النوع:", err?.message || err);
       res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
     }
   }
@@ -237,7 +237,7 @@ router.delete("/:id", async (req, res) => {
 
     res.json({ success: true, message: "🗑️ تم حذف النوع" });
   } catch (err) {
-    console.error("❌ خطأ في حذف النوع:", err);
+    console.error("❌ خطأ في حذف النوع:", err?.message || err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
 });

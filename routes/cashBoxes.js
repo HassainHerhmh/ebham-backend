@@ -94,7 +94,7 @@ router.get("/", async (req, res) => {
 });
 
   } catch (err) {
-    console.error("GET CASH BOXES ERROR:", err);
+    console.error("GET CASH BOXES ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -174,7 +174,7 @@ router.post("/", async (req, res) => {
       message: "تم إضافة الصندوق وربطه بالحساب المحاسبي",
     });
   } catch (err) {
-    console.error("ADD CASH BOX ERROR:", err);
+    console.error("ADD CASH BOX ERROR:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "خطأ في إضافة الصندوق",
@@ -207,7 +207,7 @@ router.put("/:id", async (req, res) => {
 
     res.json({ success: true, message: "تم التعديل" });
   } catch (err) {
-    console.error("UPDATE CASH BOX ERROR:", err);
+    console.error("UPDATE CASH BOX ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -223,7 +223,7 @@ router.delete("/:id", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("DELETE CASH BOX ERROR:", err);
+    console.error("DELETE CASH BOX ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });

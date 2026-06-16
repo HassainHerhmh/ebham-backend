@@ -107,7 +107,7 @@ router.get("/", async (req, res) => {
 
     res.json({ success: true, users: rows });
   } catch (err) {
-    console.error("GET USERS ERROR:", err);
+    console.error("GET USERS ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -201,7 +201,7 @@ router.post("/", upload.single("image"), async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("ADD USER ERROR:", err);
+    console.error("ADD USER ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: getUserWriteErrorMessage(err) });
   }
 });
@@ -353,7 +353,7 @@ router.get("/:id/permissions", async (req, res) => {
       permissions: normalizePermissions(user.permissions),
     });
   } catch (err) {
-    console.error("GET USER PERMISSIONS ERROR:", err);
+    console.error("GET USER PERMISSIONS ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: "فشل جلب الصلاحيات" });
   }
 });
@@ -384,7 +384,7 @@ router.put("/:id/permissions", async (req, res) => {
       permissions,
     });
   } catch (err) {
-    console.error("UPDATE PERMISSIONS ERROR:", err);
+    console.error("UPDATE PERMISSIONS ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: "فشل تحديث الصلاحيات" });
   }
 });
@@ -447,7 +447,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
 
     res.json({ success: true, message: "تم تحديث المستخدم" });
   } catch (err) {
-    console.error("UPDATE USER ERROR:", err);
+    console.error("UPDATE USER ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: getUserWriteErrorMessage(err) });
   }
 });
@@ -484,7 +484,7 @@ router.put("/:id/disable", async (req, res) => {
 
     res.json({ success: true, status: nextStatus });
   } catch (err) {
-    console.error("DISABLE USER ERROR:", err);
+    console.error("DISABLE USER ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: "فشل تغيير حالة المستخدم" });
   }
 });
@@ -497,7 +497,7 @@ router.delete("/:id", async (req, res) => {
     await pool.query(`DELETE FROM users WHERE id=?`, [req.params.id]);
     res.json({ success: true });
   } catch (err) {
-    console.error("DELETE USER ERROR:", err);
+    console.error("DELETE USER ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -517,7 +517,7 @@ router.post("/:id/reset-password", async (req, res) => {
 
     res.json({ success: true, new_password: newPassword });
   } catch (err) {
-    console.error("RESET PASSWORD ERROR:", err);
+    console.error("RESET PASSWORD ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });

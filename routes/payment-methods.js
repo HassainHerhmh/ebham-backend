@@ -50,7 +50,7 @@ router.get("/", async (req, res) => {
 
   } catch (err) {
 
-    console.error("Get payment methods error:", err);
+    console.error("Get payment methods error:", err?.message || err);
 
     res.status(500).json({ success: false });
   }
@@ -95,7 +95,7 @@ router.get("/active", async (req, res) => {
 
   } catch (err) {
 
-    console.error("Active methods error:", err);
+    console.error("Active methods error:", err?.message || err);
 
     res.status(500).json({ success: false });
   }
@@ -140,7 +140,7 @@ router.post("/assign-branch-account", async (req, res) => {
 
   } catch (err) {
 
-    console.error("Assign error:", err);
+    console.error("Assign error:", err?.message || err);
 
     res.status(500).json({
       success: false,
@@ -182,7 +182,7 @@ router.post("/", async (req, res) => {
 
   } catch (err) {
 
-    console.error("Add payment method error:", err);
+    console.error("Add payment method error:", err?.message || err);
 
     res.status(500).json({ success: false });
   }
@@ -225,7 +225,7 @@ router.put("/:id", async (req, res) => {
 
   } catch (err) {
 
-    console.error("Update error:", err);
+    console.error("Update error:", err?.message || err);
 
     res.status(500).json({ success: false });
   }
@@ -255,7 +255,7 @@ router.delete("/:id", async (req, res) => {
 
   } catch (err) {
 
-    console.error("Delete error:", err);
+    console.error("Delete error:", err?.message || err);
 
     res.status(500).json({ success: false });
   }

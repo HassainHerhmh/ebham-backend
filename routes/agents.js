@@ -22,7 +22,6 @@ const generatePassword = (length = 8) => {
    جلب الوكلاء
 ========================= */
 router.get("/", auth, async (req, res) => {
-   console.log("REQ USER =>", req.user);
   try {
     const { is_admin_branch, is_admin, branch_id } = req.user;
     const selectedBranch = req.headers["x-branch-id"];
@@ -68,7 +67,7 @@ router.get("/", auth, async (req, res) => {
 
     res.json({ success: true, agents: rows });
   } catch (err) {
-    console.error("GET AGENTS ERROR:", err);
+    console.error("GET AGENTS ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -168,7 +167,7 @@ router.post("/", auth, async (req, res) => {
     });
 
   } catch (err) {
-    console.error("ADD AGENT ERROR:", err);
+    console.error("ADD AGENT ERROR:", err?.message || err);
 
     res.status(500).json({
       success: false,
@@ -229,7 +228,7 @@ const { name, email, phone, address, branch_id, image_url } = req.body;
 
     res.json({ success: true });
   } catch (err) {
-    console.error("UPDATE AGENT ERROR:", err);
+    console.error("UPDATE AGENT ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -249,7 +248,7 @@ router.patch("/:id/toggle", auth, async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("TOGGLE AGENT ERROR:", err);
+    console.error("TOGGLE AGENT ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -262,7 +261,7 @@ router.delete("/:id", auth, async (req, res) => {
     await db.query(`DELETE FROM agents WHERE id = ?`, [req.params.id]);
     res.json({ success: true });
   } catch (err) {
-    console.error("DELETE AGENT ERROR:", err);
+    console.error("DELETE AGENT ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -325,7 +324,7 @@ res.json({
 });
 
   } catch (err) {
-    console.error("AGENT LOGIN ERROR:", err);
+    console.error("AGENT LOGIN ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -352,7 +351,7 @@ router.post("/:id/reset-password", auth, async (req, res) => {
     // نرجع كلمة المرور الجديدة مرة واحدة فقط
     res.json({ success: true, password: newPassword });
   } catch (err) {
-    console.error("RESET PASSWORD ERROR:", err);
+    console.error("RESET PASSWORD ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });

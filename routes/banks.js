@@ -58,7 +58,7 @@ router.get("/", auth, async (req, res) => {
 });
 
   } catch (err) {
-    console.error("GET BANKS ERROR:", err);
+    console.error("GET BANKS ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -129,7 +129,7 @@ router.post("/", async (req, res) => {
       message: "تم إضافة البنك وربطه بالحساب المحاسبي",
     });
   } catch (err) {
-    console.error("ADD BANK ERROR:", err);
+    console.error("ADD BANK ERROR:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "خطأ في إضافة البنك",
@@ -146,7 +146,7 @@ router.delete("/:id", async (req, res) => {
     await db.query("DELETE FROM banks WHERE id = ?", [req.params.id]);
     res.json({ success: true });
   } catch (err) {
-    console.error("DELETE BANK ERROR:", err);
+    console.error("DELETE BANK ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });

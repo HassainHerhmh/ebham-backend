@@ -102,7 +102,7 @@ router.get("/commissions", async (req, res) => {
 
   } catch (err) {
 
-    console.error("COMMISSIONS REPORT ERROR:", err);
+    console.error("COMMISSIONS REPORT ERROR:", err?.message || err);
 
     res.status(500).json({
       success: false,

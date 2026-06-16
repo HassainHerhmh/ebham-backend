@@ -49,7 +49,7 @@ router.get("/", auth, async (req, res) => {
     });
 
   } catch (err) {
-    console.error("PROFILE ERROR:", err);
+    console.error("PROFILE ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });

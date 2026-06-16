@@ -128,7 +128,7 @@ router.post("/login", async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("LOGIN ERROR:", err);
+    console.error("LOGIN ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: "SERVER_ERROR" });
   }
 });
@@ -336,7 +336,7 @@ router.get("/sms-service", async (_req, res) => {
     const status = await smsGateway.getSmsServiceStatus();
     return res.json({ smsService: { available: status.available } });
   } catch (err) {
-    console.error("SMS service status error:", err);
+    console.error("SMS service status error:", err?.message || err);
     return res.json({ smsService: { available: false } });
   }
 });
@@ -423,7 +423,7 @@ router.post("/logout", authMiddleware, async (req, res) => {
 
     res.json({ success: true, message: "تم تسجيل الخروج" });
   } catch (err) {
-    console.error("❌ LOGOUT ERROR:", err);
+    console.error("❌ LOGOUT ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: "SERVER_ERROR" });
   }
 });
@@ -453,7 +453,7 @@ router.get("/me", authMiddleware, async (req, res) => {
       customer: rows[0],
     });
   } catch (err) {
-    console.error("GET ME ERROR:", err);
+    console.error("GET ME ERROR:", err?.message || err);
     return res.status(500).json({
       success: false,
       message: "SERVER_ERROR",

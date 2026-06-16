@@ -57,7 +57,7 @@ routerInstance.get("/:id/children", async (req, res) => {
 
     res.json({ success: true, children: rows });
   } catch (err) {
-    console.error("GET CHILDREN ERROR:", err);
+    console.error("GET CHILDREN ERROR:", err?.message || err);
     res.status(500).json({ success: false, children: [] });
   }
 });
@@ -98,7 +98,7 @@ routerInstance.get("/by-category/:categoryId", async (req, res) => {
 
     res.json(rows);
   } catch (err) {
-    console.error("GET PRODUCTS BY CATEGORY ERROR:", err);
+    console.error("GET PRODUCTS BY CATEGORY ERROR:", err?.message || err);
     res.status(500).json([]);
   }
 });
@@ -186,7 +186,7 @@ routerInstance.get("/", async (req, res) => {
 
     res.json({ success: true, products: rows });
   } catch (err) {
-    console.error("GET PRODUCTS ERROR:", err);
+    console.error("GET PRODUCTS ERROR:", err?.message || err);
     res.status(500).json({
       success: false,
       message: err.message || "خطأ في السيرفر",
@@ -322,7 +322,7 @@ routerInstance.post("/", upload.single("image"), async (req, res) => {
       product_id: productId,
     });
   } catch (err) {
-    console.error("CREATE PRODUCT ERROR RAW:", err);
+    console.error("CREATE PRODUCT ERROR RAW:", err?.message || err);
     console.error("CREATE PRODUCT ERROR JSON:", JSON.stringify(err, null, 2));
 
     res.status(500).json({
@@ -509,7 +509,7 @@ routerInstance.put("/:id", upload.single("image"), async (req, res) => {
       message: "✅ تم تعديل المنتج",
     });
   } catch (err) {
-    console.error("UPDATE PRODUCT ERROR RAW:", err);
+    console.error("UPDATE PRODUCT ERROR RAW:", err?.message || err);
     console.error("UPDATE PRODUCT ERROR JSON:", JSON.stringify(err, null, 2));
 
     res.status(500).json({
@@ -559,7 +559,7 @@ routerInstance.delete("/:id", async (req, res) => {
 
     res.json({ success: true, message: "🗑️ تم حذف المنتج" });
   } catch (err) {
-    console.error("DELETE PRODUCT ERROR:", err);
+    console.error("DELETE PRODUCT ERROR:", err?.message || err);
     res.status(500).json({
       success: false,
       message: err.message || "خطأ في السيرفر",

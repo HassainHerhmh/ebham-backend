@@ -88,7 +88,7 @@ router.get("/", async (req, res) => {
 
     res.json({ success: true, list: rows });
   } catch (err) {
-    console.error("GET RECEIPT VOUCHERS ERROR:", err);
+    console.error("GET RECEIPT VOUCHERS ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -237,7 +237,7 @@ router.post("/", async (req, res) => {
     res.json({ success: true, voucher_no });
   } catch (err) {
     await conn.rollback();
-    console.error("ADD RECEIPT VOUCHER ERROR:", err);
+    console.error("ADD RECEIPT VOUCHER ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: err.message });
   } finally {
     conn.release();
@@ -309,7 +309,7 @@ router.put("/:id", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     await conn.rollback();
-    console.error("UPDATE RECEIPT VOUCHER ERROR:", err);
+    console.error("UPDATE RECEIPT VOUCHER ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: err.message });
   } finally {
     conn.release();
@@ -343,7 +343,7 @@ router.delete("/:id", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     await conn.rollback();
-    console.error("DELETE RECEIPT VOUCHER ERROR:", err);
+    console.error("DELETE RECEIPT VOUCHER ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   } finally {
     conn.release();

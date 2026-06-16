@@ -86,7 +86,7 @@ router.get("/my-language", auth, async (req, res) => {
       language: ensureLanguageValue(rows[0]?.language),
     });
   } catch (err) {
-    console.error("GET /language/my-language ERROR:", err);
+    console.error("GET /language/my-language ERROR:", err?.message || err);
     return res.status(500).json({
       success: false,
       message: tx(
@@ -144,7 +144,7 @@ router.put("/my-language", auth, async (req, res) => {
       language,
     });
   } catch (err) {
-    console.error("PUT /language/my-language ERROR:", err);
+    console.error("PUT /language/my-language ERROR:", err?.message || err);
     return res.status(500).json({
       success: false,
       message: tx(req, "فشل في تحديث اللغة", "Failed to update language"),
@@ -237,7 +237,7 @@ router.post("/set-language", auth, async (req, res) => {
       language,
     });
   } catch (err) {
-    console.error("POST /language/set-language ERROR:", err);
+    console.error("POST /language/set-language ERROR:", err?.message || err);
     return res.status(500).json({
       success: false,
       message: tx(req, "فشل في تحديث اللغة", "Failed to update language"),

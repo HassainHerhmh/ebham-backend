@@ -64,7 +64,7 @@ router.get("/", async (req, res) => {
       groups: rows,
     });
   } catch (err) {
-    console.error("❌ Get bank groups error:", err);
+    console.error("❌ Get bank groups error:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "خطأ في جلب مجموعات البنوك",
@@ -93,7 +93,7 @@ router.get("/next-code", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Next code error:", err);
+    console.error("Next code error:", err?.message || err);
 
     res.status(500).json({
       success: false,
@@ -156,7 +156,7 @@ router.post("/", async (req, res) => {
   } catch (err) {
     await conn.rollback();
 
-    console.error("❌ Add bank group error:", err);
+    console.error("❌ Add bank group error:", err?.message || err);
 
     res.status(500).json({
       success: false,
@@ -210,7 +210,7 @@ router.put("/:id", async (req, res) => {
 
   } catch (err) {
 
-    console.error("❌ Update bank group error:", err);
+    console.error("❌ Update bank group error:", err?.message || err);
 
     res.status(500).json({
       success: false,
@@ -233,7 +233,7 @@ router.delete("/:id", async (req, res) => {
       message: "تم حذف مجموعة البنك",
     });
   } catch (err) {
-    console.error("❌ Delete bank group error:", err);
+    console.error("❌ Delete bank group error:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "خطأ في حذف مجموعة البنك",

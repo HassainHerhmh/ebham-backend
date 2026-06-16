@@ -22,7 +22,7 @@ router.get("/:id/categories", async (req, res) => {
 
     res.json({ success: true, categories: rows });
   } catch (err) {
-    console.error("GET RESTAURANT CATEGORIES ERROR:", err);
+    console.error("GET RESTAURANT CATEGORIES ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -52,7 +52,7 @@ router.get("/:id/products", async (req, res) => {
 
     res.json({ success: true, products: rows });
   } catch (err) {
-    console.error("GET RESTAURANT PRODUCTS ERROR:", err);
+    console.error("GET RESTAURANT PRODUCTS ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });

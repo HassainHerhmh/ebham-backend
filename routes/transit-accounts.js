@@ -40,7 +40,7 @@ LIMIT 1
       },
     });
   } catch (err) {
-    console.error("GET TRANSIT SETTINGS ERROR:", err);
+    console.error("GET TRANSIT SETTINGS ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -121,7 +121,7 @@ WHERE id = 1
 
     res.json({ success: true });
   } catch (err) {
-    console.error("SAVE TRANSIT SETTINGS ERROR:", err);
+    console.error("SAVE TRANSIT SETTINGS ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });

@@ -29,9 +29,9 @@ export async function notifyCaptain(captainId, title, body, data = {}) {
       };
 
       await admin.messaging().send(message);
-      console.log(`✅ تم إرسال الإشعار للكابتن رقم: ${captainId}`);
+      console.log("✅ تم إرسال الإشعار للكابتن");
     } else {
-      console.log(`⚠️ لا يوجد fcm_token للكابتن رقم: ${captainId}`);
+      console.log("⚠️ لا يوجد fcm_token للكابتن");
     }
   } catch (err) {
     console.error("❌ خطأ في إرسال FCM:", err.message);

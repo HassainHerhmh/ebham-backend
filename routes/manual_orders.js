@@ -358,7 +358,7 @@ router.put("/:id", async (req, res) => {
 
     await conn.rollback();
 
-    console.error("❌ UPDATE MANUAL ERROR:", err);
+    console.error("❌ UPDATE MANUAL ERROR:", err?.message || err);
 
     res.status(500).json({
       success: false,
@@ -773,7 +773,7 @@ router.put("/status/:id", async (req, res) => {
   } catch (err) {
     await conn.rollback();
 
-    console.error("❌ MANUAL STATUS ERROR:", err);
+    console.error("❌ MANUAL STATUS ERROR:", err?.message || err);
 
     res.status(500).json({
       success: false,

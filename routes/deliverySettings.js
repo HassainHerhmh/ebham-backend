@@ -69,7 +69,7 @@ router.get("/", async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("GET DELIVERY SETTINGS ERROR:", err);
+    console.error("GET DELIVERY SETTINGS ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -116,7 +116,7 @@ router.post("/", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("SAVE DELIVERY SETTINGS ERROR:", err);
+    console.error("SAVE DELIVERY SETTINGS ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });

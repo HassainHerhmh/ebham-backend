@@ -103,7 +103,7 @@ export default async function auth(req, res, next) {
 
     // 3. التأكد من وجود المستخدم
     if (!userRecord) {
-      console.error("❌ User not found:", decoded);
+      console.error("❌ User not found for decoded token");
 
       return res.status(401).json({
         success: false,
@@ -165,8 +165,6 @@ export default async function auth(req, res, next) {
         ),
       });
     }
-
-    console.log("✅ AUTH OK:", req.user);
 
     next();
 

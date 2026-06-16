@@ -185,7 +185,7 @@ router.get("/", async (req, res) => {
 
     res.json({ success: true, captains });
   } catch (err) {
-    console.error("GET CAPTAINS ERROR:", err);
+    console.error("GET CAPTAINS ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: "فشل في جلب الكباتن" });
   }
 });
@@ -246,7 +246,7 @@ router.post("/", async (req, res) => {
 
     res.json({ success: true, id: result?.insertId });
   } catch (err) {
-    console.error("ADD CAPTAIN ERROR:", err);
+    console.error("ADD CAPTAIN ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: "فشل في إضافة الكابتن" });
   }
 });
@@ -260,8 +260,6 @@ router.put(
   async (req, res) => {
 
     try {
-
-      console.log("REQ USER:", req.user);
 
       // 🔥 دعم أكثر من نوع توكن
       const captainId =
@@ -307,7 +305,7 @@ router.put(
 
     } catch (err) {
 
-      console.error("UPLOAD CAPTAIN IMAGE ERROR:", err);
+      console.error("UPLOAD CAPTAIN IMAGE ERROR:", err?.message || err);
 
       res.status(500).json({
         success: false,
@@ -365,7 +363,7 @@ router.put(
         image_url: imageUrl
       });
     } catch (err) {
-      console.error("UPLOAD CAPTAIN IMAGE (ADMIN) ERROR:", err);
+      console.error("UPLOAD CAPTAIN IMAGE (ADMIN) ERROR:", err?.message || err);
 
       res.status(500).json({
         success: false,
@@ -424,7 +422,7 @@ router.put("/:id", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("UPDATE CAPTAIN ERROR:", err);
+    console.error("UPDATE CAPTAIN ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: "فشل في التحديث" });
   }
 });
@@ -437,7 +435,7 @@ router.delete("/:id", async (req, res) => {
     await db.query("DELETE FROM captains WHERE id=?", [req.params.id]);
     res.json({ success: true });
   } catch (err) {
-    console.error("DELETE CAPTAIN ERROR:", err);
+    console.error("DELETE CAPTAIN ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: "فشل في الحذف" });
   }
 });
@@ -506,7 +504,7 @@ router.put("/:id/status", async (req, res) => {
     res.json({ success: true });
 
   } catch (err) {
-    console.error("UPDATE CAPTAIN STATUS ERROR:", err);
+    console.error("UPDATE CAPTAIN STATUS ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 
@@ -542,8 +540,6 @@ router.post("/fcm-token", async (req, res) => {
       [token, captainId]
     );
 
-    console.log("✅ FCM Token saved for captain:", captainId);
-
     res.json({
       success: true
     });
@@ -551,7 +547,7 @@ router.post("/fcm-token", async (req, res) => {
   }
   catch (err) {
 
-    console.error("FCM TOKEN SAVE ERROR:", err);
+    console.error("FCM TOKEN SAVE ERROR:", err?.message || err);
 
     res.status(500).json({
       success: false,

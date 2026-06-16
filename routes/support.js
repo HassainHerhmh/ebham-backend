@@ -163,7 +163,7 @@ router.get("/my-chat", auth, async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("GET /support/my-chat error:", error);
+    console.error("GET /support/my-chat error:", error?.message || error);
     return res.status(500).json({
       success: false,
       message: "حدث خطأ أثناء جلب محادثة العميل",
@@ -265,7 +265,7 @@ router.post("/chats", auth, async (req, res) => {
       chat,
     });
   } catch (error) {
-    console.error("POST /support/chats error:", error);
+    console.error("POST /support/chats error:", error?.message || error);
     return res.status(500).json({
       success: false,
       message: "حدث خطأ أثناء إنشاء المحادثة",
@@ -393,7 +393,7 @@ router.post("/chats/:id/messages", auth, async (req, res) => {
       messages,
     });
   } catch (error) {
-    console.error("POST /support/chats/:id/messages error:", error);
+    console.error("POST /support/chats/:id/messages error:", error?.message || error);
     return res.status(500).json({
       success: false,
       message: "حدث خطأ أثناء إرسال الرسالة",
@@ -485,7 +485,7 @@ router.get("/chats", auth, async (req, res) => {
       chats: rows,
     });
   } catch (error) {
-    console.error("GET /support/chats error:", error);
+    console.error("GET /support/chats error:", error?.message || error);
     return res.status(500).json({
       success: false,
       message: "حدث خطأ أثناء جلب المحادثات",
@@ -535,7 +535,7 @@ router.get("/chats/:id", auth, async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("GET /support/chats/:id error:", error);
+    console.error("GET /support/chats/:id error:", error?.message || error);
     return res.status(500).json({
       success: false,
       message: "حدث خطأ أثناء جلب تفاصيل المحادثة",
@@ -600,7 +600,7 @@ router.post("/chats/:id/release", auth, async (req, res) => {
       status: nextStatus,
     });
   } catch (error) {
-    console.error("POST /support/chats/:id/release error:", error);
+    console.error("POST /support/chats/:id/release error:", error?.message || error);
     return res.status(500).json({
       success: false,
       message: "حدث خطأ أثناء تحرير المحادثة",
@@ -672,7 +672,7 @@ router.patch("/chats/:id/status", auth, async (req, res) => {
       chat,
     });
   } catch (error) {
-    console.error("PATCH /support/chats/:id/status error:", error);
+    console.error("PATCH /support/chats/:id/status error:", error?.message || error);
     return res.status(500).json({
       success: false,
       message: "حدث خطأ أثناء تحديث الحالة",
@@ -735,7 +735,7 @@ router.patch("/chats/:id/read", auth, async (req, res) => {
       message: "تم تعليم الرسائل كمقروءة",
     });
   } catch (error) {
-    console.error("PATCH /support/chats/:id/read error:", error);
+    console.error("PATCH /support/chats/:id/read error:", error?.message || error);
     return res.status(500).json({
       success: false,
       message: "حدث خطأ أثناء تحديث حالة القراءة",

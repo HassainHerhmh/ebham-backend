@@ -67,7 +67,7 @@ export async function addPointsAfterOrder(order) {
     console.log("✅ Points added:", points);
 
   } catch (err) {
-    console.error("❌ LOYALTY ERROR:", err);
+    console.error("❌ LOYALTY ERROR:", err?.message || err);
   }
 
 }
@@ -204,16 +204,11 @@ router.get("/my-points", async (req, res) => {
   try {
     const userId = req.query.user_id;
 
-    console.log("📥 API CALLED /my-points");
-    console.log("👉 user_id from request:", userId);
-
     // فحص النقاط
     const [pointsRows] = await db.query(
       "SELECT * FROM loyalty_points WHERE user_id=?",
       [userId]
     );
-
-    console.log("💰 loyalty_points result:", pointsRows);
 
     // فحص السجل
  const [logs] = await db.query(`
@@ -250,7 +245,7 @@ router.get("/my-points", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("❌ ERROR:", err);
+    console.error("❌ ERROR:", err?.message || err);
     res.json({ success: false });
   }
 });

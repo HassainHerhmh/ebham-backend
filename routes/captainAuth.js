@@ -37,11 +37,6 @@ function buildImageUrl(req, imagePath) {
 ====================== */
 router.post("/login", async (req, res) => {
 
-  // 1️⃣ كشف البيانات الواصلة (مهم جداً للتتبع)
-  console.log("📥 Login Request Received:");
-  console.log("👉 Phone:", req.body.phone);
-  console.log("👉 FCM Token Received:", req.body.fcm_token); 
-
   const { phone, password, fcm_token } = req.body;
 
   if (!phone || !password) {
@@ -96,12 +91,11 @@ router.post("/login", async (req, res) => {
             "UPDATE captains SET fcm_token=? WHERE id=?",
             [fcm_token, captain.id]
           );
-          console.log(`✅ Database Updated for Captain ${captain.id} with token: ${fcm_token.substring(0, 15)}...`);
       } catch (dbError) {
           console.error("❌ Database Update Error:", dbError.message);
       }
     } else {
-        console.log("⚠️ No valid FCM token provided in request body.");
+        console.warn("⚠️ No valid FCM token provided in request body.");
     }
 
     /* ======================
@@ -134,7 +128,7 @@ router.post("/login", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("CAPTAIN LOGIN ERROR:", err);
+    console.error("CAPTAIN LOGIN ERROR:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "فشل تسجيل الدخول",

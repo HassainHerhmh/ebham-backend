@@ -108,7 +108,7 @@ router.put("/read-all", async (req, res) => {
     res.json({ success: true });
 
   } catch (err) {
-    console.error("Read All Error:", err);
+    console.error("Read All Error:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });

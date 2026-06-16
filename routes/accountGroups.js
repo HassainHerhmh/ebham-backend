@@ -60,7 +60,7 @@ router.get("/", async (req, res) => {
       groups: rows,
     });
   } catch (err) {
-    console.error("Get account groups error:", err);
+    console.error("Get account groups error:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "خطأ في جلب مجموعات الحسابات",
@@ -95,7 +95,7 @@ router.post("/", async (req, res) => {
       message: "تمت الإضافة بنجاح",
     });
   } catch (err) {
-    console.error("Add account group error:", err);
+    console.error("Add account group error:", err?.message || err);
 
     if (err.code === "ER_DUP_ENTRY") {
       return res.status(400).json({

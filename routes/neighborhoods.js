@@ -78,7 +78,7 @@ router.get("/by-branch/:branchId", async (req, res) => {
       })),
     });
   } catch (err) {
-    console.error("GET NEIGHBORHOODS BY BRANCH ERROR:", err);
+    console.error("GET NEIGHBORHOODS BY BRANCH ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -172,7 +172,7 @@ router.get("/", async (req, res) => {
       })),
     });
   } catch (err) {
-    console.error("GET NEIGHBORHOODS ERROR:", err);
+    console.error("GET NEIGHBORHOODS ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -218,7 +218,7 @@ router.post("/", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("ADD NEIGHBORHOOD ERROR:", err);
+    console.error("ADD NEIGHBORHOOD ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -257,7 +257,7 @@ router.put("/:id", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("UPDATE NEIGHBORHOOD ERROR:", err);
+    console.error("UPDATE NEIGHBORHOOD ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -270,7 +270,7 @@ router.delete("/:id", async (req, res) => {
     await db.query("DELETE FROM neighborhoods WHERE id = ?", [req.params.id]);
     res.json({ success: true });
   } catch (err) {
-    console.error("DELETE NEIGHBORHOOD ERROR:", err);
+    console.error("DELETE NEIGHBORHOOD ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });

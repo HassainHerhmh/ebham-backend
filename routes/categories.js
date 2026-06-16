@@ -17,7 +17,7 @@ router.get("/", async (_, res) => {
 
     res.json({ success: true, categories: rows });
   } catch (err) {
-    console.error("❌ خطأ في جلب الفئات:", err);
+    console.error("❌ خطأ في جلب الفئات:", err?.message || err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
 });
@@ -51,7 +51,7 @@ router.post("/", upload.single("image"), async (req, res) => {
 
     res.json({ success: true, message: "✅ تم إضافة الفئة بنجاح" });
   } catch (err) {
-    console.error("❌ خطأ في إضافة الفئة:", err);
+    console.error("❌ خطأ في إضافة الفئة:", err?.message || err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
 });
@@ -109,7 +109,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
 
     res.json({ success: true, message: "✅ تم تعديل الفئة" });
   } catch (err) {
-    console.error("❌ خطأ في تعديل الفئة:", err);
+    console.error("❌ خطأ في تعديل الفئة:", err?.message || err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
 });
@@ -136,7 +136,7 @@ router.delete("/:id", async (req, res) => {
 
     res.json({ success: true, message: "🗑️ تم حذف الفئة" });
   } catch (err) {
-    console.error("❌ خطأ في حذف الفئة:", err);
+    console.error("❌ خطأ في حذف الفئة:", err?.message || err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
 });

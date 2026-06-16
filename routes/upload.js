@@ -23,7 +23,7 @@ router.post("/", upload.single("image"), async (req, res) => {
     });
 
   } catch (err) {
-    console.error("❌ خطأ في رفع الصورة:", err);
+    console.error("❌ خطأ في رفع الصورة:", err?.message || err);
 
     return res.status(500).json({
       success: false,

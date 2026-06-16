@@ -75,7 +75,7 @@ router.get("/:customerId/balance", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Balance Error:", err);
+    console.error("Balance Error:", err?.message || err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -129,7 +129,7 @@ router.get("/types", async (req, res) => {
       types: rows
     });
   } catch (err) {
-    console.error("Get Wassel Types Error:", err);
+    console.error("Get Wassel Types Error:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "فشل جلب الأنواع"
@@ -173,7 +173,7 @@ router.post("/types", async (req, res) => {
       id: result.insertId
     });
   } catch (err) {
-    console.error("Create Wassel Type Error:", err);
+    console.error("Create Wassel Type Error:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "فشل إضافة النوع"
@@ -217,7 +217,7 @@ router.put("/types/:id", async (req, res) => {
       message: "تم تعديل النوع"
     });
   } catch (err) {
-    console.error("Update Wassel Type Error:", err);
+    console.error("Update Wassel Type Error:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "فشل تعديل النوع"
@@ -240,7 +240,7 @@ router.delete("/types/:id", async (req, res) => {
       message: "تم حذف النوع"
     });
   } catch (err) {
-    console.error("Delete Wassel Type Error:", err);
+    console.error("Delete Wassel Type Error:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "فشل حذف النوع"
@@ -267,7 +267,7 @@ router.get("/transport-methods", async (req, res) => {
       methods: rows
     });
   } catch (err) {
-    console.error("Get Transport Methods Error:", err);
+    console.error("Get Transport Methods Error:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "فشل جلب وسائل النقل"
@@ -327,7 +327,7 @@ router.post("/transport-methods", async (req, res) => {
       id: result.insertId
     });
   } catch (err) {
-    console.error("Create Transport Method Error:", err);
+    console.error("Create Transport Method Error:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "فشل إضافة وسيلة النقل"
@@ -386,7 +386,7 @@ router.put("/transport-methods/:id", async (req, res) => {
       message: "تم تعديل وسيلة النقل"
     });
   } catch (err) {
-    console.error("Update Transport Method Error:", err);
+    console.error("Update Transport Method Error:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "فشل تعديل وسيلة النقل"
@@ -409,7 +409,7 @@ router.delete("/transport-methods/:id", async (req, res) => {
       message: "تم حذف وسيلة النقل"
     });
   } catch (err) {
-    console.error("Delete Transport Method Error:", err);
+    console.error("Delete Transport Method Error:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "فشل حذف وسيلة النقل"
@@ -698,7 +698,7 @@ router.post("/", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Create Order Error:", err);
+    console.error("Create Order Error:", err?.message || err);
 
     res.status(500).json({
       success: false,
@@ -1113,7 +1113,7 @@ router.put("/:id", async (req, res) => {
     res.json({ success: true });
 
   } catch (err) {
-    console.error("Update Order Error:", err);
+    console.error("Update Order Error:", err?.message || err);
     res.status(500).json({
       success: false,
       message: err.message
@@ -1227,7 +1227,7 @@ const [[order]] = await db.query(`
   }
   catch (err) {
 
-    console.error("Wassel Order Details Error:", err);
+    console.error("Wassel Order Details Error:", err?.message || err);
 
     res.status(500).json({
       success: false,
@@ -1583,7 +1583,7 @@ router.post("/calculate-fee", async (req, res) => {
       total_fee: Number((deliveryFee + extraFee).toFixed(2))
     });
   } catch (err) {
-    console.error("Calculate Wassel Fee Error:", err);
+    console.error("Calculate Wassel Fee Error:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "فشل حساب الرسوم"

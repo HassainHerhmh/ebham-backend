@@ -64,7 +64,7 @@ router.get("/form-data", async (req, res) => {
       items,
     });
   } catch (err) {
-    console.error("FORM DATA ERROR:", err);
+    console.error("FORM DATA ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: "خطأ في جلب البيانات" });
   }
 });
@@ -203,7 +203,7 @@ router.post("/", async (req, res) => {
     res.json({ success: true, id: exchangeId });
   } catch (err) {
     await conn.rollback();
-    console.error("CURRENCY EXCHANGE SAVE ERROR:", err);
+    console.error("CURRENCY EXCHANGE SAVE ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: "فشل حفظ العملية" });
   } finally {
     conn.release();

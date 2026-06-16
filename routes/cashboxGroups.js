@@ -50,7 +50,7 @@ router.get("/", async (req, res) => {
 
     res.json({ success: true, groups: rows });
   } catch (err) {
-    console.error("GET CASHBOX GROUPS ERROR:", err);
+    console.error("GET CASHBOX GROUPS ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -81,7 +81,7 @@ router.post("/", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("ADD CASHBOX GROUP ERROR:", err);
+    console.error("ADD CASHBOX GROUP ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -104,7 +104,7 @@ router.put("/:id", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("UPDATE CASHBOX GROUP ERROR:", err);
+    console.error("UPDATE CASHBOX GROUP ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -119,7 +119,7 @@ router.delete("/:id", async (req, res) => {
     ]);
     res.json({ success: true });
   } catch (err) {
-    console.error("DELETE CASHBOX GROUP ERROR:", err);
+    console.error("DELETE CASHBOX GROUP ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });

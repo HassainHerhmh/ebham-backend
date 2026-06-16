@@ -152,7 +152,7 @@ router.get("/", async (req, res) => {
       users,
     });
   } catch (err) {
-    console.error("Get Users Error:", err);
+    console.error("Get Users Error:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "فشل جلب المستخدمين",
@@ -192,7 +192,7 @@ router.get("/:id/permissions", async (req, res) => {
       permissions: normalizePermissions(user.permissions),
     });
   } catch (err) {
-    console.error("Get User Permissions Error:", err);
+    console.error("Get User Permissions Error:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "فشل جلب الصلاحيات",
@@ -278,7 +278,7 @@ router.put("/:id", async (req, res) => {
       message: "تم تحديث بيانات المستخدم",
     });
   } catch (err) {
-    console.error("Update User Error:", err);
+    console.error("Update User Error:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "فشل تحديث المستخدم",
@@ -326,7 +326,7 @@ router.put("/:id/permissions", async (req, res) => {
       permissions,
     });
   } catch (err) {
-    console.error("Update Permissions Error:", err);
+    console.error("Update Permissions Error:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "فشل تحديث الصلاحيات",

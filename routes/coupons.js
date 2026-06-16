@@ -194,7 +194,7 @@ coupon
 
 }catch(err){
 
-console.error("CHECK COUPON ERROR:",err);
+console.error("CHECK COUPON ERROR:",err?.message || err);
 
 res.status(500).json({
 success:false,
@@ -318,7 +318,7 @@ res.json({ success:true });
 
 }catch(err){
 
-console.error("UPDATE COUPON ERROR:",err);
+console.error("UPDATE COUPON ERROR:",err?.message || err);
 
 res.status(500).json({
 success:false

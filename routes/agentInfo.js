@@ -96,8 +96,6 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
 
-    console.log("REQ USER =>", req.user);
-
     const {
       account_type,
       account_id,
@@ -201,7 +199,7 @@ router.post("/", async (req, res) => {
 
   } catch (err) {
 
-    console.error("ADD COMMISSION ERROR:", err);
+    console.error("ADD COMMISSION ERROR:", err?.message || err);
 
     res.status(500).json({
       success: false,

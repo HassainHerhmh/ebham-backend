@@ -103,7 +103,7 @@ router.get("/app/:id/categories", async (req, res) => {
 
     res.json({ success: true, categories: rows });
   } catch (err) {
-    console.error("APP GET RESTAURANT CATEGORIES ERROR:", err);
+    console.error("APP GET RESTAURANT CATEGORIES ERROR:", err?.message || err);
     res.status(500).json({ success: false, categories: [] });
   }
 });
@@ -164,7 +164,7 @@ ORDER BY p.id DESC
 
   } catch (err) {
 
-    console.error("APP GET RESTAURANT PRODUCTS ERROR:", err);
+    console.error("APP GET RESTAURANT PRODUCTS ERROR:", err?.message || err);
 
     res.status(500).json({
       success: false,
@@ -284,7 +284,7 @@ router.get("/app", async (req, res) => {
 
     res.json({ success: true, restaurants: rows });
   } catch (err) {
-    console.error("❌ خطأ في جلب المحلات للتطبيق:", err);
+    console.error("❌ خطأ في جلب المحلات للتطبيق:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -313,7 +313,7 @@ router.get("/list", async (req, res) => {
 
   } catch (err) {
 
-    console.error("LIST RESTAURANTS ERROR:", err);
+    console.error("LIST RESTAURANTS ERROR:", err?.message || err);
     res.status(500).json([]);
 
   }
@@ -399,7 +399,7 @@ r.delivery_time,
 
     res.json({ success: true, restaurants: rows });
   } catch (err) {
-    console.error("❌ خطأ في جلب المطاعم:", err);
+    console.error("❌ خطأ في جلب المطاعم:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -507,7 +507,7 @@ const [result] = await db.query(
 
     res.json({ success: true, message: "✅ تم إضافة المطعم" });
   } catch (err) {
-    console.error("❌ خطأ في إضافة المطعم:", err);
+    console.error("❌ خطأ في إضافة المطعم:", err?.message || err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
 });
@@ -622,7 +622,7 @@ if (map_url !== undefined) {
 
     res.json({ success: true, message: "✅ تم تعديل المطعم" });
   } catch (err) {
-    console.error("❌ خطأ في تعديل المطعم:", err);
+    console.error("❌ خطأ في تعديل المطعم:", err?.message || err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
 });
@@ -659,7 +659,7 @@ router.post("/reorder", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     await conn.rollback();
-    console.error("❌ خطأ في إعادة الترتيب:", err);
+    console.error("❌ خطأ في إعادة الترتيب:", err?.message || err);
     res.status(500).json({ success: false });
   } finally {
     conn.release();
@@ -679,7 +679,7 @@ router.delete("/:id", async (req, res) => {
 
     res.json({ success: true, message: "🗑️ تم حذف المطعم" });
   } catch (err) {
-    console.error("❌ خطأ في حذف المطعم:", err);
+    console.error("❌ خطأ في حذف المطعم:", err?.message || err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
   }
 });
@@ -705,7 +705,7 @@ router.get("/:id/categories", async (req, res) => {
 
     res.json({ success: true, categories: rows });
   } catch (err) {
-    console.error("❌ خطأ في جلب فئات المطعم:", err);
+    console.error("❌ خطأ في جلب فئات المطعم:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -764,7 +764,7 @@ ORDER BY p.id DESC
       products: rows,
     });
   } catch (err) {
-    console.error("GET RESTAURANT PRODUCTS ERROR:", err);
+    console.error("GET RESTAURANT PRODUCTS ERROR:", err?.message || err);
     res.status(500).json({ success: false, products: [] });
   }
 });

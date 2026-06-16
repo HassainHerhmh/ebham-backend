@@ -174,7 +174,7 @@ router.get("/", async (req, res) => {
       tree,
     });
   } catch (err) {
-    console.error("GET ACCOUNTS ERROR:", err);
+    console.error("GET ACCOUNTS ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -272,7 +272,7 @@ router.post("/", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("ADD ACCOUNT ERROR:", err);
+    console.error("ADD ACCOUNT ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: err.message || "فشل إضافة الحساب" });
   }
 });
@@ -375,7 +375,7 @@ router.put("/:id", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("UPDATE ACCOUNT ERROR:", err);
+    console.error("UPDATE ACCOUNT ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: err.message || "فشل تحديث الحساب" });
   }
 });
@@ -399,7 +399,7 @@ router.get("/main-for-banks", auth, async (req, res) => {
       accounts: rows,
     });
   } catch (err) {
-    console.error("MAIN FOR BANKS ERROR:", err);
+    console.error("MAIN FOR BANKS ERROR:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "خطأ في جلب الحسابات الرئيسية للبنوك",
@@ -426,7 +426,7 @@ router.get("/main-for-cashboxes", auth, async (req, res) => {
       accounts: rows,
     });
   } catch (err) {
-    console.error("MAIN FOR CASHBOXES ERROR:", err);
+    console.error("MAIN FOR CASHBOXES ERROR:", err?.message || err);
     res.status(500).json({
       success: false,
       message: "خطأ في جلب الحسابات الرئيسية للصناديق",
@@ -468,7 +468,7 @@ router.get("/sub-for-ceiling", auth, async (req, res) => {
 
     res.json({ success: true, list: rows });
   } catch (err) {
-    console.error("GET SUB ACCOUNTS FOR CEILING ERROR:", err);
+    console.error("GET SUB ACCOUNTS FOR CEILING ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -508,7 +508,7 @@ router.get("/select", async (req, res) => {
 
     res.json({ success: true, list: rows });
   } catch (err) {
-    console.error("GET SELECT ACCOUNTS ERROR:", err);
+    console.error("GET SELECT ACCOUNTS ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: "خطأ في جلب الحسابات" });
   }
 });

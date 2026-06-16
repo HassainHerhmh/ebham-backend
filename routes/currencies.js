@@ -53,7 +53,7 @@ router.get("/", async (req, res) => {
 });
 
   } catch (err) {
-    console.error("GET CURRENCIES ERROR:", err);
+    console.error("GET CURRENCIES ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: "خطأ في جلب العملات" });
   }
 });
@@ -120,7 +120,7 @@ router.post("/", async (req, res) => {
 
     res.json({ success: true, message: "تمت إضافة العملة" });
   } catch (err) {
-    console.error("ADD CURRENCY ERROR:", err);
+    console.error("ADD CURRENCY ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: "خطأ في إضافة العملة" });
   }
 });
@@ -175,7 +175,7 @@ router.put("/:id", async (req, res) => {
 
     res.json({ success: true, message: "تم التحديث" });
   } catch (err) {
-    console.error("UPDATE CURRENCY ERROR:", err);
+    console.error("UPDATE CURRENCY ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: "خطأ في التحديث" });
   }
 });
@@ -190,7 +190,7 @@ router.delete("/:id", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("DELETE CURRENCY ERROR:", err);
+    console.error("DELETE CURRENCY ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: "خطأ في الحذف" });
   }
 });

@@ -33,7 +33,7 @@ router.post("/public", async (req, res) => {
       });
     }
 
-    console.error("ADD CUSTOMER PUBLIC ERROR:", err);
+    console.error("ADD CUSTOMER PUBLIC ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: "خطأ في السيرفر" });
   }
 });
@@ -74,7 +74,7 @@ router.put("/public/:id", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("UPDATE ERROR:", err);
+    console.error("UPDATE ERROR:", err?.message || err);
     res.status(500).json({ success: false, message: "خطأ في السيرفر" });
   }
 });
@@ -184,7 +184,7 @@ router.get("/", async (req, res) => {
 
   } catch (err) {
 
-    console.error("GET CUSTOMERS ERROR:", err);
+    console.error("GET CUSTOMERS ERROR:", err?.message || err);
 
     res.status(500).json({
       success: false,
@@ -229,7 +229,7 @@ router.post("/", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("ADD CUSTOMER ERROR:", err);
+    console.error("ADD CUSTOMER ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -280,7 +280,7 @@ router.put("/:id", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error("UPDATE CUSTOMER ERROR:", err);
+    console.error("UPDATE CUSTOMER ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -293,7 +293,7 @@ router.delete("/:id", async (req, res) => {
     await db.query("DELETE FROM customers WHERE id=?", [req.params.id]);
     res.json({ success: true });
   } catch (err) {
-    console.error("DELETE CUSTOMER ERROR:", err);
+    console.error("DELETE CUSTOMER ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -321,7 +321,7 @@ router.post("/:id/toggle", async (req, res) => {
 
     res.json({ success: true, is_active: newStatus });
   } catch (err) {
-    console.error("TOGGLE CUSTOMER ERROR:", err);
+    console.error("TOGGLE CUSTOMER ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -353,7 +353,7 @@ router.post("/:id/reset-password", async (req, res) => {
       password: newPassword,
     });
   } catch (err) {
-    console.error("RESET PASSWORD ERROR:", err);
+    console.error("RESET PASSWORD ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
@@ -375,7 +375,7 @@ router.post("/logout", auth, async (req, res) => {
 
     res.json({ success: true, message: "تم تسجيل الخروج" });
   } catch (err) {
-    console.error("LOGOUT ERROR:", err);
+    console.error("LOGOUT ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });

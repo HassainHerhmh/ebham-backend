@@ -123,7 +123,7 @@ router.get("/today-stats", auth, async (req, res) => {
 
   } catch (err) {
 
-    console.error("TODAY STATS ERROR:", err);
+    console.error("TODAY STATS ERROR:", err?.message || err);
 
     res.status(500).json({
       success: false,
