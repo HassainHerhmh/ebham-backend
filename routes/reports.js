@@ -705,7 +705,7 @@ router.get("/captain-statement", auth, async (req, res) => {
     const [rows] = await db.query(`
       SELECT
         je.id,
-        DATE(je.journal_date) AS date,
+        je.journal_date AS date,
         je.reference_id AS order_id,
         ROUND(IFNULL(je.debit,0),2) AS debit,
         ROUND(IFNULL(je.credit,0),2) AS credit,

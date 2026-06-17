@@ -598,12 +598,13 @@ const httpServer = createServer(app);
 
 const io = new Server(httpServer, {
   cors: {
-    origin: [
-      "https://ebham-dashboard2.vercel.app",
-      "http://localhost:5173",
-      "http://localhost:63342",
-      "http://127.0.0.1:63342"
-    ],
+    origin: (origin, callback) => {
+      if (isAllowedOrigin(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
   },
 });
