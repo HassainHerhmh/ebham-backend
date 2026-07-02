@@ -78,6 +78,29 @@ async function getLatLngFromMapUrl(url) {
 
 const router = express.Router();
 
+let restaurantI18nSchemaReady = false;
+
+async function ensureRestaurantI18nSchema() {
+  if (restaurantI18nSchemaReady) return;
+
+  const migrations = [
+    "ALTER TABLE restaurants ADD COLUMN name_en VARCHAR(255) NULL",
+    "ALTER TABLE restaurants ADD COLUMN address_en VARCHAR(500) NULL",
+  ];
+
+  for (const sql of migrations) {
+    try {
+      await db.query(sql);
+    } catch (error) {
+      if (error?.code !== "ER_DUP_FIELDNAME") {
+        throw error;
+      }
+    }
+  }
+
+  restaurantI18nSchemaReady = true;
+}
+
 /* ======================================================
    🟢 (APP) جلب فئات مطعم معيّن للتطبيق
 ====================================================== */
@@ -181,6 +204,8 @@ ORDER BY p.id DESC
 ====================================================== */
 router.get("/app", async (req, res) => {
   try {
+    await ensureRestaurantI18nSchema();
+
     const branch = req.headers["x-branch-id"] || null;
 
     const where = (branch && branch !== "null")
