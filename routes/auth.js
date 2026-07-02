@@ -19,6 +19,11 @@ import {
   respondOtpBanned,
 } from "../services/otpBan.service.js";
 import { safeError } from "../utils/safeLog.js";
+import {
+  isPlayReviewLogin,
+  isPlayReviewPhone,
+  normalizePhone,
+} from "../utils/playReview.js";
 
 const router = express.Router();
 
@@ -222,41 +227,44 @@ router.post("/verify-otp", async (req, res) => {
       return res.json({ success: false, message: "بيانات ناقصة" });
     }
 
-    const normalizedPhone = phone.replace(/\s+/g, "").trim();
+    const normalizedPhone = normalizePhone(phone);
+    const isReviewLogin = isPlayReviewLogin(normalizedPhone, code);
 
-    const activeBan = await getOtpBanStatus(db, normalizedPhone);
-    if (activeBan) {
-      return respondOtpBanned(res, activeBan);
-    }
-
-    const codeHash = hashOtpCode(code, normalizedPhone);
-
-    const [otpRows] = await db.query(
-      `
-      SELECT id
-      FROM otp_codes
-      WHERE phone = ?
-        AND code_hash = ?
-        AND expires_at > NOW()
-      LIMIT 1
-      `,
-      [normalizedPhone, codeHash]
-    );
-
-    if (!otpRows.length) {
-      const failure = await recordOtpFailure(db, normalizedPhone);
-      if (failure.banned && failure.ban) {
-        return respondOtpBanned(res, failure.ban);
+    if (!isReviewLogin) {
+      const activeBan = await getOtpBanStatus(db, normalizedPhone);
+      if (activeBan) {
+        return respondOtpBanned(res, activeBan);
       }
-      return res.json({
-        success: false,
-        message: "رمز غير صحيح أو منتهي",
-      });
-    }
 
-    // حذف الرمز بعد الاستخدام
-    await db.query("DELETE FROM otp_codes WHERE phone = ?", [normalizedPhone]);
-    await resetOtpSecurity(db, normalizedPhone);
+      const codeHash = hashOtpCode(code, normalizedPhone);
+
+      const [otpRows] = await db.query(
+        `
+        SELECT id
+        FROM otp_codes
+        WHERE phone = ?
+          AND code_hash = ?
+          AND expires_at > NOW()
+        LIMIT 1
+        `,
+        [normalizedPhone, codeHash]
+      );
+
+      if (!otpRows.length) {
+        const failure = await recordOtpFailure(db, normalizedPhone);
+        if (failure.banned && failure.ban) {
+          return respondOtpBanned(res, failure.ban);
+        }
+        return res.json({
+          success: false,
+          message: "رمز غير صحيح أو منتهي",
+        });
+      }
+
+      // حذف الرمز بعد الاستخدام
+      await db.query("DELETE FROM otp_codes WHERE phone = ?", [normalizedPhone]);
+      await resetOtpSecurity(db, normalizedPhone);
+    }
 
     // البحث عن العميل
     const [customers] = await db.query(
@@ -352,7 +360,14 @@ router.post("/send-otp", async (req, res) => {
       return res.json({ success: false, message: "رقم الهاتف مطلوب" });
     }
 
-    const normalizedPhone = phone.replace(/\s+/g, "").trim();
+    const normalizedPhone = normalizePhone(phone);
+
+    if (isPlayReviewPhone(normalizedPhone)) {
+      return res.json({
+        success: true,
+        message: "تم إرسال رمز التحقق بنجاح",
+      });
+    }
 
     try {
       await assertOtpNotBanned(db, normalizedPhone);
