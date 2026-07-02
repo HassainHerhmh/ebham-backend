@@ -5,6 +5,23 @@ import auth from "../middlewares/auth.js";
 const router = express.Router();
 
 let branchGeoSchemaReady = false;
+let branchActiveSchemaReady = false;
+
+async function ensureBranchActiveSchema() {
+  if (branchActiveSchemaReady) return;
+
+  try {
+    await pool.query(
+      "ALTER TABLE branches ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1"
+    );
+  } catch (error) {
+    if (error?.code !== "ER_DUP_FIELDNAME") {
+      throw error;
+    }
+  }
+
+  branchActiveSchemaReady = true;
+}
 
 const normalizeBoundaryPoints = (points) => {
   if (!Array.isArray(points)) return [];
@@ -56,6 +73,7 @@ async function ensureBranchGeoSchema() {
 router.get("/public", async (req, res) => {
   try {
     await ensureBranchGeoSchema();
+    await ensureBranchActiveSchema();
 
     const [rows] = await pool.query(`
       SELECT 
@@ -64,9 +82,11 @@ router.get("/public", async (req, res) => {
         b.name AS branch_name,
         b.address,
         b.phone,
-        b.boundary_points
+        b.boundary_points,
+        b.is_active
       FROM branches b
       WHERE b.is_admin = 0
+        AND (b.is_active = 1 OR b.is_active IS NULL)
       ORDER BY b.id ASC
     `);
 
@@ -90,6 +110,7 @@ router.use(auth);
 router.get("/", async (req, res) => {
   try {
     await ensureBranchGeoSchema();
+    await ensureBranchActiveSchema();
 
     const user = req.user || {};
     const jsDay = new Date().getDay();
@@ -100,7 +121,7 @@ router.get("/", async (req, res) => {
     if (user.is_admin_branch) {
       [rows] = await pool.query(
         `
-        SELECT b.id, b.name, b.address, b.phone, b.boundary_points,
+        SELECT b.id, b.name, b.address, b.phone, b.boundary_points, b.is_active,
                w.open_time AS today_from,
                w.close_time AS today_to,
                w.is_closed AS today_closed
@@ -119,7 +140,7 @@ router.get("/", async (req, res) => {
 
       [rows] = await pool.query(
         `
-        SELECT b.id, b.name, b.address, b.phone, b.boundary_points,
+        SELECT b.id, b.name, b.address, b.phone, b.boundary_points, b.is_active,
                w.open_time AS today_from,
                w.close_time AS today_to,
                w.is_closed AS today_closed
@@ -151,8 +172,9 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     await ensureBranchGeoSchema();
+    await ensureBranchActiveSchema();
 
-    const { name, address, phone, is_admin, boundary_points } = req.body;
+    const { name, address, phone, is_admin, boundary_points, is_active } = req.body;
 
     if (!name) {
       return res
@@ -164,8 +186,8 @@ router.post("/", async (req, res) => {
 
     const [result] = await pool.query(
       `
-      INSERT INTO branches (name, address, phone, is_admin, boundary_points)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO branches (name, address, phone, is_admin, boundary_points, is_active)
+      VALUES (?, ?, ?, ?, ?, ?)
       `,
       [
         name,
@@ -173,6 +195,7 @@ router.post("/", async (req, res) => {
         phone || null,
         is_admin ? 1 : 0,
         normalizedPoints.length ? JSON.stringify(normalizedPoints) : null,
+        is_active === 0 || is_active === false ? 0 : 1,
       ]
     );
 
@@ -193,6 +216,7 @@ router.post("/", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     await ensureBranchGeoSchema();
+    await ensureBranchActiveSchema();
 
     const branchId = Number(req.params.id);
     const user = req.user || {};
@@ -209,7 +233,7 @@ router.put("/:id", async (req, res) => {
         .json({ success: false, message: "غير مصرح لك بتعديل هذا الفرع" });
     }
 
-    const { name, address, phone, boundary_points } = req.body;
+    const { name, address, phone, boundary_points, is_active } = req.body;
 
     if (!name) {
       return res
@@ -218,11 +242,18 @@ router.put("/:id", async (req, res) => {
     }
 
     const normalizedPoints = normalizeBoundaryPoints(boundary_points);
+    const nextIsActive =
+      is_active === undefined || is_active === null
+        ? undefined
+        : is_active === 0 || is_active === false
+          ? 0
+          : 1;
 
     const [result] = await pool.query(
       `
       UPDATE branches
-      SET name = ?, address = ?, phone = ?, boundary_points = ?
+      SET name = ?, address = ?, phone = ?, boundary_points = ?,
+          is_active = COALESCE(?, is_active)
       WHERE id = ?
       `,
       [
@@ -230,6 +261,7 @@ router.put("/:id", async (req, res) => {
         address || null,
         phone || null,
         normalizedPoints.length ? JSON.stringify(normalizedPoints) : null,
+        nextIsActive,
         branchId,
       ]
     );
@@ -243,6 +275,51 @@ router.put("/:id", async (req, res) => {
     res.json({ success: true, message: "تم تحديث الفرع" });
   } catch (err) {
     console.error("UPDATE BRANCH ERROR:", err?.message || err);
+    res.status(500).json({ success: false });
+  }
+});
+
+/* =========================
+   PATCH /branches/:id/active
+========================= */
+router.patch("/:id/active", async (req, res) => {
+  try {
+    await ensureBranchActiveSchema();
+
+    const branchId = Number(req.params.id);
+    const user = req.user || {};
+    const { is_active } = req.body;
+
+    if (!Number.isFinite(branchId)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "معرف الفرع غير صالح" });
+    }
+
+    if (!user.is_admin_branch) {
+      return res.status(403).json({ success: false, message: "غير مصرح" });
+    }
+
+    const nextIsActive = is_active === 0 || is_active === false ? 0 : 1;
+
+    const [result] = await pool.query(
+      `UPDATE branches SET is_active = ? WHERE id = ?`,
+      [nextIsActive, branchId]
+    );
+
+    if (!result.affectedRows) {
+      return res
+        .status(404)
+        .json({ success: false, message: "الفرع غير موجود" });
+    }
+
+    res.json({
+      success: true,
+      message: nextIsActive ? "تم تفعيل الفرع" : "تم تعطيل الفرع",
+      is_active: nextIsActive,
+    });
+  } catch (err) {
+    console.error("TOGGLE BRANCH ACTIVE ERROR:", err?.message || err);
     res.status(500).json({ success: false });
   }
 });
