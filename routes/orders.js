@@ -97,27 +97,22 @@ router.post("/calc-fees", auth, async (req, res) => {
     const { address_id, restaurants } = req.body;
     const user = req.user || {};
 
-    if (!address_id || !restaurants || !restaurants.length) {
+    if (!address_id) {
       return res.status(400).json({
         success: false,
         message: "بيانات الحساب ناقصة"
       });
     }
 
-    const storeIds = [
-      ...new Set(
-        restaurants
-          .map(r => Number(r.restaurant_id || r.id))
-          .filter(Boolean)
-      )
-    ];
-
-    if (!storeIds.length) {
-      return res.status(400).json({
-        success: false,
-        message: "لا توجد مطاعم صالحة"
-      });
-    }
+    const storeIds = restaurants?.length
+      ? [
+          ...new Set(
+            restaurants
+              .map(r => Number(r.restaurant_id || r.id))
+              .filter(Boolean)
+          ),
+        ]
+      : [];
 
     let branchId = user.branch_id || null;
 
@@ -201,7 +196,7 @@ router.post("/calc-fees", auth, async (req, res) => {
     }
 
     /* ===== حسب المسافة ===== */
-    else if (settings.method === "distance") {
+    else if (settings.method === "distance" && storeIds.length) {
       if (
         address.latitude == null ||
         address.longitude == null
@@ -262,6 +257,14 @@ router.post("/calc-fees", auth, async (req, res) => {
       success: true,
       delivery_fee: Number(deliveryFee.toFixed(2)),
       extra_store_fee: Number(extraStoreFee.toFixed(2)),
+      per_store_extra_fee:
+        settings.method === "neighborhood" && storeIds.length > 1
+          ? Number(
+              (
+                Number(extraStoreFee || 0) / Math.max(storeIds.length - 1, 1)
+              ).toFixed(2)
+            )
+          : Number(settings.extra_store_fee || 0),
       stores_count: storeIds.length,
       additional_stores_count: Math.max(storeIds.length - 1, 0),
       pricing_method: settings.method,
@@ -756,7 +759,9 @@ bank_id,
 note,
 gps_link,
 scheduled_at,
-coupon_code
+coupon_code,
+delivery_fee: bodyDeliveryFee,
+extra_store_fee: bodyExtraStoreFee,
 } = req.body;
 
 
@@ -936,6 +941,14 @@ if (branchId) {
 
 deliveryFee = Number(deliveryFee.toFixed(2));
 extraStoreFee = Number(extraStoreFee.toFixed(2));
+
+if (bodyDeliveryFee !== undefined && bodyDeliveryFee !== null && bodyDeliveryFee !== "") {
+  deliveryFee = Number(Number(bodyDeliveryFee).toFixed(2));
+}
+
+if (bodyExtraStoreFee !== undefined && bodyExtraStoreFee !== null && bodyExtraStoreFee !== "") {
+  extraStoreFee = Number(Number(bodyExtraStoreFee).toFixed(2));
+}
 
 // ✅ تحويل وقت الجدولة لصيغة MySQL
 let scheduledAtSQL = null;
@@ -1367,6 +1380,11 @@ const [rows] = await db.query(`
 SELECT 
   o.id,
   COALESCE(o.order_number, o.id) AS order_number,
+  o.customer_id,
+  o.address_id,
+  o.scheduled_at,
+  o.gps_link,
+  o.stores_count,
   o.status,
   o.created_at,
   o.processing_at,
@@ -1425,6 +1443,7 @@ if(rows.length){
   const [items] = await db.query(`
     SELECT 
       oi.id,
+      oi.product_id,
       oi.name,
       oi.price,
       oi.quantity,
@@ -1458,6 +1477,8 @@ if(rows.length){
     map[it.restaurant_id].total += subtotal;
 
     map[it.restaurant_id].items.push({
+      id: it.product_id,
+      product_id: it.product_id,
       name: it.name,
       price: it.price,
       quantity: it.quantity,
@@ -1544,8 +1565,235 @@ res.json({
 }
 
 });
+
 /* =====================================================
-   PUT /orders/:id/status
+   PUT /orders/:id/update
+   تعديل الطلب من لوحة التحكم (الرسوم / العنوان / المنتجات)
+===================================================== */
+router.put("/:id/update", auth, async (req, res) => {
+  try {
+    const orderId = Number(req.params.id);
+    const {
+      customer_id,
+      address_id,
+      restaurants,
+      payment_method,
+      bank_id,
+      note,
+      gps_link,
+      scheduled_at,
+      delivery_fee: bodyDeliveryFee,
+      extra_store_fee: bodyExtraStoreFee,
+    } = req.body;
+
+    const user = req.user || {};
+
+    const [[existing]] = await db.query(
+      `SELECT id, status, branch_id, discount_amount FROM orders WHERE id = ? LIMIT 1`,
+      [orderId]
+    );
+
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "الطلب غير موجود" });
+    }
+
+    if (!["pending", "scheduled"].includes(existing.status)) {
+      return res.status(400).json({
+        success: false,
+        message: "لا يمكن تعديل الطلب في هذه الحالة",
+      });
+    }
+
+    if (!restaurants || !restaurants.length) {
+      return res.status(400).json({ success: false, message: "السلة فارغة" });
+    }
+
+    const products = [];
+    restaurants.forEach((rest) => {
+      const itemsList = rest.products || rest.items || [];
+      itemsList.forEach((p) => {
+        const pId = p.product_id || p.id;
+        if (pId) {
+          products.push({
+            restaurant_id: rest.restaurant_id || rest.id,
+            product_id: pId,
+            quantity: Number(p.quantity) || 1,
+          });
+        }
+      });
+    });
+
+    if (!products.length) {
+      return res.status(400).json({ success: false, message: "لم يتم العثور على منتجات صالحة" });
+    }
+
+    const storeIds = [...new Set(products.map((p) => p.restaurant_id))];
+    const storesCount = storeIds.length;
+    const mainRestaurantId = storeIds[0];
+
+    let branchId = existing.branch_id || user.branch_id || null;
+
+    if (!branchId && address_id) {
+      const [[addrBranch]] = await db.query(
+        "SELECT branch_id FROM customer_addresses WHERE id=?",
+        [address_id]
+      );
+      if (addrBranch) branchId = addrBranch.branch_id;
+    }
+
+    let deliveryFee = Number(bodyDeliveryFee ?? 0);
+    let extraStoreFee = Number(bodyExtraStoreFee ?? 0);
+
+    if (
+      (bodyDeliveryFee === undefined || bodyDeliveryFee === null || bodyDeliveryFee === "") &&
+      branchId &&
+      address_id
+    ) {
+      const [[settings]] = await db.query(
+        `SELECT method, km_price_single, km_price_multi, extra_store_fee
+         FROM branch_delivery_settings WHERE branch_id = ? LIMIT 1`,
+        [branchId]
+      );
+
+      const [[address]] = await db.query(
+        `SELECT district, latitude, longitude FROM customer_addresses WHERE id = ? LIMIT 1`,
+        [address_id]
+      );
+
+      if (settings && address && settings.method === "neighborhood" && address.district) {
+        const [[n]] = await db.query(
+          `SELECT delivery_fee, extra_store_fee FROM neighborhoods WHERE id = ? LIMIT 1`,
+          [address.district]
+        );
+        if (n) {
+          deliveryFee = Number(n.delivery_fee || 0);
+          if (storesCount > 1) {
+            extraStoreFee = (storesCount - 1) * Number(n.extra_store_fee || 0);
+          }
+        }
+      }
+    }
+
+    deliveryFee = Number(Number(deliveryFee).toFixed(2));
+    extraStoreFee = Number(Number(extraStoreFee).toFixed(2));
+
+    let scheduledAtSQL = null;
+    if (scheduled_at) {
+      const d = new Date(scheduled_at);
+      const pad = (n) => n.toString().padStart(2, "0");
+      scheduledAtSQL =
+        d.getFullYear() +
+        "-" +
+        pad(d.getMonth() + 1) +
+        "-" +
+        pad(d.getDate()) +
+        " " +
+        pad(d.getHours()) +
+        ":" +
+        pad(d.getMinutes()) +
+        ":00";
+    }
+
+    const productIds = products.map((p) => p.product_id);
+    const [dbProducts] = await db.query(
+      `
+      SELECT
+        p.id,
+        p.name,
+        p.price,
+        ROUND(
+          p.price - (p.price * COALESCE(MAX(ads.discount_percent), 0) / 100)
+        ) AS final_price
+      FROM products p
+      LEFT JOIN ads
+        ON ads.restaurant_id = p.restaurant_id
+       AND ads.type='discount'
+       AND ads.status='active'
+       AND (ads.start_date IS NULL OR ads.start_date <= NOW())
+       AND (ads.end_date IS NULL OR ads.end_date >= NOW())
+      WHERE p.id IN (?)
+      GROUP BY p.id
+      `,
+      [productIds]
+    );
+
+    const productMap = {};
+    dbProducts.forEach((p) => {
+      productMap[p.id] = p;
+    });
+
+    let itemsTotal = 0;
+
+    await db.query(`DELETE FROM order_items WHERE order_id = ?`, [orderId]);
+
+    for (const p of products) {
+      const prod = productMap[p.product_id];
+      if (!prod) continue;
+
+      const price = Number(prod.final_price || prod.price);
+      itemsTotal += price * Number(p.quantity);
+
+      await db.query(
+        `INSERT INTO order_items
+         (order_id, product_id, restaurant_id, name, price, quantity)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [orderId, p.product_id, p.restaurant_id, prod.name, price, p.quantity]
+      );
+    }
+
+    const totalAmount = Number(
+      (itemsTotal + deliveryFee + extraStoreFee - Number(existing.discount_amount || 0)).toFixed(2)
+    );
+
+    await db.query(
+      `
+      UPDATE orders SET
+        customer_id = ?,
+        address_id = ?,
+        restaurant_id = ?,
+        note = ?,
+        gps_link = ?,
+        stores_count = ?,
+        branch_id = ?,
+        updated_by = ?,
+        delivery_fee = ?,
+        extra_store_fee = ?,
+        total_amount = ?,
+        payment_method = ?,
+        bank_id = ?,
+        scheduled_at = ?,
+        status = ?
+      WHERE id = ?
+      `,
+      [
+        customer_id,
+        address_id,
+        mainRestaurantId,
+        note || null,
+        gps_link || null,
+        storesCount,
+        branchId,
+        user.id || null,
+        deliveryFee,
+        extraStoreFee,
+        totalAmount,
+        payment_method || null,
+        bank_id || null,
+        scheduledAtSQL,
+        scheduled_at ? "scheduled" : existing.status === "scheduled" && !scheduled_at ? "pending" : existing.status,
+        orderId,
+      ]
+    );
+
+    res.json({ success: true, message: "تم تحديث الطلب" });
+  } catch (err) {
+    console.error("UPDATE ORDER ERROR:", err?.message || err);
+    res.status(500).json({ success: false, message: "فشل تحديث الطلب" });
+  }
+});
+
+/* =====================================================
+   PUT /orders/:id/status
    تحديث حالة الطلب وتوليد القيود المحاسبية + إشعارات FCM و Socket.io
 ===================================================== */
 router.put("/:id/status", async (req, res) => {
