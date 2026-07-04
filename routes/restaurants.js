@@ -262,6 +262,10 @@ router.get("/app", async (req, res) => {
 ) AS today_end_time,
 
         CASE 
+          WHEN NOT EXISTS (
+            SELECT 1 FROM restaurant_schedule s WHERE s.restaurant_id = r.id
+          )
+          THEN 1
           WHEN EXISTS (
             SELECT 1
             FROM restaurant_schedule s
@@ -277,21 +281,19 @@ router.get("/app", async (req, res) => {
                   WHEN 6 THEN 'الجمعة'
                   WHEN 7 THEN 'السبت'
                 END
+              AND s.start_time IS NOT NULL
+              AND s.end_time IS NOT NULL
               AND (
-                (s.start_time IS NOT NULL AND s.end_time IS NOT NULL AND s.start_time = s.end_time)
+                (s.start_time = s.end_time)
 
                 OR (
-                  s.start_time IS NOT NULL
-                  AND s.end_time IS NOT NULL
-                  AND s.start_time < s.end_time
+                  s.start_time < s.end_time
                   AND TIME(UTC_TIMESTAMP() + INTERVAL 3 HOUR)
                     BETWEEN s.start_time AND s.end_time
                 )
 
                 OR (
-                  s.start_time IS NOT NULL
-                  AND s.end_time IS NOT NULL
-                  AND s.start_time > s.end_time
+                  s.start_time > s.end_time
                   AND (
                     TIME(UTC_TIMESTAMP() + INTERVAL 3 HOUR) >= s.start_time
                     OR TIME(UTC_TIMESTAMP() + INTERVAL 3 HOUR) <= s.end_time
