@@ -336,6 +336,9 @@ router.get("/agent-summary", async (req, res) => {
       }
     }
 
+    // لا يظهر للوكيل إلا بعد اعتماد الطلب من لوحة التحكم
+    where.push("o.status NOT IN ('pending', 'scheduled')");
+
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
    const [rows] = await db.query(
