@@ -122,11 +122,15 @@ router.post("/", upload.single("image"), async (req, res) => {
     const authUser = req.user;
     let { name, email, username, phone, password, role, permissions, branch_id, agent_id } = req.body;
     const normalizedName = normalizeLoginValue(name);
-    const loginValue = normalizeLoginValue(username) || normalizeLoginValue(email);
     const normalizedPhone = normalizeLoginValue(phone);
     const normalizedRole = normalizeRole(role);
+    const loginValue =
+      normalizeLoginValue(username) ||
+      normalizeLoginValue(email) ||
+      normalizedPhone;
+    const phoneValue = normalizedPhone || loginValue;
 
-    if (!normalizedName || !loginValue || !normalizedPhone || !password) {
+    if (!normalizedName || !loginValue || !password) {
       return res.status(400).json({ success: false, message: "أكمل جميع الحقول المطلوبة" });
     }
 
@@ -159,7 +163,7 @@ router.post("/", upload.single("image"), async (req, res) => {
 
     const [[existingPhoneUser]] = await pool.query(
       `SELECT id FROM users WHERE phone = ? LIMIT 1`,
-      [normalizedPhone]
+      [phoneValue]
     );
 
     if (existingPhoneUser) {
@@ -189,7 +193,7 @@ router.post("/", upload.single("image"), async (req, res) => {
       [
         normalizedName,
         loginValue,
-        normalizedPhone,
+        phoneValue,
         hashed,
         normalizedRole,
         permissions || "{}",
