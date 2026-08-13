@@ -136,7 +136,7 @@ router.post("/", upload.single("image"), async (req, res) => {
 
     // لو المستخدم ليس من الإدارة العامة
     // نربطه تلقائيًا بفرعه ولا نسمح بتغيير الفرع
-    if (!(authUser.role === "admin" && authUser.is_admin_branch === true)) {
+    if (!(authUser.is_admin_branch === true || authUser.is_admin_branch === 1 || authUser.is_admin)) {
       branch_id = authUser.branch_id;
     }
 
@@ -432,7 +432,13 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     const fields = ["name = ?", "email = ?", "phone = ?", "role = ?", "agent_id = ?"];
     const values = [name, loginValue, normalizedPhone, normalizeRole(role), agent_id || null];
 
-    if (branch_id) {
+    // تغيير الفرع / الإدارة العامة متاح فقط لمستخدمي الإدارة العامة
+    if (
+      branch_id &&
+      (authUser.is_admin_branch === true ||
+        authUser.is_admin_branch === 1 ||
+        authUser.is_admin)
+    ) {
       fields.push("branch_id = ?");
       values.push(branch_id);
     }

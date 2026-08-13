@@ -122,6 +122,7 @@ router.get("/", async (req, res) => {
       [rows] = await pool.query(
         `
         SELECT b.id, b.name, b.address, b.phone, b.boundary_points, b.is_active,
+               COALESCE(b.is_admin, 0) AS is_admin,
                w.open_time AS today_from,
                w.close_time AS today_to,
                w.is_closed AS today_closed
@@ -129,7 +130,7 @@ router.get("/", async (req, res) => {
         LEFT JOIN branch_work_times w
           ON w.branch_id = b.id
          AND w.day_of_week = ?
-        ORDER BY b.id ASC
+        ORDER BY COALESCE(b.is_admin, 0) DESC, b.id ASC
         `,
         [today]
       );
@@ -141,6 +142,7 @@ router.get("/", async (req, res) => {
       [rows] = await pool.query(
         `
         SELECT b.id, b.name, b.address, b.phone, b.boundary_points, b.is_active,
+               COALESCE(b.is_admin, 0) AS is_admin,
                w.open_time AS today_from,
                w.close_time AS today_to,
                w.is_closed AS today_closed
@@ -174,12 +176,27 @@ router.post("/", async (req, res) => {
     await ensureBranchGeoSchema();
     await ensureBranchActiveSchema();
 
-    const { name, address, phone, is_admin, boundary_points, is_active } = req.body;
+    const { name, address, phone, boundary_points, is_active } = req.body;
+    const trimmedName = String(name || "").trim();
 
-    if (!name) {
+    if (!trimmedName) {
       return res
         .status(400)
         .json({ success: false, message: "اسم الفرع مطلوب" });
+    }
+
+    // الفروع التشغيلية فقط — الإدارة العامة فرع HQ واحد يُنشأ من الـ schema
+    const [[dup]] = await pool.query(
+      `SELECT id FROM branches
+       WHERE is_admin = 0 AND name = ? AND (is_active = 1 OR is_active IS NULL)
+       LIMIT 1`,
+      [trimmedName]
+    );
+    if (dup) {
+      return res.status(409).json({
+        success: false,
+        message: "يوجد فرع بنفس الاسم مسبقاً",
+      });
     }
 
     const normalizedPoints = normalizeBoundaryPoints(boundary_points);
@@ -187,13 +204,12 @@ router.post("/", async (req, res) => {
     const [result] = await pool.query(
       `
       INSERT INTO branches (name, address, phone, is_admin, boundary_points, is_active)
-      VALUES (?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, 0, ?, ?)
       `,
       [
-        name,
+        trimmedName,
         address || null,
         phone || null,
-        is_admin ? 1 : 0,
         normalizedPoints.length ? JSON.stringify(normalizedPoints) : null,
         is_active === 0 || is_active === false ? 0 : 1,
       ]
@@ -300,6 +316,22 @@ router.patch("/:id/active", async (req, res) => {
       return res.status(403).json({ success: false, message: "غير مصرح" });
     }
 
+    const [[branch]] = await pool.query(
+      `SELECT id, COALESCE(is_admin, 0) AS is_admin FROM branches WHERE id = ? LIMIT 1`,
+      [branchId]
+    );
+
+    if (!branch) {
+      return res.status(404).json({ success: false, message: "الفرع غير موجود" });
+    }
+
+    if (Number(branch.is_admin) === 1) {
+      return res.status(400).json({
+        success: false,
+        message: "لا يمكن تعطيل الإدارة العامة",
+      });
+    }
+
     const nextIsActive = is_active === 0 || is_active === false ? 0 : 1;
 
     const [result] = await pool.query(
@@ -330,6 +362,22 @@ router.patch("/:id/active", async (req, res) => {
 router.delete("/:id", async (req, res) => {
   try {
     const branchId = req.params.id;
+
+    const [[branch]] = await pool.query(
+      `SELECT id, COALESCE(is_admin, 0) AS is_admin FROM branches WHERE id = ? LIMIT 1`,
+      [branchId]
+    );
+
+    if (!branch) {
+      return res.status(404).json({ success: false, message: "الفرع غير موجود" });
+    }
+
+    if (Number(branch.is_admin) === 1) {
+      return res.status(400).json({
+        success: false,
+        message: "لا يمكن حذف الإدارة العامة",
+      });
+    }
 
     const [times] = await pool.query(
       `SELECT COUNT(*) AS c FROM branch_work_times WHERE branch_id=?`,

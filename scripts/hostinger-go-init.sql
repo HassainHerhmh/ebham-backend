@@ -167,7 +167,12 @@ CREATE TABLE IF NOT EXISTS `ads` (
   `image_url` VARCHAR(500) NULL,
   `type` VARCHAR(50) NULL,
   `restaurant_id` INT NULL,
+  `category_id` INT NULL,
   `discount_percent` DECIMAL(5,2) NULL,
+  `status` VARCHAR(20) NOT NULL DEFAULT 'active',
+  `start_date` DATETIME NULL,
+  `end_date` DATETIME NULL,
+  `clicks` INT NOT NULL DEFAULT 0,
   `created_at` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -706,8 +711,13 @@ CREATE TABLE IF NOT EXISTS `campaigns` (
 -- =========================
 
 INSERT INTO `branches` (`id`, `name`, `address`, `phone`, `is_admin`, `is_active`)
-VALUES (1, 'عتق', '', '', 1, 1)
-ON DUPLICATE KEY UPDATE `is_admin` = 1, `is_active` = 1;
+VALUES
+  (1, 'الإدارة العامة', '', '', 1, 1),
+  (2, 'عتق', '', '', 0, 1)
+ON DUPLICATE KEY UPDATE
+  `name` = VALUES(`name`),
+  `is_admin` = VALUES(`is_admin`),
+  `is_active` = 1;
 
 INSERT INTO `users` (`id`, `name`, `email`, `phone`, `password`, `role`, `permissions`, `status`, `branch_id`, `is_admin`)
 VALUES (

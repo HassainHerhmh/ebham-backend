@@ -6,6 +6,27 @@ const TABLES = [
     \`name\` VARCHAR(255) NOT NULL,
     PRIMARY KEY (\`id\`)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS \`ads\` (
+    \`id\` INT NOT NULL AUTO_INCREMENT,
+    \`name\` VARCHAR(255) NULL,
+    \`description\` TEXT NULL,
+    \`image_url\` VARCHAR(500) NULL,
+    \`type\` VARCHAR(50) NULL,
+    \`restaurant_id\` INT NULL,
+    \`category_id\` INT NULL,
+    \`discount_percent\` DECIMAL(5,2) NULL,
+    \`status\` VARCHAR(20) NOT NULL DEFAULT 'active',
+    \`start_date\` DATETIME NULL,
+    \`end_date\` DATETIME NULL,
+    \`clicks\` INT NOT NULL DEFAULT 0,
+    \`created_at\` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (\`id\`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS \`ad_products\` (
+    \`ad_id\` INT NOT NULL,
+    \`product_id\` INT NOT NULL,
+    PRIMARY KEY (\`ad_id\`,\`product_id\`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 ];
 
 const COLUMNS = [
@@ -78,6 +99,11 @@ const COLUMNS = [
   ["wassel_orders", "notes", "TEXT NULL"],
   ["wassel_orders", "from_address", "VARCHAR(500) NULL"],
   ["wassel_orders", "to_address", "VARCHAR(500) NULL"],
+  ["ads", "status", "VARCHAR(20) NOT NULL DEFAULT 'active'"],
+  ["ads", "start_date", "DATETIME NULL"],
+  ["ads", "end_date", "DATETIME NULL"],
+  ["ads", "category_id", "INT NULL"],
+  ["ads", "clicks", "INT NOT NULL DEFAULT 0"],
   ["wassel_orders", "from_lat", "DECIMAL(10,7) NULL"],
   ["wassel_orders", "from_lng", "DECIMAL(10,7) NULL"],
   ["wassel_orders", "to_lat", "DECIMAL(10,7) NULL"],
@@ -200,6 +226,34 @@ export async function ensureSchema() {
   }
 
   try {
+    // الإدارة العامة = فرع واحد بـ is_admin=1 فوق بقية الفروع
+    const [adminBranches] = await db.query(
+      "SELECT id, name FROM branches WHERE is_admin = 1 ORDER BY id ASC"
+    );
+
+    if (!adminBranches?.length) {
+      await db.query(
+        `INSERT INTO branches (name, address, phone, is_admin, is_active)
+         VALUES ('الإدارة العامة', '', '', 1, 1)`
+      );
+      console.log("✅ Seeded الإدارة العامة (HQ branch)");
+    } else {
+      const [hq, ...extras] = adminBranches;
+      if (String(hq.name || "").trim() !== "الإدارة العامة") {
+        await db.query(`UPDATE branches SET name = 'الإدارة العامة' WHERE id = ?`, [
+          hq.id,
+        ]);
+        console.log("✅ Renamed HQ branch to الإدارة العامة");
+      }
+      // لا نسمح بأكثر من إدارة عامة واحدة
+      for (const extra of extras) {
+        await db.query(
+          `UPDATE branches SET is_admin = 0, is_active = 0 WHERE id = ?`,
+          [extra.id]
+        );
+      }
+    }
+
     const [[publicBranch]] = await db.query(
       "SELECT id FROM branches WHERE is_admin = 0 AND (is_active = 1 OR is_active IS NULL) LIMIT 1"
     );
@@ -210,8 +264,25 @@ export async function ensureSchema() {
       );
       console.log("✅ Seeded public branch عتق for customer app");
     }
+
+    // دمج تكرار أسماء الفروع العامة (مثل عتق مرتين) — الإبقاء على الأقدم
+    const [dupGroups] = await db.query(
+      `SELECT name, MIN(id) AS keep_id, COUNT(*) AS c
+       FROM branches
+       WHERE is_admin = 0 AND name IS NOT NULL AND TRIM(name) <> ''
+       GROUP BY name
+       HAVING c > 1`
+    );
+    for (const group of dupGroups || []) {
+      await db.query(
+        `UPDATE branches SET is_active = 0
+         WHERE is_admin = 0 AND name = ? AND id <> ?`,
+        [group.name, group.keep_id]
+      );
+      console.log(`✅ Deactivated duplicate public branches named ${group.name}`);
+    }
   } catch (err) {
-    console.error("❌ Schema public branch seed:", err?.message || err);
+    console.error("❌ Schema branch hierarchy seed:", err?.message || err);
   }
 
   console.log(`✅ Schema check complete (${added} columns added)`);

@@ -643,16 +643,42 @@ router.get("/", async (req, res) => {
 
     let rows = [];
 
-    // الحالة 1: أدمن الفرع الرئيسي (يرى كل شيء)
+    // الحالة 1: الإدارة العامة — فلترة حسب الفرع المختار في الهيدر إن وُجد
     if (user.is_admin_branch) {
-       [rows] = await db.query(`
+      const selectedBranch =
+        req.headers["x-branch-id"] != null
+          ? String(req.headers["x-branch-id"])
+          : branchId != null
+            ? String(branchId)
+            : "";
+
+      if (
+        selectedBranch &&
+        selectedBranch !== "all" &&
+        Number.isFinite(Number(selectedBranch))
+      ) {
+        [rows] = await db.query(
+          `
+         ${baseQuery}
+         WHERE o.branch_id = ? ${dateWhere}
+         GROUP BY o.id
+         ORDER BY o.id DESC
+         LIMIT ?
+       `,
+          [Number(selectedBranch), limit]
+        );
+      } else {
+        [rows] = await db.query(
+          `
          ${baseQuery}
          WHERE 1=1 ${dateWhere}
          GROUP BY o.id
          ORDER BY o.id DESC
          LIMIT ?
-       `, [limit]);
-
+       `,
+          [limit]
+        );
+      }
     } 
     // الحالة 2: الكابتن (Role Check) - يرى طلباته + الطلبات الجاهزة في الفرع
     // ✅ إصلاح 2: إضافة شرط خاص للكابتن

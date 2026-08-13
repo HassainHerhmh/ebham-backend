@@ -440,6 +440,9 @@ router.get("/captain-stats", auth, async (req, res) => {
       dateFilter =
       "YEAR(o.created_at)=YEAR(CURDATE()) AND MONTH(o.created_at)=MONTH(CURDATE())";
     }
+    else if(period === "all"){
+      dateFilter = "1=1";
+    }
     else{
       dateFilter = "1=1";
     }
