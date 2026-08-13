@@ -520,6 +520,10 @@ import adsRoutes from "./routes/ads.js";
 
 app.use("/api/ads", adsRoutes);
 
+import uploadRoutes from "./routes/upload.js";
+app.use("/api/upload", uploadRoutes);
+app.use("/upload", uploadRoutes);
+
 import couponsRouter from "./routes/coupons.js"
 
 app.use("/api/coupons", couponsRouter)
