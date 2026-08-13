@@ -14,7 +14,7 @@ async function ensureCashBoxAccountColumn() {
 
   try {
     await db.query(
-      "ALTER TABLE cash_boxes ADD COLUMN account_id INT NULL AFTER parent_account_id"
+      "ALTER TABLE cash_boxes ADD COLUMN account_id INT NULL"
     );
   } catch (err) {
     if (err?.code !== "ER_DUP_FIELDNAME") {

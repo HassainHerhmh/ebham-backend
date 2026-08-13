@@ -75,10 +75,10 @@ MAX(n.name) AS neighborhood_name,
   /* الأصناف */
   JSON_ARRAYAGG(
     JSON_OBJECT(
-      'name', i.product_name,
+      'name', COALESCE(i.product_name, i.name),
       'qty', i.qty,
       'price', i.price,
-      'total', i.total
+      'total', COALESCE(i.total, i.price * i.qty)
     )
   ) AS items
 
@@ -1061,10 +1061,10 @@ router.get("/:id", async (req, res) => {
         cap.name AS captain_name,
         JSON_ARRAYAGG(
           JSON_OBJECT(
-            'name', i.product_name,
+            'name', COALESCE(i.product_name, i.name),
             'qty', i.qty,
             'price', i.price,
-            'total', i.total
+            'total', COALESCE(i.total, i.price * i.qty)
           )
         ) AS items
       FROM wassel_orders w
