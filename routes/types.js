@@ -1,6 +1,7 @@
 import express from "express";
 import db from "../db.js";
 import upload, { uploadToCloudinary } from "../middlewares/upload.js";
+import { emitCatalogUpdate } from "../utils/catalogEvents.js";
 
 const router = express.Router();
 
@@ -106,6 +107,7 @@ router.post(
         image_outline_url,
         image_color_url,
       });
+      emitCatalogUpdate(req.app, { entity: "types", action: "create" });
     } catch (err) {
       console.error("❌ خطأ في إضافة النوع:", err?.message || err);
       res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
@@ -209,6 +211,7 @@ router.put(
         success: true,
         message: "✅ تم تعديل النوع",
       });
+      emitCatalogUpdate(req.app, { entity: "types", action: "update" });
     } catch (err) {
       console.error("❌ خطأ في تعديل النوع:", err?.message || err);
       res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
@@ -236,6 +239,7 @@ router.delete("/:id", async (req, res) => {
     await db.query("DELETE FROM types WHERE id=?", [req.params.id]);
 
     res.json({ success: true, message: "🗑️ تم حذف النوع" });
+    emitCatalogUpdate(req.app, { entity: "types", action: "delete" });
   } catch (err) {
     console.error("❌ خطأ في حذف النوع:", err?.message || err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });

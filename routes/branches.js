@@ -1,6 +1,7 @@
 import express from "express";
 import pool from "../db.js";
 import auth from "../middlewares/auth.js";
+import { emitCatalogUpdate } from "../utils/catalogEvents.js";
 
 const router = express.Router();
 
@@ -220,6 +221,7 @@ router.post("/", async (req, res) => {
       message: "تم إضافة الفرع",
       id: result.insertId,
     });
+    emitCatalogUpdate(req.app, { entity: "branches", action: "create" });
   } catch (err) {
     console.error("ADD BRANCH ERROR:", err?.message || err);
     res.status(500).json({ success: false });
@@ -289,6 +291,7 @@ router.put("/:id", async (req, res) => {
     }
 
     res.json({ success: true, message: "تم تحديث الفرع" });
+    emitCatalogUpdate(req.app, { entity: "branches", action: "update" });
   } catch (err) {
     console.error("UPDATE BRANCH ERROR:", err?.message || err);
     res.status(500).json({ success: false });
@@ -350,6 +353,7 @@ router.patch("/:id/active", async (req, res) => {
       message: nextIsActive ? "تم تفعيل الفرع" : "تم تعطيل الفرع",
       is_active: nextIsActive,
     });
+    emitCatalogUpdate(req.app, { entity: "branches", action: "active" });
   } catch (err) {
     console.error("TOGGLE BRANCH ACTIVE ERROR:", err?.message || err);
     res.status(500).json({ success: false });
@@ -394,6 +398,7 @@ router.delete("/:id", async (req, res) => {
     await pool.query(`DELETE FROM branches WHERE id=?`, [branchId]);
 
     res.json({ success: true, message: "تم الحذف" });
+    emitCatalogUpdate(req.app, { entity: "branches", action: "delete" });
   } catch (err) {
     console.error("DELETE BRANCH ERROR:", err?.message || err);
     res.status(500).json({ success: false });

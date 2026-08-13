@@ -1,6 +1,7 @@
 import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
+import { emitCatalogUpdate } from "../utils/catalogEvents.js";
 
 import { body, validationResult } from "express-validator";
 import rateLimit from "express-rate-limit";
@@ -186,6 +187,7 @@ req.app.get("io")?.emit("notification", {
   image_url: image_url || null,
   restaurant_id: restaurant_id || null,
 });
+emitCatalogUpdate(req.app, { entity: "ads", action: "create" });
 
 if(product_ids?.length){
   for(const p of product_ids){
@@ -268,6 +270,7 @@ router.put("/:id", limiter, auth, validateAd, async (req, res) => {
     }
 
     res.json({ success:true });
+    emitCatalogUpdate(req.app, { entity: "ads", action: "update" });
 
   } catch (err) {
     res.status(500).json({ error:"فشل تعديل الإعلان" });
@@ -289,6 +292,7 @@ router.delete("/:id", auth, async (req, res) => {
     await db.query("DELETE FROM ads WHERE id=?", [id]);
 
     res.json({ success:true });
+    emitCatalogUpdate(req.app, { entity: "ads", action: "delete" });
 
   } catch {
     res.status(500).json({ error:"فشل حذف الإعلان" });
@@ -323,6 +327,7 @@ router.patch("/:id/status", auth, async (req,res)=>{
     );
 
     res.json({success:true});
+    emitCatalogUpdate(req.app, { entity: "ads", action: "status" });
 
   }catch{
     res.status(500).json({error:"update failed"});

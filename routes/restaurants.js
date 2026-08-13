@@ -2,6 +2,7 @@ import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
 import upload, { uploadToCloudinary } from "../middlewares/upload.js";
+import { emitCatalogUpdate } from "../utils/catalogEvents.js";
 
 function extractLatLng(url) {
   if (!url) return null;
@@ -543,6 +544,7 @@ const [result] = await db.query(
     }
 
     res.json({ success: true, message: "✅ تم إضافة المطعم" });
+    emitCatalogUpdate(req.app, { entity: "restaurants", action: "create" });
   } catch (err) {
     console.error("❌ خطأ في إضافة المطعم:", err?.message || err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
@@ -658,6 +660,7 @@ if (map_url !== undefined) {
     }
 
     res.json({ success: true, message: "✅ تم تعديل المطعم" });
+    emitCatalogUpdate(req.app, { entity: "restaurants", action: "update" });
   } catch (err) {
     console.error("❌ خطأ في تعديل المطعم:", err?.message || err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
@@ -694,6 +697,7 @@ router.post("/reorder", async (req, res) => {
 
     await conn.commit();
     res.json({ success: true });
+    emitCatalogUpdate(req.app, { entity: "restaurants", action: "reorder" });
   } catch (err) {
     await conn.rollback();
     console.error("❌ خطأ في إعادة الترتيب:", err?.message || err);
@@ -715,6 +719,7 @@ router.delete("/:id", async (req, res) => {
     await db.query("DELETE FROM restaurants WHERE id=?", [req.params.id]);
 
     res.json({ success: true, message: "🗑️ تم حذف المطعم" });
+    emitCatalogUpdate(req.app, { entity: "restaurants", action: "delete" });
   } catch (err) {
     console.error("❌ خطأ في حذف المطعم:", err?.message || err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });

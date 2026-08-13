@@ -1,6 +1,7 @@
 import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
+import { emitCatalogUpdate } from "../utils/catalogEvents.js";
 
 const router = express.Router();
 
@@ -217,6 +218,11 @@ router.post("/", async (req, res) => {
     );
 
     res.json({ success: true });
+    emitCatalogUpdate(req.app, {
+      entity: "neighborhoods",
+      action: "create",
+      branch_id: finalBranchId,
+    });
   } catch (err) {
     console.error("ADD NEIGHBORHOOD ERROR:", err?.message || err);
     res.status(500).json({ success: false });
@@ -256,6 +262,11 @@ router.put("/:id", async (req, res) => {
     );
 
     res.json({ success: true });
+    emitCatalogUpdate(req.app, {
+      entity: "neighborhoods",
+      action: "update",
+      branch_id: finalBranchId,
+    });
   } catch (err) {
     console.error("UPDATE NEIGHBORHOOD ERROR:", err?.message || err);
     res.status(500).json({ success: false });
@@ -269,6 +280,7 @@ router.delete("/:id", async (req, res) => {
   try {
     await db.query("DELETE FROM neighborhoods WHERE id = ?", [req.params.id]);
     res.json({ success: true });
+    emitCatalogUpdate(req.app, { entity: "neighborhoods", action: "delete" });
   } catch (err) {
     console.error("DELETE NEIGHBORHOOD ERROR:", err?.message || err);
     res.status(500).json({ success: false });
