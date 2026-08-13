@@ -19,29 +19,44 @@ const RETRYABLE_CODES = new Set([
 function isRetryableError(err) {
   if (!err) return false;
   if (RETRYABLE_CODES.has(err.code)) return true;
-  return /connection lost|server closed the connection|socket hang up/i.test(
-    String(err.message || "")
+  const message = String(err.message || "");
+  return /connection lost|server closed the connection|socket hang up|pool is closed/i.test(
+    message
   );
 }
 
-function createRawPool() {
+function buildPoolConfig() {
   if (!DB_URI) {
     console.error(
       "❌ MySQL URI missing. Set MYSQL_PRIVATE_URL, MYSQL_URL, MYSQL_PUBLIC_URL, or DATABASE_URL"
     );
   }
 
-  const pool = mysql.createPool({
+  const config = {
     uri: DB_URI,
     waitForConnections: true,
-    connectionLimit: 10,
+    connectionLimit: 5,
     enableKeepAlive: true,
-    keepAliveInitialDelay: 0,
-    connectTimeout: 30000,
-    maxIdle: 5,
-    idleTimeout: 30000,
+    keepAliveInitialDelay: 10000,
+    connectTimeout: 20000,
+    maxIdle: 2,
+    idleTimeout: 60000,
     queueLimit: 0,
-  });
+  };
+
+  // Railway public MySQL often needs SSL
+  if (
+    process.env.MYSQL_PUBLIC_URL &&
+    DB_URI === process.env.MYSQL_PUBLIC_URL
+  ) {
+    config.ssl = { rejectUnauthorized: false };
+  }
+
+  return config;
+}
+
+function createRawPool() {
+  const pool = mysql.createPool(buildPoolConfig());
 
   pool.on("connection", (connection) => {
     connection.on("error", (err) => {
@@ -53,15 +68,41 @@ function createRawPool() {
 }
 
 let rawPool = createRawPool();
+let recreatePromise = null;
 
-async function recreatePool() {
-  try {
-    await rawPool.end();
-  } catch {
-    // ignore shutdown errors on dead pool
-  }
-  rawPool = createRawPool();
-  console.log("🔄 MySQL pool recreated");
+async function recreatePoolSafe() {
+  if (recreatePromise) return recreatePromise;
+
+  recreatePromise = (async () => {
+    const oldPool = rawPool;
+    const newPool = createRawPool();
+
+    try {
+      await newPool.query("SELECT 1");
+      rawPool = newPool;
+      console.log("🔄 MySQL pool recreated successfully");
+
+      setTimeout(async () => {
+        try {
+          await oldPool.end();
+        } catch {
+          // old pool may already be dead
+        }
+      }, 3000);
+    } catch (err) {
+      try {
+        await newPool.end();
+      } catch {
+        // ignore
+      }
+      console.error("❌ MySQL pool recreate failed:", err.message);
+      throw err;
+    } finally {
+      recreatePromise = null;
+    }
+  })();
+
+  return recreatePromise;
 }
 
 async function withRetry(action, label) {
@@ -69,15 +110,21 @@ async function withRetry(action, label) {
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
+      if (recreatePromise) await recreatePromise;
       return await action(rawPool);
     } catch (err) {
       lastError = err;
       if (!isRetryableError(err) || attempt === 3) break;
+
       console.warn(`⚠️ DB ${label} retry ${attempt}/3:`, err.message);
-      if (attempt === 2) {
-        await recreatePool();
-      } else {
-        await new Promise((resolve) => setTimeout(resolve, attempt * 400));
+      await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+
+      if (attempt >= 2) {
+        try {
+          await recreatePoolSafe();
+        } catch {
+          // next retry will surface the error if still broken
+        }
       }
     }
   }
@@ -111,27 +158,5 @@ const db = {
     console.error("❌ MySQL initial connection failed:", err.message);
   }
 })();
-
-let keepAliveFailures = 0;
-
-setInterval(async () => {
-  try {
-    await db.query("SELECT 1");
-    keepAliveFailures = 0;
-  } catch (err) {
-    keepAliveFailures += 1;
-    console.error("❌ Keep-alive query failed:", err.message);
-    if (keepAliveFailures >= 2) {
-      keepAliveFailures = 0;
-      await recreatePool();
-      try {
-        await db.query("SELECT 1");
-        console.log("✅ MySQL reconnected after keep-alive failure");
-      } catch (retryErr) {
-        console.error("❌ MySQL still unavailable:", retryErr.message);
-      }
-    }
-  }
-}, 25000);
 
 export default db;
