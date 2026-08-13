@@ -1,5 +1,9 @@
 import mysql from "mysql2/promise";
 
+function env(name, fallback = "") {
+  return process.env[name] || fallback;
+}
+
 const DB_URI =
   process.env.MYSQL_PRIVATE_URL ||
   process.env.MYSQL_URL ||
@@ -26,14 +30,54 @@ function isRetryableError(err) {
 }
 
 function buildPoolConfig() {
-  if (!DB_URI) {
+  const sslDisabled = String(process.env.MYSQLSSL || "").toLowerCase() === "false";
+
+  if (DB_URI && String(DB_URI).startsWith("mysql")) {
+    const config = {
+      uri: DB_URI,
+      waitForConnections: true,
+      connectionLimit: 5,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 10000,
+      connectTimeout: 20000,
+      maxIdle: 2,
+      idleTimeout: 60000,
+      queueLimit: 0,
+    };
+
+    if (sslDisabled) {
+      config.ssl = undefined;
+    } else if (
+      process.env.MYSQL_PUBLIC_URL &&
+      DB_URI === process.env.MYSQL_PUBLIC_URL
+    ) {
+      config.ssl = { rejectUnauthorized: false };
+    }
+
+    return config;
+  }
+
+  const host =
+    env("MYSQLHOST") || env("MYSQL_HOST") || env("DB_HOST") || "127.0.0.1";
+  const database =
+    env("MYSQLDATABASE") || env("MYSQL_DATABASE") || env("DB_NAME");
+  const user = env("MYSQLUSER") || env("MYSQL_USER") || env("DB_USER");
+  const password =
+    env("MYSQLPASSWORD") || env("MYSQL_PASSWORD") || env("DB_PASSWORD");
+
+  if (!host || !database || !user) {
     console.error(
-      "❌ MySQL URI missing. Set MYSQL_PRIVATE_URL, MYSQL_URL, MYSQL_PUBLIC_URL, or DATABASE_URL"
+      "❌ MySQL config missing. Set DATABASE_URL or MYSQLHOST/MYSQLUSER/MYSQLPASSWORD/MYSQLDATABASE"
     );
   }
 
-  const config = {
-    uri: DB_URI,
+  return {
+    host,
+    port: Number(env("MYSQLPORT") || env("MYSQL_PORT") || env("DB_PORT") || 3306),
+    user,
+    password,
+    database,
+    ssl: sslDisabled ? undefined : { rejectUnauthorized: false },
     waitForConnections: true,
     connectionLimit: 5,
     enableKeepAlive: true,
@@ -43,16 +87,6 @@ function buildPoolConfig() {
     idleTimeout: 60000,
     queueLimit: 0,
   };
-
-  // Railway public MySQL often needs SSL
-  if (
-    process.env.MYSQL_PUBLIC_URL &&
-    DB_URI === process.env.MYSQL_PUBLIC_URL
-  ) {
-    config.ssl = { rejectUnauthorized: false };
-  }
-
-  return config;
 }
 
 function createRawPool() {

@@ -35,11 +35,7 @@ console.log(
 ========================= */
 
 if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
-
-  console.error("❌ FIREBASE_SERVICE_ACCOUNT is missing from ENV");
-
-  process.exit(1);
-
+  console.error("❌ FIREBASE_SERVICE_ACCOUNT is missing from ENV — notifications will be disabled");
 }
 
 /* =========================
@@ -48,27 +44,52 @@ if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
 
 let serviceAccount;
 
-try {
+function parseFirebaseServiceAccount(raw) {
+  let text = String(raw || "").trim();
+  if (!text) return null;
 
-  serviceAccount = JSON.parse(
-    process.env.FIREBASE_SERVICE_ACCOUNT
-  );
+  // Hostinger sometimes stores the JSON with extra escaping, e.g. \{ "type": ...
+  if (
+    (text.startsWith("\\") || text.startsWith("'") || text.startsWith('"')) &&
+    !text.startsWith("{")
+  ) {
+    text = text.replace(/^['"]/, "").replace(/['"]$/, "");
+    text = text.replace(/^\\+/, "");
+  }
 
-  // ✅ إصلاح private_key (الأهم)
-  serviceAccount.private_key =
-    serviceAccount.private_key.replace(/\\n/g, "\n");
+  const attempts = [
+    text,
+    text.replace(/\\"/g, '"').replace(/\\'/g, "'"),
+    text.replace(/\\{/g, "{").replace(/\\}/g, "}"),
+  ];
 
-  console.log("✅ Firebase Service Account parsed successfully");
+  let lastError;
+  for (const candidate of attempts) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed?.private_key) {
+        parsed.private_key = parsed.private_key.replace(/\\n/g, "\n");
+      }
+      return parsed;
+    } catch (err) {
+      lastError = err;
+    }
+  }
 
+  throw lastError;
 }
-catch (err) {
 
+try {
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    serviceAccount = parseFirebaseServiceAccount(
+      process.env.FIREBASE_SERVICE_ACCOUNT
+    );
+    console.log("✅ Firebase Service Account parsed successfully");
+  }
+} catch (err) {
   console.error("❌ Failed to parse FIREBASE_SERVICE_ACCOUNT");
-
   console.error(err.message);
-
-  process.exit(1);
-
+  console.error("Tip: paste the raw JSON (starts with {) without extra backslashes");
 }
 
 /* =========================
@@ -76,24 +97,17 @@ catch (err) {
 ========================= */
 
 try {
-
-  admin.initializeApp({
-
-    credential: admin.credential.cert(serviceAccount)
-
-  });
-
-  console.log("🔥 Firebase Admin initialized successfully");
-
+  if (serviceAccount) {
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount)
+    });
+    console.log("🔥 Firebase Admin initialized successfully");
+  }
 }
 catch (err) {
 
   console.error("❌ Firebase initialization failed");
-
   console.error(err.message);
-
-  process.exit(1);
-
 }
 
 /* =========================
@@ -111,7 +125,10 @@ const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost",
   "https://localhost",
-    "http://localhost:63342",
+  "http://localhost:63342",
+  ...(process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(",").map((item) => item.trim()).filter(Boolean)
+    : []),
 ];
 
 
@@ -142,6 +159,14 @@ function isAllowedOrigin(origin) {
 
   // ✅ allowed domains
   if (allowedOrigins.includes(origin)) {
+    return true;
+  }
+
+  // ✅ Hostinger web apps / sites
+  if (
+    origin.endsWith(".hostingersite.com") ||
+    origin.endsWith(".hostingerapp.com")
+  ) {
     return true;
   }
 
