@@ -39,6 +39,10 @@ router.get("/", async (req, res) => {
   try {
     const { is_admin_branch, branch_id, role, id: authUserId, agent_id: authAgentId } = req.user;
     const selectedBranch = req.headers["x-branch-id"];
+    const isHqAdmin =
+      is_admin_branch === true ||
+      is_admin_branch === 1 ||
+      Number(is_admin_branch) === 1;
 
     let rows;
 
@@ -66,9 +70,14 @@ router.get("/", async (req, res) => {
         `,
         [authAgentId]
       );
-    } else if (is_admin_branch) {
-      if (selectedBranch && selectedBranch !== "all") {
-        // الإدارة العامة + فرع محدد
+    } else if (isHqAdmin) {
+      const filterId =
+        selectedBranch && selectedBranch !== "all"
+          ? Number(selectedBranch)
+          : null;
+
+      if (filterId && Number.isFinite(filterId)) {
+        // تصفح بيانات فرع محدد (إدارة عامة أو فرع تشغيلي)
         [rows] = await pool.query(
           `
           SELECT u.*, b.name AS branch_name, a.name AS agent_name
@@ -78,10 +87,10 @@ router.get("/", async (req, res) => {
           WHERE u.branch_id = ?
           ORDER BY u.id DESC
           `,
-          [selectedBranch]
+          [filterId]
         );
       } else {
-        // الإدارة العامة بدون فلترة (كل المستخدمين)
+        // بدون فلتر: كل المستخدمين
         [rows] = await pool.query(`
           SELECT u.*, b.name AS branch_name, a.name AS agent_name
           FROM users u
@@ -91,7 +100,7 @@ router.get("/", async (req, res) => {
         `);
       }
     } else {
-      // مستخدم فرع عادي
+      // مستخدم فرع عادي — فرعه فقط
       [rows] = await pool.query(
         `
         SELECT u.*, b.name AS branch_name, a.name AS agent_name
