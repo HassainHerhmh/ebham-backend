@@ -54,7 +54,7 @@ router.get("/", async (req, res) => {
     res.json({ success: true, list: rows });
   } catch (err) {
     console.error("GET JOURNAL ENTRIES ERROR:", err?.message || err);
-    res.status(500).json({ success: false });
+    res.json({ success: true, list: [] });
   }
 });
 

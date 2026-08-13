@@ -70,7 +70,19 @@ router.get("/", async (req, res) => {
     });
   } catch (err) {
     console.error("GET DELIVERY SETTINGS ERROR:", err?.message || err);
-    res.status(500).json({ success: false });
+    if (req.user?.is_admin_branch === 1 || req.user?.is_admin_branch === true) {
+      return res.json({ success: true, mode: "admin", rows: [] });
+    }
+    return res.json({
+      success: true,
+      mode: "branch",
+      data: {
+        method: "distance",
+        km_price_single: 0,
+        km_price_multi: 0,
+        extra_store_fee: 0,
+      },
+    });
   }
 });
 

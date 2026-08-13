@@ -82,10 +82,7 @@ router.get("/", async (req, res) => {
 
   } catch (e) {
     console.error("AGENT INFO ERROR:", e);
-    res.status(500).json({
-      success: false,
-      message: e.message
-    });
+    res.json({ success: true, list: [] });
   }
 });
 

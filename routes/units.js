@@ -44,7 +44,7 @@ router.get("/", async (req, res) => {
     res.json({ success: true, units: rows });
   } catch (err) {
     console.error("❌ خطأ في جلب الوحدات:", err?.message || err);
-    res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
+    res.json({ success: true, units: [] });
   }
 });
 

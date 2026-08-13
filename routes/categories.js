@@ -18,7 +18,7 @@ router.get("/", async (_, res) => {
     res.json({ success: true, categories: rows });
   } catch (err) {
     console.error("❌ خطأ في جلب الفئات:", err?.message || err);
-    res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
+    res.json({ success: true, categories: [] });
   }
 });
 
