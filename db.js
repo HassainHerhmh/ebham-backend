@@ -29,12 +29,25 @@ function isRetryableError(err) {
   );
 }
 
+function normalizeHost(host) {
+  const value = String(host || "").trim();
+  if (!value || value === "localhost" || value === "::1") {
+    return "127.0.0.1";
+  }
+  return value;
+}
+
+function normalizeUri(uri) {
+  return String(uri).replace(/@(localhost|\[::1\]|::1)(?=[:/])/i, "@127.0.0.1");
+}
+
 function buildPoolConfig() {
   const sslDisabled = String(process.env.MYSQLSSL || "").toLowerCase() === "false";
 
   if (DB_URI && String(DB_URI).startsWith("mysql")) {
     const config = {
-      uri: DB_URI,
+      uri: normalizeUri(DB_URI),
+      family: 4,
       waitForConnections: true,
       connectionLimit: 5,
       enableKeepAlive: true,
@@ -57,8 +70,9 @@ function buildPoolConfig() {
     return config;
   }
 
-  const host =
-    env("MYSQLHOST") || env("MYSQL_HOST") || env("DB_HOST") || "127.0.0.1";
+  const host = normalizeHost(
+    env("MYSQLHOST") || env("MYSQL_HOST") || env("DB_HOST") || "127.0.0.1"
+  );
   const database =
     env("MYSQLDATABASE") || env("MYSQL_DATABASE") || env("DB_NAME");
   const user = env("MYSQLUSER") || env("MYSQL_USER") || env("DB_USER");
@@ -77,6 +91,7 @@ function buildPoolConfig() {
     user,
     password,
     database,
+    family: 4,
     ssl: sslDisabled ? undefined : { rejectUnauthorized: false },
     waitForConnections: true,
     connectionLimit: 5,

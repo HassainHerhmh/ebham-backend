@@ -61,6 +61,7 @@ function parseFirebaseServiceAccount(raw) {
     text,
     text.replace(/\\"/g, '"').replace(/\\'/g, "'"),
     text.replace(/\\{/g, "{").replace(/\\}/g, "}"),
+    text.replace(/\\(?!["\\/bfnrtu])/g, "\\\\"),
   ];
 
   let lastError;
