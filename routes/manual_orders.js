@@ -27,50 +27,50 @@ SELECT
   w.id,
   COALESCE(w.order_number, w.id) AS order_number,
 
-  ANY_VALUE(w.customer_id) AS customer_id,
-  ANY_VALUE(w.restaurant_id) AS restaurant_id,
-  ANY_VALUE(w.captain_id) AS captain_id,
+  MAX(w.customer_id) AS customer_id,
+  MAX(w.restaurant_id) AS restaurant_id,
+  MAX(w.captain_id) AS captain_id,
 
-  ANY_VALUE(w.total_amount) AS total_amount,
-  ANY_VALUE(w.delivery_fee) AS delivery_fee,
-  ANY_VALUE(w.payment_method) AS payment_method,
-  ANY_VALUE(w.status) AS status,
-  ANY_VALUE(w.notes) AS notes,
+  MAX(w.total_amount) AS total_amount,
+  MAX(w.delivery_fee) AS delivery_fee,
+  MAX(w.payment_method) AS payment_method,
+  MAX(w.status) AS status,
+  MAX(w.notes) AS notes,
 
-  ANY_VALUE(w.to_address) AS to_address,
+  MAX(w.to_address) AS to_address,
 
-  ANY_VALUE(w.created_at) AS created_at,
-  ANY_VALUE(w.scheduled_at) AS scheduled_time,
+  MAX(w.created_at) AS created_at,
+  MAX(w.scheduled_at) AS scheduled_time,
 
-  ANY_VALUE(w.processing_at)  AS processing_at,
-  ANY_VALUE(w.ready_at)       AS ready_at,
-  ANY_VALUE(w.delivering_at)  AS delivering_at,
-  ANY_VALUE(w.completed_at)   AS completed_at,
-  ANY_VALUE(w.cancelled_at)   AS cancelled_at,
+  MAX(w.processing_at)  AS processing_at,
+  MAX(w.ready_at)       AS ready_at,
+  MAX(w.delivering_at)  AS delivering_at,
+  MAX(w.completed_at)   AS completed_at,
+  MAX(w.cancelled_at)   AS cancelled_at,
 
   /* العميل */
-  ANY_VALUE(c.name)  AS customer_name,
-  ANY_VALUE(c.phone) AS customer_phone,
+  MAX(c.name)  AS customer_name,
+  MAX(c.phone) AS customer_phone,
 
   /* العنوان */
-  ANY_VALUE(ca.address)   AS customer_address,
-ANY_VALUE(n.name) AS neighborhood_name,
-  ANY_VALUE(ca.gps_link)  AS map_url,
-  ANY_VALUE(ca.latitude)  AS latitude,
-  ANY_VALUE(ca.longitude) AS longitude,
+  MAX(ca.address)   AS customer_address,
+MAX(n.name) AS neighborhood_name,
+  MAX(ca.gps_link)  AS map_url,
+  MAX(ca.latitude)  AS latitude,
+  MAX(ca.longitude) AS longitude,
 
   /* المطعم */
-  ANY_VALUE(r.name)    AS restaurant_name,
-  ANY_VALUE(r.phone)   AS restaurant_phone,
-  ANY_VALUE(r.address) AS restaurant_address,
-  ANY_VALUE(r.latitude) AS restaurant_lat,
-  ANY_VALUE(r.longitude) AS restaurant_lng,
+  MAX(r.name)    AS restaurant_name,
+  MAX(r.phone)   AS restaurant_phone,
+  MAX(r.address) AS restaurant_address,
+  MAX(r.latitude) AS restaurant_lat,
+  MAX(r.longitude) AS restaurant_lng,
 
   /* الكابتن */
-  ANY_VALUE(cap.name) AS captain_name,
+  MAX(cap.name) AS captain_name,
 
   /* المستخدم */
-  ANY_VALUE(u.name) AS user_name,
+  MAX(u.name) AS user_name,
 
   /* الأصناف */
   JSON_ARRAYAGG(
