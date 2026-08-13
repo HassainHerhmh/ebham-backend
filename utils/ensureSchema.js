@@ -199,5 +199,20 @@ export async function ensureSchema() {
     // ignore
   }
 
+  try {
+    const [[publicBranch]] = await db.query(
+      "SELECT id FROM branches WHERE is_admin = 0 AND (is_active = 1 OR is_active IS NULL) LIMIT 1"
+    );
+    if (!publicBranch) {
+      await db.query(
+        `INSERT INTO branches (name, address, phone, is_admin, is_active)
+         VALUES ('عتق', '', '', 0, 1)`
+      );
+      console.log("✅ Seeded public branch عتق for customer app");
+    }
+  } catch (err) {
+    console.error("❌ Schema public branch seed:", err?.message || err);
+  }
+
   console.log(`✅ Schema check complete (${added} columns added)`);
 }
