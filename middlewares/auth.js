@@ -124,38 +124,54 @@ export default async function auth(req, res, next) {
     }
 
     // 4. تجهيز req.user
- req.user = {
-  id: userRecord.id,
-  name: userRecord.name,
-  phone: userRecord.phone,
-  role: userRecord.role,
-  branch_id: userRecord.branch_id || decoded.branch_id || null,
-    agent_id: userRecord.agent_id || null,
-  status: userRecord.status || null,
-  is_admin: userRecord.is_admin || 0,
-  is_admin_branch: userRecord.is_admin_branch || 0,
-  is_active: userRecord.is_active ?? null,
-};
+    const isHqAdmin =
+      Number(userRecord.is_admin_branch) === 1 ||
+      userRecord.is_admin_branch === true ||
+      Number(userRecord.is_admin) === 1 ||
+      userRecord.is_admin === true;
+
+    req.user = {
+      id: userRecord.id,
+      name: userRecord.name,
+      phone: userRecord.phone,
+      role: userRecord.role,
+      branch_id: userRecord.branch_id || decoded.branch_id || null,
+      agent_id: userRecord.agent_id || null,
+      status: userRecord.status || null,
+      is_admin: userRecord.is_admin || 0,
+      is_admin_branch: isHqAdmin ? 1 : 0,
+      is_active: userRecord.is_active ?? null,
+    };
 
     // 5. السماح بتغيير الفرع (اختياري)
     const headerBranch = req.headers["x-branch-id"];
+    const headerStr =
+      headerBranch === undefined || headerBranch === null
+        ? ""
+        : String(headerBranch);
+    const ownBranchStr =
+      req.user.branch_id === undefined || req.user.branch_id === null
+        ? ""
+        : String(req.user.branch_id);
 
-    if (
-      headerBranch &&
-      headerBranch !== "all" &&
-      req.user.role !== "captain" &&
-      (req.user.is_admin_branch || req.user.is_admin)
-    ) {
-      req.user.branch_id = Number(headerBranch);
+    if (!headerStr) {
+      // لا يوجد هيدر فرع
+    } else if (headerStr === "all" && req.user.role !== "captain" && isHqAdmin) {
+      req.user.branch_id = null;
+    } else if (headerStr !== "all" && ownBranchStr && headerStr === ownBranchStr) {
+      // نفس فرع المستخدم — لا ترفض الطلب (الداشبورد يرسل x-branch-id دائماً)
     } else if (
-      headerBranch &&
-      headerBranch !== "all" &&
+      headerStr !== "all" &&
+      req.user.role !== "captain" &&
+      isHqAdmin
+    ) {
+      req.user.branch_id = Number(headerStr);
+    } else if (
+      headerStr !== "all" &&
       req.user.role === "customer"
     ) {
-      req.user.branch_id = Number(headerBranch);
-    } else if (headerBranch === "all" && req.user.role !== "captain" && (req.user.is_admin_branch || req.user.is_admin)) {
-      req.user.branch_id = null;
-    } else if (headerBranch && req.user.role !== "captain") {
+      req.user.branch_id = Number(headerStr);
+    } else if (headerStr && req.user.role !== "captain") {
       return res.status(403).json({
         success: false,
         message: tx(
