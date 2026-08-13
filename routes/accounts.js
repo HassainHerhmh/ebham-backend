@@ -22,17 +22,24 @@ async function ensureAccountColumnsExist() {
     FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE()
       AND TABLE_NAME = 'accounts'
-      AND COLUMN_NAME IN ('account_group_id', 'financial_statement_id', 'parent_id')
+      AND COLUMN_NAME IN ('account_group_id', 'financial_statement_id', 'parent_id', 'code', 'branch_id', 'created_by', 'created_at', 'is_active')
   `);
 
   const existing = new Set(rows.map((row) => row.COLUMN_NAME));
+  const needed = {
+    account_group_id: "INT NULL",
+    financial_statement_id: "INT NULL",
+    parent_id: "INT NULL",
+    code: "VARCHAR(50) NULL",
+    branch_id: "INT NULL",
+    created_by: "INT NULL",
+    created_at: "DATETIME NULL DEFAULT CURRENT_TIMESTAMP",
+    is_active: "TINYINT(1) NOT NULL DEFAULT 1",
+  };
 
-  if (!existing.has("account_group_id")) {
-    throw new Error("accounts.account_group_id column is missing. Run scripts/add-account-group-column.sql");
-  }
-
-  if (!existing.has("financial_statement_id") || !existing.has("parent_id")) {
-    throw new Error("accounts table is missing required columns for secure account management");
+  for (const [column, definition] of Object.entries(needed)) {
+    if (existing.has(column)) continue;
+    await db.query(`ALTER TABLE accounts ADD COLUMN \`${column}\` ${definition}`);
   }
 }
 
