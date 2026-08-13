@@ -1,0 +1,39 @@
+-- أعمدة ناقصة تسبب 500 في لوحة التحكم على Hostinger
+-- يمكن استيراده من phpMyAdmin إذا لم يعمل الإصلاح التلقائي
+
+ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `language` VARCHAR(10) NULL DEFAULT 'ar';
+ALTER TABLE `customers` ADD COLUMN IF NOT EXISTS `language` VARCHAR(10) NULL DEFAULT 'ar';
+ALTER TABLE `customers` ADD COLUMN IF NOT EXISTS `neighborhood_id` INT NULL;
+ALTER TABLE `accounts` ADD COLUMN IF NOT EXISTS `code` VARCHAR(50) NULL;
+ALTER TABLE `accounts` ADD COLUMN IF NOT EXISTS `financial_statement_id` INT NULL;
+
+ALTER TABLE `orders` ADD COLUMN IF NOT EXISTS `processing_at` DATETIME NULL;
+ALTER TABLE `orders` ADD COLUMN IF NOT EXISTS `ready_at` DATETIME NULL;
+ALTER TABLE `orders` ADD COLUMN IF NOT EXISTS `delivering_at` DATETIME NULL;
+ALTER TABLE `orders` ADD COLUMN IF NOT EXISTS `completed_at` DATETIME NULL;
+ALTER TABLE `orders` ADD COLUMN IF NOT EXISTS `cancelled_at` DATETIME NULL;
+
+ALTER TABLE `wassel_orders` ADD COLUMN IF NOT EXISTS `is_manual` TINYINT(1) NOT NULL DEFAULT 0;
+ALTER TABLE `wassel_orders` ADD COLUMN IF NOT EXISTS `from_address` VARCHAR(500) NULL;
+ALTER TABLE `wassel_orders` ADD COLUMN IF NOT EXISTS `to_address` VARCHAR(500) NULL;
+ALTER TABLE `wassel_orders` ADD COLUMN IF NOT EXISTS `from_lat` DECIMAL(10,7) NULL;
+ALTER TABLE `wassel_orders` ADD COLUMN IF NOT EXISTS `from_lng` DECIMAL(10,7) NULL;
+ALTER TABLE `wassel_orders` ADD COLUMN IF NOT EXISTS `to_lat` DECIMAL(10,7) NULL;
+ALTER TABLE `wassel_orders` ADD COLUMN IF NOT EXISTS `to_lng` DECIMAL(10,7) NULL;
+ALTER TABLE `wassel_orders` ADD COLUMN IF NOT EXISTS `bank_id` INT NULL;
+ALTER TABLE `wassel_orders` ADD COLUMN IF NOT EXISTS `scheduled_at` DATETIME NULL;
+ALTER TABLE `wassel_orders` ADD COLUMN IF NOT EXISTS `processing_at` DATETIME NULL;
+ALTER TABLE `wassel_orders` ADD COLUMN IF NOT EXISTS `ready_at` DATETIME NULL;
+ALTER TABLE `wassel_orders` ADD COLUMN IF NOT EXISTS `delivering_at` DATETIME NULL;
+ALTER TABLE `wassel_orders` ADD COLUMN IF NOT EXISTS `completed_at` DATETIME NULL;
+ALTER TABLE `wassel_orders` ADD COLUMN IF NOT EXISTS `cancelled_at` DATETIME NULL;
+
+ALTER TABLE `support_chats` ADD COLUMN IF NOT EXISTS `customer_name` VARCHAR(255) NULL;
+ALTER TABLE `support_chats` ADD COLUMN IF NOT EXISTS `customer_phone` VARCHAR(50) NULL;
+ALTER TABLE `support_chats` ADD COLUMN IF NOT EXISTS `branch_id` INT NULL;
+ALTER TABLE `support_chats` ADD COLUMN IF NOT EXISTS `order_id` INT NULL;
+ALTER TABLE `support_chats` ADD COLUMN IF NOT EXISTS `last_message_at` DATETIME NULL;
+ALTER TABLE `support_chats` ADD COLUMN IF NOT EXISTS `updated_at` DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+
+ALTER TABLE `support_chat_messages` ADD COLUMN IF NOT EXISTS `sender_id` INT NULL;
+ALTER TABLE `support_chat_messages` ADD COLUMN IF NOT EXISTS `is_read` TINYINT(1) NOT NULL DEFAULT 0;

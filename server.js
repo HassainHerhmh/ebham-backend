@@ -7,6 +7,7 @@ import admin from "firebase-admin";
 
 import pool from "./db.js";
 import auth from "./middlewares/auth.js";
+import { ensureSchema } from "./utils/ensureSchema.js";
 
 /* =========================
    Load ENV أولاً (مهم جداً)
@@ -674,6 +675,14 @@ io.on("connection", (socket) => {
 
 });
 
-httpServer.listen(PORT, () => {
-  console.log(`🚀 Server running with Socket.IO on ${PORT}`);
-});
+(async () => {
+  try {
+    await ensureSchema();
+  } catch (err) {
+    console.error("❌ Schema ensure failed:", err?.message || err);
+  }
+
+  httpServer.listen(PORT, () => {
+    console.log(`🚀 Server running with Socket.IO on ${PORT}`);
+  });
+})();
