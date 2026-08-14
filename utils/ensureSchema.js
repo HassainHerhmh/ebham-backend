@@ -35,6 +35,7 @@ const COLUMNS = [
   ["customers", "neighborhood_id", "INT NULL"],
   ["customers", "fcm_token", "VARCHAR(500) NULL"],
   ["customer_addresses", "gps_link", "VARCHAR(500) NULL"],
+  ["customer_addresses", "location_type", "VARCHAR(50) NULL"],
   ["accounts", "code", "VARCHAR(50) NULL"],
   ["accounts", "financial_statement_id", "INT NULL"],
   ["accounts", "branch_id", "INT NULL"],
