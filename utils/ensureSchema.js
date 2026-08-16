@@ -27,6 +27,18 @@ const TABLES = [
     \`product_id\` INT NOT NULL,
     PRIMARY KEY (\`ad_id\`,\`product_id\`)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS \`unit_restaurants\` (
+    \`unit_id\` INT NOT NULL,
+    \`restaurant_id\` INT NOT NULL,
+    PRIMARY KEY (\`unit_id\`, \`restaurant_id\`),
+    KEY \`idx_ur_restaurant\` (\`restaurant_id\`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS \`product_restaurants\` (
+    \`product_id\` INT NOT NULL,
+    \`restaurant_id\` INT NOT NULL,
+    PRIMARY KEY (\`product_id\`, \`restaurant_id\`),
+    KEY \`idx_pr_restaurant\` (\`restaurant_id\`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 ];
 
 const COLUMNS = [
@@ -286,6 +298,19 @@ export async function ensureSchema() {
     }
   } catch (err) {
     console.error("❌ Schema branch hierarchy seed:", err?.message || err);
+  }
+
+  try {
+    await db.query(`
+      INSERT IGNORE INTO unit_restaurants (unit_id, restaurant_id)
+      SELECT id, restaurant_id FROM units WHERE restaurant_id IS NOT NULL
+    `);
+    await db.query(`
+      INSERT IGNORE INTO product_restaurants (product_id, restaurant_id)
+      SELECT id, restaurant_id FROM products WHERE restaurant_id IS NOT NULL
+    `);
+  } catch (err) {
+    console.error("❌ Schema restaurant link backfill:", err?.message || err);
   }
 
   console.log(`✅ Schema check complete (${added} columns added)`);

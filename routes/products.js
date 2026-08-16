@@ -17,6 +17,74 @@ function parseJsonArray(value, fallback = []) {
   }
 }
 
+function parseRestaurantIds(body = {}) {
+  let ids = parseJsonArray(body.restaurant_ids, null);
+  if (ids === null) {
+    ids = body.restaurant_id ? [body.restaurant_id] : [];
+  }
+  return [
+    ...new Set(
+      ids.map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0)
+    ),
+  ];
+}
+
+function bodyHasRestaurantIds(body = {}) {
+  return (
+    body.restaurant_ids !== undefined ||
+    (body.restaurant_id !== undefined &&
+      body.restaurant_id !== null &&
+      body.restaurant_id !== "")
+  );
+}
+
+async function syncProductRestaurants(productId, restaurantIds) {
+  await db.query("DELETE FROM product_restaurants WHERE product_id = ?", [
+    productId,
+  ]);
+  for (const rid of restaurantIds) {
+    await db.query(
+      "INSERT INTO product_restaurants (product_id, restaurant_id) VALUES (?, ?)",
+      [productId, rid]
+    );
+  }
+  await db.query("UPDATE products SET restaurant_id = ? WHERE id = ?", [
+    restaurantIds[0] || null,
+    productId,
+  ]);
+}
+
+async function assertRestaurantsAllowed(restaurantIds, user) {
+  const { role, id: userId, branch_id, is_admin_branch, agent_id: authAgentId } =
+    user || {};
+
+  for (const restaurant_id of restaurantIds) {
+    let restaurantSql = `SELECT id FROM restaurants WHERE id = ?`;
+    const restaurantParams = [restaurant_id];
+
+    if (role === "agent") {
+      restaurantSql += ` AND agent_id = ?`;
+      restaurantParams.push(userId);
+    } else if (authAgentId) {
+      restaurantSql += ` AND agent_id = ?`;
+      restaurantParams.push(authAgentId);
+    } else if (!is_admin_branch) {
+      restaurantSql += ` AND branch_id = ?`;
+      restaurantParams.push(branch_id);
+    }
+
+    const [[allowedRestaurant]] = await db.query(
+      restaurantSql,
+      restaurantParams
+    );
+    if (!allowedRestaurant) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function isUnsafeImageUrl(value) {
   if (!value || typeof value !== "string") return false;
   const trimmed = value.trim().toLowerCase();
@@ -165,16 +233,19 @@ routerInstance.get("/", async (req, res) => {
         GROUP_CONCAT(DISTINCT c.name SEPARATOR ', ') AS categories,
         u.id AS unit_id,
         u.name AS unit_name,
-        r.id AS restaurant_id,
-        r.name AS restaurant_name,
-        r.branch_id,
-        b.name AS branch_name,
+        COALESCE(MIN(pr.restaurant_id), p.restaurant_id) AS restaurant_id,
+        GROUP_CONCAT(DISTINCT COALESCE(pr.restaurant_id, p.restaurant_id) ORDER BY COALESCE(pr.restaurant_id, p.restaurant_id)) AS restaurant_ids,
+        GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS restaurant_names,
+        MIN(r.name) AS restaurant_name,
+        MIN(r.branch_id) AS branch_id,
+        MIN(b.name) AS branch_name,
         COUNT(DISTINCT pc2.child_id) AS children_count
       FROM products p
       LEFT JOIN product_categories pc ON p.id = pc.product_id
       LEFT JOIN categories c ON pc.category_id = c.id
       LEFT JOIN units u ON p.unit_id = u.id
-      LEFT JOIN restaurants r ON p.restaurant_id = r.id
+      LEFT JOIN product_restaurants pr ON pr.product_id = p.id
+      LEFT JOIN restaurants r ON r.id = COALESCE(pr.restaurant_id, p.restaurant_id)
       LEFT JOIN branches b ON b.id = r.branch_id
       LEFT JOIN product_children pc2 ON pc2.parent_id = p.id
       ${where}
@@ -184,7 +255,16 @@ routerInstance.get("/", async (req, res) => {
       params
     );
 
-    res.json({ success: true, products: rows });
+    const products = (rows || []).map((row) => ({
+      ...row,
+      restaurant_ids: String(row.restaurant_ids || row.restaurant_id || "")
+        .split(",")
+        .map((x) => Number(x))
+        .filter(Boolean),
+      restaurant_name: row.restaurant_names || row.restaurant_name || null,
+    }));
+
+    res.json({ success: true, products });
   } catch (err) {
     console.error("GET PRODUCTS ERROR:", err?.message || err);
     res.status(500).json({
@@ -215,6 +295,8 @@ routerInstance.post("/", upload.single("image"), async (req, res) => {
       image_url: bodyImageUrl,
     } = req.body;
 
+    const restaurantIds = parseRestaurantIds(req.body);
+
     if (!name || !String(name).trim()) {
       return res.status(400).json({
         success: false,
@@ -222,32 +304,18 @@ routerInstance.post("/", upload.single("image"), async (req, res) => {
       });
     }
 
-    if (!restaurant_id) {
+    if (!restaurantIds.length) {
       return res.status(400).json({
         success: false,
-        message: "المطعم مطلوب",
+        message: "اختر مطعماً واحداً على الأقل",
       });
     }
 
-    let restaurantSql = `SELECT id FROM restaurants WHERE id = ?`;
-    const restaurantParams = [restaurant_id];
-
-    if (role === "agent") {
-      restaurantSql += ` AND agent_id = ?`;
-      restaurantParams.push(userId);
-    } else if (authAgentId) {
-      restaurantSql += ` AND agent_id = ?`;
-      restaurantParams.push(authAgentId);
-    } else if (!is_admin_branch) {
-      restaurantSql += ` AND branch_id = ?`;
-      restaurantParams.push(branch_id);
-    }
-
-    const [[allowedRestaurant]] = await db.query(restaurantSql, restaurantParams);
-    if (!allowedRestaurant) {
+    const allowed = await assertRestaurantsAllowed(restaurantIds, user);
+    if (!allowed) {
       return res.status(403).json({
         success: false,
-        message: "غير مصرح باستخدام هذا المطعم",
+        message: "غير مصرح باستخدام أحد المطاعم المحددة",
       });
     }
 
@@ -275,8 +343,12 @@ routerInstance.post("/", upload.single("image"), async (req, res) => {
         });
       }
 
-      const uploaded = await uploadToCloudinary(req.file.buffer, "products");
-      image_url = uploaded.secure_url;
+      try {
+        const uploaded = await uploadToCloudinary(req.file.buffer, "products");
+        image_url = uploaded.secure_url;
+      } catch (cloudErr) {
+        console.error("PRODUCT IMAGE CLOUDINARY:", cloudErr?.message || cloudErr);
+      }
     }
 
     const [result] = await db.query(
@@ -291,13 +363,14 @@ routerInstance.post("/", upload.single("image"), async (req, res) => {
         image_url,
         notes || "",
         unit_id || null,
-        restaurant_id,
+        restaurantIds[0],
         isAvailableVal,
         isParentVal,
       ]
     );
 
     const productId = result.insertId;
+    await syncProductRestaurants(productId, restaurantIds);
 
     const cats = parseJsonArray(category_ids, []);
     for (const cid of cats) {
@@ -353,10 +426,16 @@ routerInstance.put("/:id", upload.single("image"), async (req, res) => {
       image_url: bodyImageUrl,
     } = req.body;
 
+    const restaurantIds = parseRestaurantIds(req.body);
+    const hasRestaurantIds =
+      restaurantIds.length > 0 ||
+      bodyHasRestaurantIds(req.body);
+
     let productScopeSql = `
       SELECT p.id
       FROM products p
-      LEFT JOIN restaurants r ON r.id = p.restaurant_id
+      LEFT JOIN product_restaurants pr ON pr.product_id = p.id
+      LEFT JOIN restaurants r ON r.id = COALESCE(pr.restaurant_id, p.restaurant_id)
       WHERE p.id = ?
     `;
     const productScopeParams = [req.params.id];
@@ -372,6 +451,8 @@ routerInstance.put("/:id", upload.single("image"), async (req, res) => {
       productScopeParams.push(branch_id);
     }
 
+    productScopeSql += ` GROUP BY p.id`;
+
     const [[scopedProduct]] = await db.query(productScopeSql, productScopeParams);
     if (!scopedProduct) {
       return res.status(403).json({
@@ -380,26 +461,19 @@ routerInstance.put("/:id", upload.single("image"), async (req, res) => {
       });
     }
 
-    if (restaurant_id !== undefined && restaurant_id !== null && restaurant_id !== "") {
-      let restaurantSql = `SELECT id FROM restaurants WHERE id = ?`;
-      const restaurantParams = [restaurant_id];
-
-      if (role === "agent") {
-        restaurantSql += ` AND agent_id = ?`;
-        restaurantParams.push(userId);
-      } else if (authAgentId) {
-        restaurantSql += ` AND agent_id = ?`;
-        restaurantParams.push(authAgentId);
-      } else if (!is_admin_branch) {
-        restaurantSql += ` AND branch_id = ?`;
-        restaurantParams.push(branch_id);
+    if (hasRestaurantIds) {
+      if (!restaurantIds.length) {
+        return res.status(400).json({
+          success: false,
+          message: "اختر مطعماً واحداً على الأقل",
+        });
       }
 
-      const [[allowedRestaurant]] = await db.query(restaurantSql, restaurantParams);
-      if (!allowedRestaurant) {
+      const allowed = await assertRestaurantsAllowed(restaurantIds, user);
+      if (!allowed) {
         return res.status(403).json({
           success: false,
-          message: "غير مصرح بنقل المنتج إلى هذا المطعم",
+          message: "غير مصرح بنقل المنتج إلى أحد المطاعم المحددة",
         });
       }
     }
@@ -431,9 +505,9 @@ routerInstance.put("/:id", upload.single("image"), async (req, res) => {
       params.push(unit_id || null);
     }
 
-    if (restaurant_id !== undefined) {
+    if (hasRestaurantIds) {
       updates.push("restaurant_id=?");
-      params.push(restaurant_id || null);
+      params.push(restaurantIds[0] || null);
     }
 
     if (is_available !== undefined) {
@@ -472,6 +546,10 @@ routerInstance.put("/:id", upload.single("image"), async (req, res) => {
         `UPDATE products SET ${updates.join(", ")} WHERE id=?`,
         params
       );
+    }
+
+    if (hasRestaurantIds) {
+      await syncProductRestaurants(req.params.id, restaurantIds);
     }
 
     if (category_ids !== undefined) {
@@ -555,6 +633,9 @@ routerInstance.delete("/:id", async (req, res) => {
     }
 
     await db.query("DELETE FROM product_categories WHERE product_id=?", [req.params.id]);
+    await db.query("DELETE FROM product_restaurants WHERE product_id=?", [
+      req.params.id,
+    ]);
     await db.query("DELETE FROM products WHERE id=?", [req.params.id]);
 
     res.json({ success: true, message: "🗑️ تم حذف المنتج" });

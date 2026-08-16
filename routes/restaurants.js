@@ -145,7 +145,7 @@ p.name,
 p.price,
 p.notes,
 p.image_url,
-p.restaurant_id,
+? AS restaurant_id,
 (p.is_parent + 0) AS is_parent,
 
 /* الفئات */
@@ -165,7 +165,6 @@ ROUND(
 
 FROM products p
 
-/* إعلان المطعم */
 LEFT JOIN (
   SELECT restaurant_id, MAX(discount_percent) AS discount_percent
   FROM ads
@@ -174,12 +173,23 @@ LEFT JOIN (
   AND (end_date IS NULL OR end_date >= NOW())
   GROUP BY restaurant_id
 ) ads
-ON ads.restaurant_id = p.restaurant_id
+ON ads.restaurant_id = ?
 
-WHERE p.restaurant_id = ?
+WHERE (
+  EXISTS (
+    SELECT 1 FROM product_restaurants pr
+    WHERE pr.product_id = p.id AND pr.restaurant_id = ?
+  )
+  OR (
+    NOT EXISTS (
+      SELECT 1 FROM product_restaurants pr2 WHERE pr2.product_id = p.id
+    )
+    AND p.restaurant_id = ?
+  )
+)
 
 ORDER BY p.id DESC
-`, [restaurantId]);
+`, [restaurantId, restaurantId, restaurantId, restaurantId]);
 
     res.json({
       success: true,
@@ -798,17 +808,28 @@ LEFT JOIN product_children pc2
   ON pc2.parent_id = p.id
 
 LEFT JOIN ads
-  ON ads.restaurant_id = p.restaurant_id
+  ON ads.restaurant_id = ?
   AND ads.status='active'
   AND (ads.start_date IS NULL OR ads.start_date <= NOW())
   AND (ads.end_date IS NULL OR ads.end_date >= NOW())
 
-WHERE p.restaurant_id = ?
+WHERE (
+  EXISTS (
+    SELECT 1 FROM product_restaurants pr
+    WHERE pr.product_id = p.id AND pr.restaurant_id = ?
+  )
+  OR (
+    NOT EXISTS (
+      SELECT 1 FROM product_restaurants pr2 WHERE pr2.product_id = p.id
+    )
+    AND p.restaurant_id = ?
+  )
+)
 
 GROUP BY p.id
 ORDER BY p.id DESC
       `,
-      [restaurantId]
+      [restaurantId, restaurantId, restaurantId]
     );
 
     res.json({

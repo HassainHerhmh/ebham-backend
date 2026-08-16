@@ -3,12 +3,44 @@ import db from "../db.js";
 
 const router = express.Router();
 
+function parseRestaurantIds(body = {}) {
+  let ids = [];
+
+  if (Array.isArray(body.restaurant_ids)) {
+    ids = body.restaurant_ids;
+  } else if (typeof body.restaurant_ids === "string" && body.restaurant_ids.trim()) {
+    try {
+      const parsed = JSON.parse(body.restaurant_ids);
+      ids = Array.isArray(parsed) ? parsed : [parsed];
+    } catch {
+      ids = String(body.restaurant_ids)
+        .split(",")
+        .map((x) => x.trim())
+        .filter(Boolean);
+    }
+  } else if (body.restaurant_id) {
+    ids = [body.restaurant_id];
+  }
+
+  return [...new Set(ids.map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0))];
+}
+
+async function syncUnitRestaurants(unitId, restaurantIds) {
+  await db.query("DELETE FROM unit_restaurants WHERE unit_id = ?", [unitId]);
+  for (const rid of restaurantIds) {
+    await db.query(
+      "INSERT INTO unit_restaurants (unit_id, restaurant_id) VALUES (?, ?)",
+      [unitId, rid]
+    );
+  }
+  await db.query("UPDATE units SET restaurant_id = ? WHERE id = ?", [
+    restaurantIds[0] || null,
+    unitId,
+  ]);
+}
+
 /* ======================================================
    🟢 جلب جميع الوحدات + البحث + فلترة المتجر
-   مثال:
-   GET /api/units?q=كيلو
-   GET /api/units?restaurant_id=3
-   GET /api/units?q=كيلو&restaurant_id=3
 ====================================================== */
 router.get("/", async (req, res) => {
   try {
@@ -19,9 +51,12 @@ router.get("/", async (req, res) => {
         u.id,
         u.name,
         u.restaurant_id,
-        r.name AS restaurant_name
+        GROUP_CONCAT(DISTINCT ur.restaurant_id ORDER BY ur.restaurant_id) AS restaurant_ids,
+        GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS restaurant_names,
+        MIN(r.name) AS restaurant_name
       FROM units u
-      LEFT JOIN restaurants r ON r.id = u.restaurant_id
+      LEFT JOIN unit_restaurants ur ON ur.unit_id = u.id
+      LEFT JOIN restaurants r ON r.id = COALESCE(ur.restaurant_id, u.restaurant_id)
       WHERE 1=1
     `;
 
@@ -33,15 +68,29 @@ router.get("/", async (req, res) => {
     }
 
     if (restaurant_id) {
-      sql += ` AND u.restaurant_id = ? `;
-      params.push(restaurant_id);
+      sql += `
+        AND (
+          ur.restaurant_id = ?
+          OR (ur.restaurant_id IS NULL AND u.restaurant_id = ?)
+        )
+      `;
+      params.push(restaurant_id, restaurant_id);
     }
 
-    sql += ` ORDER BY u.id DESC `;
+    sql += ` GROUP BY u.id ORDER BY u.id DESC `;
 
     const [rows] = await db.query(sql, params);
 
-    res.json({ success: true, units: rows });
+    const units = (rows || []).map((row) => ({
+      ...row,
+      restaurant_ids: String(row.restaurant_ids || row.restaurant_id || "")
+        .split(",")
+        .map((x) => Number(x))
+        .filter(Boolean),
+      restaurant_name: row.restaurant_names || row.restaurant_name || null,
+    }));
+
+    res.json({ success: true, units });
   } catch (err) {
     console.error("❌ خطأ في جلب الوحدات:", err?.message || err);
     res.json({ success: true, units: [] });
@@ -49,11 +98,12 @@ router.get("/", async (req, res) => {
 });
 
 /* ======================================================
-   ✅ إضافة وحدة جديدة مع تحديد المتجر
+   ✅ إضافة وحدة جديدة مع تحديد متاجر متعددة
 ====================================================== */
 router.post("/", async (req, res) => {
   try {
-    const { name, restaurant_id } = req.body;
+    const { name } = req.body;
+    const restaurantIds = parseRestaurantIds(req.body);
 
     if (!name || !name.trim()) {
       return res.status(400).json({
@@ -62,48 +112,45 @@ router.post("/", async (req, res) => {
       });
     }
 
-    if (!restaurant_id) {
+    if (!restaurantIds.length) {
       return res.status(400).json({
         success: false,
-        message: "❌ المتجر مطلوب",
+        message: "❌ اختر متجراً واحداً على الأقل",
       });
     }
 
     const [restaurantRows] = await db.query(
-      "SELECT id, name FROM restaurants WHERE id = ? LIMIT 1",
-      [restaurant_id]
+      `SELECT id FROM restaurants WHERE id IN (${restaurantIds.map(() => "?").join(",")})`,
+      restaurantIds
     );
 
-    if (!restaurantRows.length) {
+    if (restaurantRows.length !== restaurantIds.length) {
       return res.status(404).json({
         success: false,
-        message: "❌ المتجر غير موجود",
+        message: "❌ أحد المتاجر غير موجود",
       });
     }
 
     const unitName = name.trim();
 
     const [duplicate] = await db.query(
-      `
-      SELECT id 
-      FROM units 
-      WHERE name = ? AND restaurant_id = ?
-      LIMIT 1
-      `,
-      [unitName, restaurant_id]
+      `SELECT id FROM units WHERE name = ? LIMIT 1`,
+      [unitName]
     );
 
     if (duplicate.length) {
       return res.status(400).json({
         success: false,
-        message: "❌ هذه الوحدة موجودة مسبقاً لهذا المتجر",
+        message: "❌ هذه الوحدة موجودة مسبقاً — عدّلها واربطها بالمتاجر",
       });
     }
 
-    await db.query(
+    const [result] = await db.query(
       "INSERT INTO units (name, restaurant_id) VALUES (?, ?)",
-      [unitName, restaurant_id]
+      [unitName, restaurantIds[0]]
     );
+
+    await syncUnitRestaurants(result.insertId, restaurantIds);
 
     res.json({
       success: true,
@@ -120,8 +167,9 @@ router.post("/", async (req, res) => {
 ====================================================== */
 router.put("/:id", async (req, res) => {
   try {
-    const { name, restaurant_id } = req.body;
+    const { name } = req.body;
     const { id } = req.params;
+    const restaurantIds = parseRestaurantIds(req.body);
 
     if (!name || !name.trim()) {
       return res.status(400).json({
@@ -130,10 +178,10 @@ router.put("/:id", async (req, res) => {
       });
     }
 
-    if (!restaurant_id) {
+    if (!restaurantIds.length) {
       return res.status(400).json({
         success: false,
-        message: "❌ المتجر مطلوب",
+        message: "❌ اختر متجراً واحداً على الأقل",
       });
     }
 
@@ -150,40 +198,37 @@ router.put("/:id", async (req, res) => {
     }
 
     const [restaurantRows] = await db.query(
-      "SELECT id FROM restaurants WHERE id = ? LIMIT 1",
-      [restaurant_id]
+      `SELECT id FROM restaurants WHERE id IN (${restaurantIds.map(() => "?").join(",")})`,
+      restaurantIds
     );
 
-    if (!restaurantRows.length) {
+    if (restaurantRows.length !== restaurantIds.length) {
       return res.status(404).json({
         success: false,
-        message: "❌ المتجر غير موجود",
+        message: "❌ أحد المتاجر غير موجود",
       });
     }
 
     const unitName = name.trim();
 
     const [duplicate] = await db.query(
-      `
-      SELECT id
-      FROM units
-      WHERE name = ? AND restaurant_id = ? AND id != ?
-      LIMIT 1
-      `,
-      [unitName, restaurant_id, id]
+      `SELECT id FROM units WHERE name = ? AND id != ? LIMIT 1`,
+      [unitName, id]
     );
 
     if (duplicate.length) {
       return res.status(400).json({
         success: false,
-        message: "❌ هذه الوحدة موجودة مسبقاً لهذا المتجر",
+        message: "❌ اسم الوحدة مستخدم لوحدة أخرى",
       });
     }
 
-    await db.query(
-      "UPDATE units SET name = ?, restaurant_id = ? WHERE id = ?",
-      [unitName, restaurant_id, id]
-    );
+    await db.query("UPDATE units SET name = ?, restaurant_id = ? WHERE id = ?", [
+      unitName,
+      restaurantIds[0],
+      id,
+    ]);
+    await syncUnitRestaurants(id, restaurantIds);
 
     res.json({ success: true, message: "✅ تم تعديل الوحدة" });
   } catch (err) {
@@ -209,6 +254,9 @@ router.delete("/:id", async (req, res) => {
       });
     }
 
+    await db.query("DELETE FROM unit_restaurants WHERE unit_id = ?", [
+      req.params.id,
+    ]);
     await db.query("DELETE FROM units WHERE id = ?", [req.params.id]);
 
     res.json({ success: true, message: "🗑️ تم حذف الوحدة" });
