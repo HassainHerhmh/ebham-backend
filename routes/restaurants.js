@@ -477,7 +477,7 @@ router.post("/", upload.single("image"), async (req, res) => {
          let image_url = bodyImageUrl || null; // خذ الرابط من الفورم إن وجد
 
 if (req.file) {
-  const result = await uploadToCloudinary(req.file.path, "restaurants");
+  const result = await uploadToCloudinary(req.file.buffer, "restaurants");
   image_url = result.secure_url; // الملف يغلب على الرابط
 }
 
@@ -613,7 +613,7 @@ if (map_url !== undefined) {
 
      
     if (req.file) {
-      const result = await uploadToCloudinary(req.file.path, "restaurants");
+      const result = await uploadToCloudinary(req.file.buffer, "restaurants");
       updates.push("image_url=?");
       params.push(result.secure_url);
     }
