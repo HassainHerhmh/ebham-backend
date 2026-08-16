@@ -476,9 +476,14 @@ router.post("/", upload.single("image"), async (req, res) => {
 
          let image_url = bodyImageUrl || null; // خذ الرابط من الفورم إن وجد
 
-if (req.file) {
-  const result = await uploadToCloudinary(req.file.buffer, "restaurants");
-  image_url = result.secure_url; // الملف يغلب على الرابط
+if (req.file?.buffer) {
+  try {
+    const result = await uploadToCloudinary(req.file.buffer, "restaurants");
+    image_url = result.secure_url;
+  } catch (cloudErr) {
+    console.error("RESTAURANT IMAGE CLOUDINARY:", cloudErr?.message || cloudErr);
+    // إن فشل Cloudinary نُبقي image_url من النموذج إن وُجد
+  }
 }
 
 
@@ -606,16 +611,21 @@ if (map_url !== undefined) {
   params.push(Number(is_active));
 }
 
-  if (bodyImageUrl !== undefined) {
+  if (req.file?.buffer) {
+      try {
+        const result = await uploadToCloudinary(req.file.buffer, "restaurants");
+        updates.push("image_url=?");
+        params.push(result.secure_url);
+      } catch (cloudErr) {
+        console.error("RESTAURANT IMAGE CLOUDINARY:", cloudErr?.message || cloudErr);
+        if (bodyImageUrl !== undefined) {
+          updates.push("image_url=?");
+          params.push(bodyImageUrl || null);
+        }
+      }
+    } else if (bodyImageUrl !== undefined) {
       updates.push("image_url=?");
       params.push(bodyImageUrl || null);
-    }
-
-     
-    if (req.file) {
-      const result = await uploadToCloudinary(req.file.buffer, "restaurants");
-      updates.push("image_url=?");
-      params.push(result.secure_url);
     }
 
     if (updates.length) {
