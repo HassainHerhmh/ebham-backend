@@ -120,7 +120,7 @@ router.get("/app/:id/categories", async (req, res) => {
       INNER JOIN restaurant_categories rc
         ON rc.category_id = c.id
       WHERE rc.restaurant_id = ?
-      ORDER BY c.id ASC
+      ORDER BY COALESCE(c.sort_order, 0) ASC, c.id ASC
       `,
       [restaurantId]
     );
