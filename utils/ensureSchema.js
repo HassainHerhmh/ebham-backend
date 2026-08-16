@@ -67,6 +67,8 @@ const COLUMNS = [
   ["cash_boxes", "created_by", "INT NULL"],
   ["categories", "description", "TEXT NULL"],
   ["categories", "icon_url", "VARCHAR(500) NULL"],
+  ["categories", "image_url", "VARCHAR(1000) NULL"],
+  ["categories", "sort_order", "INT NULL DEFAULT 0"],
   ["units", "restaurant_id", "INT NULL"],
   ["wassel_order_items", "product_name", "VARCHAR(255) NULL"],
   ["wassel_order_items", "total", "DECIMAL(12,2) NULL"],
