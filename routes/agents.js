@@ -80,30 +80,38 @@ router.get("/", auth, async (req, res) => {
 router.post("/", auth, async (req, res) => {
   try {
     const user = req.user;
-    const { name, email, phone, address, branch_id, image_url } = req.body;
+    const { name, email, phone, address, branch_id, image_url, password } =
+      req.body;
 
-    // تحقق من الاسم
-    if (!name) {
+    if (!name || !String(name).trim()) {
       return res
         .status(400)
         .json({ success: false, message: "الاسم مطلوب" });
     }
 
-    // تحديد الفرع
-    const finalBranch =
-      user.is_admin === 1 ? branch_id : user.branch_id;
+    const isHq =
+      Number(user.is_admin) === 1 || Number(user.is_admin_branch) === 1;
 
-    if (!finalBranch) {
-      return res
-        .status(400)
-        .json({ success: false, message: "الفرع مطلوب" });
+    const headerBranchRaw = req.headers["x-branch-id"];
+    const headerBranch =
+      headerBranchRaw && String(headerBranchRaw) !== "all"
+        ? Number(headerBranchRaw)
+        : null;
+
+    const bodyBranch = branch_id ? Number(branch_id) : null;
+    const userBranch = user.branch_id ? Number(user.branch_id) : null;
+
+    const finalBranch = isHq
+      ? bodyBranch || headerBranch || userBranch
+      : userBranch || bodyBranch || headerBranch;
+
+    if (!finalBranch || Number.isNaN(finalBranch)) {
+      return res.status(400).json({
+        success: false,
+        message: "الفرع مطلوب — اختر فرعاً من النموذج أو من أعلى الصفحة",
+      });
     }
 
-    /* =====================
-       التحقق من التكرار
-    ===================== */
-
-    // تحقق من الهاتف
     if (phone) {
       const [phoneRows] = await db.query(
         "SELECT id FROM agents WHERE phone = ? LIMIT 1",
@@ -113,12 +121,11 @@ router.post("/", auth, async (req, res) => {
       if (phoneRows.length > 0) {
         return res.status(409).json({
           success: false,
-          message: "رقم الهاتف مستخدم مسبقًا",
+          message: "رقم الهاتف مستخدم مسبقاً",
         });
       }
     }
 
-    // تحقق من البريد
     if (email) {
       const [emailRows] = await db.query(
         "SELECT id FROM agents WHERE email = ? LIMIT 1",
@@ -128,21 +135,16 @@ router.post("/", auth, async (req, res) => {
       if (emailRows.length > 0) {
         return res.status(409).json({
           success: false,
-          message: "البريد الإلكتروني مستخدم مسبقًا",
+          message: "البريد الإلكتروني مستخدم مسبقاً",
         });
       }
     }
 
-    /* =====================
-       إنشاء كلمة المرور
-    ===================== */
-
-    const plainPassword = generatePassword(8);
+    const plainPassword =
+      password && String(password).trim().length >= 4
+        ? String(password).trim()
+        : generatePassword(8);
     const hash = await bcrypt.hash(plainPassword, 10);
-
-    /* =====================
-       الإدخال
-    ===================== */
 
     await db.query(
       `
@@ -151,7 +153,7 @@ router.post("/", auth, async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, 1, ?)
       `,
       [
-        name,
+        String(name).trim(),
         email || null,
         phone || null,
         address || null,
@@ -165,13 +167,12 @@ router.post("/", auth, async (req, res) => {
       success: true,
       password: plainPassword,
     });
-
   } catch (err) {
     console.error("ADD AGENT ERROR:", err?.message || err);
 
     res.status(500).json({
       success: false,
-      message: "حدث خطأ في السيرفر، حاول لاحقًا",
+      message: "حدث خطأ في السيرفر، حاول لاحقاً",
     });
   }
 });
@@ -212,7 +213,10 @@ const { name, email, phone, address, branch_id, image_url } = req.body;
 }
 
     
-    if (user.is_admin === 1 && branch_id) {
+    if (
+      (Number(user.is_admin) === 1 || Number(user.is_admin_branch) === 1) &&
+      branch_id
+    ) {
       fields.push("branch_id = ?");
       values.push(branch_id);
     }
