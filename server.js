@@ -607,6 +607,10 @@ import languageRoutes from "./routes/language.routes.js";
 
 app.use("/api/language", languageRoutes);
 
+import translateRoutes from "./routes/translate.js";
+
+app.use("/api/translate", translateRoutes);
+
 /* =========================
    الدعم والمحادثات
 ========================= */
