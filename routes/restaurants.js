@@ -45,6 +45,69 @@ function extractLatLng(url) {
   return null;
 }
 
+const AR_DAYS = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+
+function getYemenNow() {
+  return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Aden" }));
+}
+
+function parseTimeMinutes(value) {
+  if (!value || !String(value).includes(":")) return null;
+  const [hours, minutes] = String(value).split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+function isScheduleClosed(row) {
+  return Number(row?.closed) === 1;
+}
+
+function isOpenAtSchedule(row, date) {
+  if (!row || isScheduleClosed(row)) return false;
+
+  const openMinutes = parseTimeMinutes(row.start_time);
+  const closeMinutesRaw = parseTimeMinutes(row.end_time);
+  if (openMinutes === null || closeMinutesRaw === null) return false;
+  if (openMinutes === closeMinutesRaw) return true;
+
+  const currentMinutes = date.getHours() * 60 + date.getMinutes();
+  if (closeMinutesRaw > openMinutes) {
+    return currentMinutes >= openMinutes && currentMinutes <= closeMinutesRaw;
+  }
+
+  return currentMinutes >= openMinutes || currentMinutes <= closeMinutesRaw;
+}
+
+function applyRestaurantScheduleState(restaurant, schedule, date = getYemenNow()) {
+  restaurant.schedule = schedule;
+
+  if (!schedule.length) {
+    restaurant.is_open = 1;
+    restaurant.today_start_time = null;
+    restaurant.today_end_time = null;
+    return restaurant;
+  }
+
+  const todaySchedule = schedule.find((row) => row.day === AR_DAYS[date.getDay()]);
+
+  if (!todaySchedule || !todaySchedule.start_time || !todaySchedule.end_time) {
+    restaurant.is_open = 1;
+    restaurant.today_start_time = todaySchedule?.start_time || null;
+    restaurant.today_end_time = todaySchedule?.end_time || null;
+    return restaurant;
+  }
+
+  const isOpen =
+    !isScheduleClosed(todaySchedule) &&
+    (todaySchedule.start_time === todaySchedule.end_time ||
+      isOpenAtSchedule(todaySchedule, date));
+
+  restaurant.is_open = isOpen ? 1 : 0;
+  restaurant.today_start_time = todaySchedule.start_time;
+  restaurant.today_end_time = todaySchedule.end_time;
+  return restaurant;
+}
+
 async function resolveMapUrl(url) {
   if (!url) return url;
 
@@ -223,84 +286,7 @@ router.get("/app", async (req, res) => {
         r.branch_id,
         r.type_id,
         r.display_type,
-        r.delivery_time,
-      (
-  SELECT s.start_time
-  FROM restaurant_schedule s
-  WHERE s.restaurant_id = r.id
-    AND s.day =
-      CASE DAYOFWEEK(UTC_TIMESTAMP() + INTERVAL 3 HOUR)
-        WHEN 1 THEN 'الأحد'
-        WHEN 2 THEN 'الإثنين'
-        WHEN 3 THEN 'الثلاثاء'
-        WHEN 4 THEN 'الأربعاء'
-        WHEN 5 THEN 'الخميس'
-        WHEN 6 THEN 'الجمعة'
-        WHEN 7 THEN 'السبت'
-      END
-  LIMIT 1
-) AS today_start_time,
-
-(
-  SELECT s.end_time
-  FROM restaurant_schedule s
-  WHERE s.restaurant_id = r.id
-    AND s.day =
-      CASE DAYOFWEEK(UTC_TIMESTAMP() + INTERVAL 3 HOUR)
-        WHEN 1 THEN 'الأحد'
-        WHEN 2 THEN 'الإثنين'
-        WHEN 3 THEN 'الثلاثاء'
-        WHEN 4 THEN 'الأربعاء'
-        WHEN 5 THEN 'الخميس'
-        WHEN 6 THEN 'الجمعة'
-        WHEN 7 THEN 'السبت'
-      END
-  LIMIT 1
-) AS today_end_time,
-
-        CASE 
-          WHEN NOT EXISTS (
-            SELECT 1 FROM restaurant_schedule s WHERE s.restaurant_id = r.id
-          )
-          THEN 1
-          WHEN EXISTS (
-            SELECT 1
-            FROM restaurant_schedule s
-            WHERE s.restaurant_id = r.id
-              AND s.closed = 0
-              AND s.day = 
-                CASE DAYOFWEEK(UTC_TIMESTAMP() + INTERVAL 3 HOUR)
-                  WHEN 1 THEN 'الأحد'
-                  WHEN 2 THEN 'الإثنين'
-                  WHEN 3 THEN 'الثلاثاء'
-                  WHEN 4 THEN 'الأربعاء'
-                  WHEN 5 THEN 'الخميس'
-                  WHEN 6 THEN 'الجمعة'
-                  WHEN 7 THEN 'السبت'
-                END
-              AND s.start_time IS NOT NULL
-              AND s.end_time IS NOT NULL
-              AND (
-                (s.start_time = s.end_time)
-
-                OR (
-                  s.start_time < s.end_time
-                  AND TIME(UTC_TIMESTAMP() + INTERVAL 3 HOUR)
-                    BETWEEN s.start_time AND s.end_time
-                )
-
-                OR (
-                  s.start_time > s.end_time
-                  AND (
-                    TIME(UTC_TIMESTAMP() + INTERVAL 3 HOUR) >= s.start_time
-                    OR TIME(UTC_TIMESTAMP() + INTERVAL 3 HOUR) <= s.end_time
-                  )
-                )
-              )
-          )
-          THEN 1 ELSE 0
-        END AS is_open
-
+        r.delivery_time
       FROM restaurants r
       ${where}
       ORDER BY r.sort_order ASC
@@ -333,8 +319,10 @@ router.get("/app", async (req, res) => {
       }
     }
 
+    const yemenNow = getYemenNow();
+
     for (const r of rows) {
-      r.schedule = scheduleByRestaurant.get(r.id) || [];
+      applyRestaurantScheduleState(r, scheduleByRestaurant.get(r.id) || [], yemenNow);
     }
 
     res.json({ success: true, restaurants: rows });
