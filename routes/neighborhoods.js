@@ -2,6 +2,7 @@ import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
 import { emitCatalogUpdate } from "../utils/catalogEvents.js";
+import { ensureNeighborhoodsI18nSchema } from "../utils/catalogI18n.js";
 
 const router = express.Router();
 
@@ -59,11 +60,12 @@ async function ensureNeighborhoodsGeoSchema() {
 router.get("/by-branch/:branchId", async (req, res) => {
   try {
     await ensureNeighborhoodsGeoSchema();
+    await ensureNeighborhoodsI18nSchema();
     const { branchId } = req.params;
 
     const [rows] = await db.query(
       `
-      SELECT id, name, boundary_points
+      SELECT id, name, name_en, boundary_points
       FROM neighborhoods
       WHERE branch_id = ?
       ORDER BY name ASC
@@ -101,6 +103,7 @@ router.get("/", async (req, res) => {
 
   try {
     await ensureNeighborhoodsGeoSchema();
+    await ensureNeighborhoodsI18nSchema();
     let rows;
 
     if (is_admin_branch) {
@@ -113,6 +116,7 @@ router.get("/", async (req, res) => {
           SELECT 
             n.id,
             n.name,
+            n.name_en,
             n.delivery_fee,
             n.branch_id,
             n.boundary_points,
@@ -132,6 +136,7 @@ router.get("/", async (req, res) => {
           SELECT 
             n.id,
             n.name,
+            n.name_en,
             n.delivery_fee,
             n.branch_id,
             n.boundary_points,
@@ -151,6 +156,7 @@ router.get("/", async (req, res) => {
         SELECT 
           n.id,
           n.name,
+          n.name_en,
           n.delivery_fee,
           n.branch_id,
           n.boundary_points,
@@ -184,7 +190,9 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     await ensureNeighborhoodsGeoSchema();
-    const { name, delivery_fee, boundary_points } = req.body;
+    await ensureNeighborhoodsI18nSchema();
+    const { name, name_en, delivery_fee, boundary_points } = req.body;
+    const trimmedNameEn = String(name_en || "").trim() || null;
     const { is_admin_branch, branch_id } = req.user;
     const selectedBranch = req.headers["x-branch-id"];
 
@@ -206,12 +214,13 @@ router.post("/", async (req, res) => {
 
     await db.query(
       `
-      INSERT INTO neighborhoods (branch_id, name, delivery_fee, boundary_points)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO neighborhoods (branch_id, name, name_en, delivery_fee, boundary_points)
+      VALUES (?, ?, ?, ?, ?)
       `,
       [
         finalBranchId,
         name,
+        trimmedNameEn,
         delivery_fee || 0,
         normalizedPoints.length ? JSON.stringify(normalizedPoints) : null,
       ]
@@ -233,12 +242,14 @@ router.post("/", async (req, res) => {
    PUT /neighborhoods/:id
 ========================= */
 router.put("/:id", async (req, res) => {
-  const { name, delivery_fee, boundary_points } = req.body;
+  const { name, name_en, delivery_fee, boundary_points } = req.body;
+  const trimmedNameEn = String(name_en || "").trim() || null;
   const { is_admin_branch, branch_id } = req.user;
   const selectedBranch = req.headers["x-branch-id"];
 
   try {
     await ensureNeighborhoodsGeoSchema();
+    await ensureNeighborhoodsI18nSchema();
     let finalBranchId = branch_id;
     const normalizedPoints = normalizeBoundaryPoints(boundary_points);
 
@@ -249,11 +260,12 @@ router.put("/:id", async (req, res) => {
     await db.query(
       `
       UPDATE neighborhoods
-      SET name = ?, delivery_fee = ?, branch_id = ?, boundary_points = ?
+      SET name = ?, name_en = ?, delivery_fee = ?, branch_id = ?, boundary_points = ?
       WHERE id = ?
       `,
       [
         name,
+        trimmedNameEn,
         delivery_fee || 0,
         finalBranchId,
         normalizedPoints.length ? JSON.stringify(normalizedPoints) : null,

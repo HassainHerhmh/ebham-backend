@@ -62,7 +62,8 @@ router.get("/customer/:customerId", async (req, res) => {
         ca.longitude,
         ca.branch_id,
         ca.created_at,
-        COALESCE(n.name, ca.district) AS neighborhood_name
+        COALESCE(n.name, ca.district) AS neighborhood_name,
+        n.name_en AS neighborhood_name_en
       FROM customer_addresses ca
       LEFT JOIN neighborhoods n ON ca.district = n.id
       ${where}

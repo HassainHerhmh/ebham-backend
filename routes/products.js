@@ -2,6 +2,7 @@ import express from "express";
 import db from "../db.js";
 import upload, { uploadToCloudinary } from "../middlewares/upload.js";
 import auth from "../middlewares/auth.js";
+import { ensureProductsI18nSchema } from "../utils/catalogI18n.js";
 
 const router = express.Router();
 
@@ -199,6 +200,7 @@ routerInstance.get("/", async (req, res) => {
   }
 
   try {
+    await ensureProductsI18nSchema();
     let rows;
     let where = `WHERE p.name LIKE ?`;
     const params = [`%${search}%`];
@@ -224,9 +226,11 @@ routerInstance.get("/", async (req, res) => {
       SELECT 
         p.id,
         p.name,
+        p.name_en,
         p.price,
         p.image_url,
         p.notes,
+        p.notes_en,
         p.is_available,
         p.is_parent,
         GROUP_CONCAT(DISTINCT c.id) AS category_ids,
@@ -279,13 +283,16 @@ routerInstance.get("/", async (req, res) => {
 ====================================================== */
 routerInstance.post("/", upload.single("image"), async (req, res) => {
   try {
+    await ensureProductsI18nSchema();
     const user = req.user || {};
     const { role, id: userId, branch_id, is_admin_branch, agent_id: authAgentId } = user;
 
     const {
       name,
+      name_en = null,
       price,
       notes,
+      notes_en = null,
       unit_id,
       restaurant_id,
       category_ids = [],
@@ -354,14 +361,16 @@ routerInstance.post("/", upload.single("image"), async (req, res) => {
     const [result] = await db.query(
       `
       INSERT INTO products
-        (name, price, image_url, notes, unit_id, restaurant_id, is_available, is_parent, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+        (name, name_en, price, image_url, notes, notes_en, unit_id, restaurant_id, is_available, is_parent, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
       `,
       [
         String(name).trim(),
+        name_en || null,
         isParentVal ? null : (price || null),
         image_url,
         notes || "",
+        notes_en || null,
         unit_id || null,
         restaurantIds[0],
         isAvailableVal,
@@ -410,13 +419,16 @@ routerInstance.post("/", upload.single("image"), async (req, res) => {
 ====================================================== */
 routerInstance.put("/:id", upload.single("image"), async (req, res) => {
   try {
+    await ensureProductsI18nSchema();
     const user = req.user || {};
     const { role, id: userId, branch_id, is_admin_branch, agent_id: authAgentId } = user;
 
     const {
       name,
+      name_en,
       price,
       notes,
+      notes_en,
       unit_id,
       restaurant_id,
       category_ids,
@@ -486,6 +498,11 @@ routerInstance.put("/:id", upload.single("image"), async (req, res) => {
       params.push(String(name).trim());
     }
 
+    if (name_en !== undefined) {
+      updates.push("name_en=?");
+      params.push(name_en || null);
+    }
+
     if (price !== undefined) {
       if (price === "") {
         updates.push("price=NULL");
@@ -498,6 +515,11 @@ routerInstance.put("/:id", upload.single("image"), async (req, res) => {
     if (notes !== undefined) {
       updates.push("notes=?");
       params.push(notes);
+    }
+
+    if (notes_en !== undefined) {
+      updates.push("notes_en=?");
+      params.push(notes_en || null);
     }
 
     if (unit_id !== undefined) {

@@ -4,6 +4,7 @@ import path from "path";
 import db from "../db.js";
 import upload, { uploadToCloudinary } from "../middlewares/upload.js";
 import { emitCatalogUpdate } from "../utils/catalogEvents.js";
+import { ensureCategoriesI18nSchema } from "../utils/catalogI18n.js";
 
 const router = express.Router();
 
@@ -43,8 +44,10 @@ const resolveUploadedImageUrl = async (file, req) => {
 ====================================================== */
 router.get("/", async (_, res) => {
   try {
+    await ensureCategoriesI18nSchema();
+
     const [rows] = await db.query(`
-      SELECT id, name, description, icon_url, image_url,
+      SELECT id, name, name_en, description, description_en, icon_url, image_url,
              COALESCE(sort_order, 0) AS sort_order, created_at
       FROM categories
       ORDER BY COALESCE(sort_order, 0) ASC, id DESC
@@ -62,8 +65,17 @@ router.get("/", async (_, res) => {
 ====================================================== */
 router.post("/", upload.single("image"), async (req, res) => {
   try {
-    const { name, description, icon_url, image_url: bodyImageUrl, sort_order } =
-      req.body;
+    await ensureCategoriesI18nSchema();
+
+    const {
+      name,
+      name_en = null,
+      description,
+      description_en = null,
+      icon_url,
+      image_url: bodyImageUrl,
+      sort_order,
+    } = req.body;
 
     if (!name) {
       return res.status(400).json({
@@ -80,11 +92,13 @@ router.post("/", upload.single("image"), async (req, res) => {
 
     await db.query(
       `INSERT INTO categories
-       (name, description, icon_url, image_url, sort_order, created_at)
-       VALUES (?, ?, ?, ?, ?, NOW())`,
+       (name, name_en, description, description_en, icon_url, image_url, sort_order, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
       [
         name,
+        name_en || null,
         description || "",
+        description_en || null,
         icon_url || "",
         image_url,
         sort_order !== undefined ? Number(sort_order) || 0 : 0,
@@ -104,9 +118,13 @@ router.post("/", upload.single("image"), async (req, res) => {
 ====================================================== */
 router.put("/:id", upload.single("image"), async (req, res) => {
   try {
+    await ensureCategoriesI18nSchema();
+
     const {
       name,
+      name_en,
       description,
+      description_en,
       icon_url,
       image_url: bodyImageUrl,
       sort_order,
@@ -119,9 +137,19 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       params.push(name);
     }
 
+    if (name_en !== undefined) {
+      updates.push("name_en=?");
+      params.push(name_en || null);
+    }
+
     if (description !== undefined) {
       updates.push("description=?");
       params.push(description);
+    }
+
+    if (description_en !== undefined) {
+      updates.push("description_en=?");
+      params.push(description_en || null);
     }
 
     if (icon_url !== undefined) {

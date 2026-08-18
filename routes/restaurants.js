@@ -3,6 +3,7 @@ import db from "../db.js";
 import auth from "../middlewares/auth.js";
 import upload, { uploadToCloudinary } from "../middlewares/upload.js";
 import { emitCatalogUpdate } from "../utils/catalogEvents.js";
+import { ensureCategoriesI18nSchema, ensureProductsI18nSchema, ensureRestaurantI18nSchema } from "../utils/catalogI18n.js";
 
 function extractLatLng(url) {
   if (!url) return null;
@@ -79,34 +80,12 @@ async function getLatLngFromMapUrl(url) {
 
 const router = express.Router();
 
-let restaurantI18nSchemaReady = false;
-
-async function ensureRestaurantI18nSchema() {
-  if (restaurantI18nSchemaReady) return;
-
-  const migrations = [
-    "ALTER TABLE restaurants ADD COLUMN name_en VARCHAR(255) NULL",
-    "ALTER TABLE restaurants ADD COLUMN address_en VARCHAR(500) NULL",
-  ];
-
-  for (const sql of migrations) {
-    try {
-      await db.query(sql);
-    } catch (error) {
-      if (error?.code !== "ER_DUP_FIELDNAME") {
-        throw error;
-      }
-    }
-  }
-
-  restaurantI18nSchemaReady = true;
-}
-
 /* ======================================================
    🟢 (APP) جلب فئات مطعم معيّن للتطبيق
 ====================================================== */
 router.get("/app/:id/categories", async (req, res) => {
   try {
+    await ensureCategoriesI18nSchema();
     const restaurantId = req.params.id;
 
 
@@ -115,6 +94,8 @@ router.get("/app/:id/categories", async (req, res) => {
       SELECT 
         c.id,
         c.name,
+        c.name AS name_ar,
+        c.name_en,
         c.image_url
       FROM categories c
       INNER JOIN restaurant_categories rc
@@ -134,6 +115,7 @@ router.get("/app/:id/categories", async (req, res) => {
 
 router.get("/app/:id/products", async (req, res) => {
   try {
+    await ensureProductsI18nSchema();
 
     const restaurantId = req.params.id;
 
@@ -142,8 +124,12 @@ SELECT
 
 p.id,
 p.name,
+p.name AS name_ar,
+p.name_en,
 p.price,
 p.notes,
+p.notes AS notes_ar,
+p.notes_en,
 p.image_url,
 ? AS restaurant_id,
 (p.is_parent + 0) AS is_parent,
@@ -376,6 +362,7 @@ router.use(auth);
 ====================================================== */
 router.get("/", async (req, res) => {
   try {
+    await ensureRestaurantI18nSchema();
 const { role, id, is_admin_branch, branch_id } = req.user;
 const selectedBranch = req.headers["x-branch-id"];
 
@@ -400,9 +387,10 @@ if (role === "agent") {
       SELECT 
         r.id,
         r.name,
-            r.display_type,   -- ✅ أضف هذا
-
+        r.name_en,
+        r.display_type,
         r.address,
+        r.address_en,
         r.phone,
         r.image_url,
         r.map_url,
@@ -457,9 +445,13 @@ r.delivery_time,
 ====================================================== */
 router.post("/", upload.single("image"), async (req, res) => {
   try {
+    await ensureRestaurantI18nSchema();
+
     const {
       name,
+      name_en = null,
       address = "",
+      address_en = null,
       phone = "",
       map_url = null,
       category_ids = [],
@@ -507,13 +499,15 @@ const longitude = location?.lng || null;
 
 const [result] = await db.query(
   `INSERT INTO restaurants
-   (name, type_id, display_type, address, phone, image_url, map_url, latitude, longitude, delivery_time, is_active, sort_order, branch_id, agent_id, created_at)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+   (name, name_en, type_id, display_type, address, address_en, phone, image_url, map_url, latitude, longitude, delivery_time, is_active, sort_order, branch_id, agent_id, created_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
   [
     name,
+    name_en || null,
     type_id || null,
     display_type,
     address,
+    address_en || null,
     phone,
     image_url,
     map_url,
@@ -571,9 +565,13 @@ const [result] = await db.query(
 ====================================================== */
 router.put("/:id", upload.single("image"), async (req, res) => {
   try {
+    await ensureRestaurantI18nSchema();
+
     const {
       name,
+      name_en,
       address,
+      address_en,
       phone,
       map_url,
       category_ids,
@@ -590,8 +588,10 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     const params = [];
 
     if (name !== undefined) { updates.push("name=?"); params.push(name); }
+    if (name_en !== undefined) { updates.push("name_en=?"); params.push(name_en || null); }
      if (display_type !== undefined) { updates.push("display_type=?"); params.push(display_type); } // 👈 تحديث القيمة
     if (address !== undefined) { updates.push("address=?"); params.push(address); }
+    if (address_en !== undefined) { updates.push("address_en=?"); params.push(address_en || null); }
     if (phone !== undefined) { updates.push("phone=?"); params.push(phone); }
 if (map_url !== undefined) {
   updates.push("map_url=?");

@@ -2,6 +2,7 @@ import express from "express";
 import pool from "../db.js";
 import auth from "../middlewares/auth.js";
 import { emitCatalogUpdate } from "../utils/catalogEvents.js";
+import { ensureBranchesI18nSchema } from "../utils/catalogI18n.js";
 
 const router = express.Router();
 
@@ -75,11 +76,13 @@ router.get("/public", async (req, res) => {
   try {
     await ensureBranchGeoSchema();
     await ensureBranchActiveSchema();
+    await ensureBranchesI18nSchema();
 
     const [rows] = await pool.query(`
       SELECT 
         b.id,
         b.name,
+        b.name_en,
         b.name AS branch_name,
         b.address,
         b.phone,
@@ -112,6 +115,7 @@ router.get("/", async (req, res) => {
   try {
     await ensureBranchGeoSchema();
     await ensureBranchActiveSchema();
+    await ensureBranchesI18nSchema();
 
     const user = req.user || {};
     const jsDay = new Date().getDay();
@@ -122,7 +126,7 @@ router.get("/", async (req, res) => {
     if (user.is_admin_branch) {
       [rows] = await pool.query(
         `
-        SELECT b.id, b.name, b.address, b.phone, b.boundary_points, b.is_active,
+        SELECT b.id, b.name, b.name_en, b.address, b.phone, b.boundary_points, b.is_active,
                COALESCE(b.is_admin, 0) AS is_admin,
                w.open_time AS today_from,
                w.close_time AS today_to,
@@ -142,7 +146,7 @@ router.get("/", async (req, res) => {
 
       [rows] = await pool.query(
         `
-        SELECT b.id, b.name, b.address, b.phone, b.boundary_points, b.is_active,
+        SELECT b.id, b.name, b.name_en, b.address, b.phone, b.boundary_points, b.is_active,
                COALESCE(b.is_admin, 0) AS is_admin,
                w.open_time AS today_from,
                w.close_time AS today_to,
@@ -176,9 +180,11 @@ router.post("/", async (req, res) => {
   try {
     await ensureBranchGeoSchema();
     await ensureBranchActiveSchema();
+    await ensureBranchesI18nSchema();
 
-    const { name, address, phone, boundary_points, is_active } = req.body;
+    const { name, name_en, address, phone, boundary_points, is_active } = req.body;
     const trimmedName = String(name || "").trim();
+    const trimmedNameEn = String(name_en || "").trim() || null;
 
     if (!trimmedName) {
       return res
@@ -204,11 +210,12 @@ router.post("/", async (req, res) => {
 
     const [result] = await pool.query(
       `
-      INSERT INTO branches (name, address, phone, is_admin, boundary_points, is_active)
-      VALUES (?, ?, ?, 0, ?, ?)
+      INSERT INTO branches (name, name_en, address, phone, is_admin, boundary_points, is_active)
+      VALUES (?, ?, ?, ?, 0, ?, ?)
       `,
       [
         trimmedName,
+        trimmedNameEn,
         address || null,
         phone || null,
         normalizedPoints.length ? JSON.stringify(normalizedPoints) : null,
@@ -235,6 +242,7 @@ router.put("/:id", async (req, res) => {
   try {
     await ensureBranchGeoSchema();
     await ensureBranchActiveSchema();
+    await ensureBranchesI18nSchema();
 
     const branchId = Number(req.params.id);
     const user = req.user || {};
@@ -251,7 +259,8 @@ router.put("/:id", async (req, res) => {
         .json({ success: false, message: "غير مصرح لك بتعديل هذا الفرع" });
     }
 
-    const { name, address, phone, boundary_points, is_active } = req.body;
+    const { name, name_en, address, phone, boundary_points, is_active } = req.body;
+    const trimmedNameEn = String(name_en || "").trim() || null;
 
     if (!name) {
       return res
@@ -270,12 +279,13 @@ router.put("/:id", async (req, res) => {
     const [result] = await pool.query(
       `
       UPDATE branches
-      SET name = ?, address = ?, phone = ?, boundary_points = ?,
+      SET name = ?, name_en = ?, address = ?, phone = ?, boundary_points = ?,
           is_active = COALESCE(?, is_active)
       WHERE id = ?
       `,
       [
         name,
+        trimmedNameEn,
         address || null,
         phone || null,
         normalizedPoints.length ? JSON.stringify(normalizedPoints) : null,

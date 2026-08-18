@@ -2,6 +2,7 @@ import express from "express";
 import db from "../db.js";
 import upload, { uploadToCloudinary } from "../middlewares/upload.js";
 import { emitCatalogUpdate } from "../utils/catalogEvents.js";
+import { ensureTypesI18nSchema } from "../utils/catalogI18n.js";
 
 const router = express.Router();
 
@@ -10,10 +11,13 @@ const router = express.Router();
 ====================================================== */
 router.get("/", async (_, res) => {
   try {
+    await ensureTypesI18nSchema();
+
     const [rows] = await db.query(`
       SELECT 
         id, 
-        name, 
+        name,
+        name_en,
         image_url,
         image_outline_url,
         image_color_url,
@@ -42,8 +46,11 @@ router.post(
   ]),
   async (req, res) => {
     try {
+      await ensureTypesI18nSchema();
+
       const {
         name,
+        name_en = null,
         sort_order,
         image_url: bodyImageUrl,
         image_outline_url: bodyOutlineUrl,
@@ -88,11 +95,12 @@ router.post(
       await db.query(
         `
         INSERT INTO types 
-          (name, image_url, image_outline_url, image_color_url, sort_order, created_at)
-        VALUES (?, ?, ?, ?, ?, NOW())
+          (name, name_en, image_url, image_outline_url, image_color_url, sort_order, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, NOW())
         `,
         [
           name,
+          name_en || null,
           image_url,
           image_outline_url,
           image_color_url,
@@ -127,8 +135,11 @@ router.put(
   ]),
   async (req, res) => {
     try {
+      await ensureTypesI18nSchema();
+
       const {
         name,
+        name_en,
         sort_order,
         image_url: bodyImageUrl,
         image_outline_url: bodyOutlineUrl,
@@ -141,6 +152,11 @@ router.put(
       if (name !== undefined) {
         updates.push("name=?");
         params.push(name);
+      }
+
+      if (name_en !== undefined) {
+        updates.push("name_en=?");
+        params.push(name_en || null);
       }
 
       if (sort_order !== undefined) {
