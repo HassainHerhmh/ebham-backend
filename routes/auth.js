@@ -478,6 +478,22 @@ router.get("/me", authMiddleware, async (req, res) => {
   }
 });
 
+async function safeDeleteByCustomerRef(connection, table, customerId) {
+  for (const column of ["customer_id", "user_id"]) {
+    try {
+      await connection.query(
+        `DELETE FROM \`${table}\` WHERE \`${column}\` = ?`,
+        [customerId]
+      );
+      return;
+    } catch (err) {
+      if (err.code === "ER_BAD_FIELD_ERROR") continue;
+      if (err.code === "ER_NO_SUCH_TABLE") return;
+      throw err;
+    }
+  }
+}
+
 async function deleteCustomerAccountById(customerId) {
   const connection = await db.getConnection();
 
@@ -524,25 +540,30 @@ async function deleteCustomerAccountById(customerId) {
       await connection.query(`DELETE FROM otp_codes WHERE phone = ?`, [phone]);
     }
 
-    await connection.query(`DELETE FROM loyalty_points WHERE user_id = ?`, [
-      customerId,
-    ]);
+    await safeDeleteByCustomerRef(connection, "loyalty_points", customerId);
+    await safeDeleteByCustomerRef(connection, "loyalty_logs", customerId);
 
-    const [chats] = await connection.query(
-      `SELECT id FROM support_chats WHERE customer_id = ?`,
-      [customerId]
-    );
-
-    for (const chat of chats) {
-      await connection.query(
-        `DELETE FROM support_chat_messages WHERE chat_id = ?`,
-        [chat.id]
+    try {
+      const [chats] = await connection.query(
+        `SELECT id FROM support_chats WHERE customer_id = ?`,
+        [customerId]
       );
-    }
 
-    await connection.query(`DELETE FROM support_chats WHERE customer_id = ?`, [
-      customerId,
-    ]);
+      for (const chat of chats) {
+        await connection.query(
+          `DELETE FROM support_chat_messages WHERE chat_id = ?`,
+          [chat.id]
+        );
+      }
+
+      await connection.query(`DELETE FROM support_chats WHERE customer_id = ?`, [
+        customerId,
+      ]);
+    } catch (err) {
+      if (err.code !== "ER_NO_SUCH_TABLE" && err.code !== "ER_BAD_FIELD_ERROR") {
+        throw err;
+      }
+    }
 
     await connection.query(
       `
