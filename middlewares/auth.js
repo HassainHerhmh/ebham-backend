@@ -25,11 +25,22 @@ export default async function auth(req, res, next) {
     ========================== */
     if (decoded.role === "customer") {
       const [rows] = await db.query(
-        "SELECT id, name, phone, 'customer' AS role FROM customers WHERE id=? LIMIT 1",
+        "SELECT id, name, phone, is_active, 'customer' AS role FROM customers WHERE id=? LIMIT 1",
         [decoded.id]
       );
 
       userRecord = rows[0];
+
+      if (
+        userRecord &&
+        (Number(userRecord.is_active) === 0 ||
+          String(userRecord.phone || "").startsWith("deleted_"))
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: "تم حذف هذا الحساب",
+        });
+      }
     }
 
     /* ==========================
