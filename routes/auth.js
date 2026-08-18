@@ -477,4 +477,146 @@ router.get("/me", authMiddleware, async (req, res) => {
     });
   }
 });
+
+async function deleteCustomerAccountById(customerId) {
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const [customers] = await connection.query(
+      `
+      SELECT id, phone, is_active
+      FROM customers
+      WHERE id = ?
+      LIMIT 1
+      FOR UPDATE
+      `,
+      [customerId]
+    );
+
+    if (!customers.length) {
+      const error = new Error("NOT_FOUND");
+      error.code = "NOT_FOUND";
+      throw error;
+    }
+
+    const customer = customers[0];
+    const phone = String(customer.phone || "").trim();
+
+    if (
+      Number(customer.is_active) === 0 &&
+      phone.startsWith("deleted_")
+    ) {
+      const error = new Error("ALREADY_DELETED");
+      error.code = "ALREADY_DELETED";
+      throw error;
+    }
+
+    const anonymizedPhone = `deleted_${customerId}_${Date.now()}`;
+
+    await connection.query(
+      `DELETE FROM customer_addresses WHERE customer_id = ?`,
+      [customerId]
+    );
+
+    if (phone) {
+      await connection.query(`DELETE FROM otp_codes WHERE phone = ?`, [phone]);
+    }
+
+    await connection.query(`DELETE FROM loyalty_points WHERE user_id = ?`, [
+      customerId,
+    ]);
+
+    const [chats] = await connection.query(
+      `SELECT id FROM support_chats WHERE customer_id = ?`,
+      [customerId]
+    );
+
+    for (const chat of chats) {
+      await connection.query(
+        `DELETE FROM support_chat_messages WHERE chat_id = ?`,
+        [chat.id]
+      );
+    }
+
+    await connection.query(`DELETE FROM support_chats WHERE customer_id = ?`, [
+      customerId,
+    ]);
+
+    await connection.query(
+      `
+      UPDATE customers
+      SET
+        name = ?,
+        phone = ?,
+        phone_alt = NULL,
+        email = NULL,
+        password = NULL,
+        is_profile_complete = 0,
+        is_online = 0,
+        is_active = 0,
+        neighborhood_id = NULL,
+        last_active_at = NULL
+      WHERE id = ?
+      `,
+      [`Deleted User ${customerId}`, anonymizedPhone, customerId]
+    );
+
+    await connection.commit();
+    return { customerId, anonymizedPhone };
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
+}
+
+/* ======================================================
+   🗑️ حذف حساب العميل (داخل التطبيق)
+   - يحذف البيانات الشخصية والعناوين
+   - يحتفظ بسجلات الطلبات للمحاسبة/القانون
+====================================================== */
+async function handleAccountDeletion(req, res) {
+  try {
+    if (!req.user || req.user.role !== "customer") {
+      return res.status(403).json({
+        success: false,
+        message: "غير مصرح",
+      });
+    }
+
+    await deleteCustomerAccountById(req.user.id);
+
+    return res.json({
+      success: true,
+      message: "تم حذف الحساب بنجاح",
+    });
+  } catch (err) {
+    if (err.code === "NOT_FOUND") {
+      return res.status(404).json({
+        success: false,
+        message: "المستخدم غير موجود",
+      });
+    }
+
+    if (err.code === "ALREADY_DELETED") {
+      return res.json({
+        success: true,
+        message: "تم حذف الحساب مسبقاً",
+      });
+    }
+
+    console.error("ACCOUNT DELETION ERROR:", err);
+    return res.status(500).json({
+      success: false,
+      message: "SERVER_ERROR",
+    });
+  }
+}
+
+router.delete("/account", authMiddleware, handleAccountDeletion);
+router.post("/account-deletion/request", authMiddleware, handleAccountDeletion);
+
 export default router;
