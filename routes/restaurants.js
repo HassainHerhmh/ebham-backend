@@ -308,12 +308,33 @@ router.get("/app", async (req, res) => {
       params
     );
 
-    for (const r of rows) {
-      const [schedule] = await db.query(
-        "SELECT day, start_time, end_time, closed FROM restaurant_schedule WHERE restaurant_id=?",
-        [r.id]
+    const restaurantIds = rows.map((row) => row.id).filter(Boolean);
+    const scheduleByRestaurant = new Map();
+
+    if (restaurantIds.length) {
+      const [schedules] = await db.query(
+        `
+        SELECT restaurant_id, day, start_time, end_time, closed
+        FROM restaurant_schedule
+        WHERE restaurant_id IN (?)
+        `,
+        [restaurantIds]
       );
-      r.schedule = schedule;
+
+      for (const item of schedules) {
+        const list = scheduleByRestaurant.get(item.restaurant_id) || [];
+        list.push({
+          day: item.day,
+          start_time: item.start_time,
+          end_time: item.end_time,
+          closed: item.closed,
+        });
+        scheduleByRestaurant.set(item.restaurant_id, list);
+      }
+    }
+
+    for (const r of rows) {
+      r.schedule = scheduleByRestaurant.get(r.id) || [];
     }
 
     res.json({ success: true, restaurants: rows });
