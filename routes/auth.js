@@ -18,6 +18,7 @@ import {
   resetOtpSecurity,
   respondOtpBanned,
 } from "../services/otpBan.service.js";
+import { ensureCustomersI18nSchema } from "../utils/catalogI18n.js";
 import { safeError } from "../utils/safeLog.js";
 import {
   isPlayReviewLogin,
@@ -163,7 +164,7 @@ router.post("/google", async (req, res) => {
     const email = payload.email;
 
     const [rows] = await db.query(
-      `SELECT id, email, name, phone, is_profile_complete
+      `SELECT id, email, name, name_en, phone, is_profile_complete
        FROM customers WHERE email = ? LIMIT 1`,
       [email]
     );
@@ -269,7 +270,7 @@ router.post("/verify-otp", async (req, res) => {
     // البحث عن العميل
     const [customers] = await db.query(
       `
-      SELECT id, name, phone, is_profile_complete
+      SELECT id, name, name_en, phone, is_profile_complete
       FROM customers
       WHERE phone = ?
       LIMIT 1
@@ -446,9 +447,10 @@ router.post("/logout", authMiddleware, async (req, res) => {
 
 router.get("/me", authMiddleware, async (req, res) => {
   try {
+    await ensureCustomersI18nSchema();
     const [rows] = await db.query(
       `
-      SELECT id, name, phone, email, is_profile_complete, created_at, language
+      SELECT id, name, name_en, phone, email, is_profile_complete, created_at, language
       FROM customers
       WHERE id = ?
       LIMIT 1

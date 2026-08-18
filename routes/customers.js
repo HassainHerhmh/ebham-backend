@@ -1,6 +1,7 @@
 import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
+import { ensureCustomersI18nSchema } from "../utils/catalogI18n.js";
 
 const router = express.Router();
 
@@ -8,8 +9,9 @@ const router = express.Router();
    POST /customers/public  (للتطبيق - تسجيل جديد)
 ========================= */
 router.post("/public", async (req, res) => {
-  try {
-    const { name, phone, email, password, branch_id } = req.body;
+  try {
+    await ensureCustomersI18nSchema();
+    const { name, name_en, phone, email, password, branch_id } = req.body;
 
     if (!name || !phone || !branch_id) {
       return res.json({ success: false, message: "بيانات ناقصة" });
@@ -18,10 +20,10 @@ router.post("/public", async (req, res) => {
     // عند التسجيل الجديد، نعتبر العميل نشطاً ومتصلاً
     const [result] = await db.query(
       `
-      INSERT INTO customers (name, phone, email, password, branch_id, created_at, is_active, last_active_at, last_login)
-      VALUES (?, ?, ?, ?, ?, NOW(), 1, NOW(), NOW())
-      `,
-      [name, phone, email || null, password || null, branch_id]
+      INSERT INTO customers (name, name_en, phone, email, password, branch_id, created_at, is_active, last_active_at, last_login)
+      VALUES (?, ?, ?, ?, ?, ?, NOW(), 1, NOW(), NOW())
+      `,
+      [name, name_en || null, phone, email || null, password || null, branch_id]
     );
 
     res.json({ success: true, id: result.insertId });
@@ -44,32 +46,41 @@ router.post("/public", async (req, res) => {
 /* تحديث المسار في السيرفر ليكون مرناً */
 router.put("/public/:id", async (req, res) => {
   try {
-    const { name, email, branch_id, neighborhood_id, is_profile_complete } = req.body;
+    await ensureCustomersI18nSchema();
+    const { name, name_en, email, branch_id, neighborhood_id, is_profile_complete } = req.body;
 
     // الشرط الوحيد الإلزامي هو الاسم (لأنه لا يمكن أن يكون فارغاً)
     if (!name) {
       return res.json({ success: false, message: "الاسم مطلوب" });
     }
 
+    const fields = [
+      "name = ?",
+      "email = ?",
+      "branch_id = IFNULL(?, branch_id)",
+      "neighborhood_id = IFNULL(?, neighborhood_id)",
+      "is_profile_complete = ?",
+    ];
+    const values = [
+      name,
+      email || null,
+      branch_id || null,
+      neighborhood_id || null,
+      is_profile_complete ? 1 : 0,
+    ];
+
+    if (name_en !== undefined) {
+      fields.splice(1, 0, "name_en = ?");
+      values.splice(1, 0, name_en || null);
+    }
+
     await db.query(
       `
       UPDATE customers
-      SET
-        name = ?,
-        email = ?,
-        branch_id = IFNULL(?, branch_id),
-        neighborhood_id = IFNULL(?, neighborhood_id),
-        is_profile_complete = ?
+      SET ${fields.join(", ")}
       WHERE id = ?
       `,
-      [
-        name,
-        email || null,           // البريد اختياري
-        branch_id || null,       // إذا لم يرسل، يحافظ على القديم
-        neighborhood_id || null, // إذا لم يرسل، يحافظ على القديم
-        is_profile_complete ? 1 : 0,
-        req.params.id,
-      ]
+      [...values, req.params.id]
     );
 
     res.json({ success: true });
@@ -238,16 +249,21 @@ router.post("/", async (req, res) => {
    ✏️ PUT /customers/:id
 ========================= */
 router.put("/:id", async (req, res) => {
-  const { name, phone, phone_alt, email, is_active } = req.body;
+  await ensureCustomersI18nSchema();
+  const { name, name_en, phone, phone_alt, email, is_active } = req.body;
 
   const fields = [];
   const values = [];
 
-  if (name !== undefined) {
-    fields.push("name=?");
-    values.push(name);
-  }
-  if (phone !== undefined) {
+  if (name !== undefined) {
+    fields.push("name=?");
+    values.push(name);
+  }
+  if (name_en !== undefined) {
+    fields.push("name_en=?");
+    values.push(name_en || null);
+  }
+  if (phone !== undefined) {
     fields.push("phone=?");
     values.push(phone);
   }

@@ -59,3 +59,9 @@ export async function ensureNeighborhoodsI18nSchema() {
     "ALTER TABLE neighborhoods ADD COLUMN name_en VARCHAR(255) NULL",
   ]);
 }
+
+export async function ensureCustomersI18nSchema() {
+  await runMigrations("customers", [
+    "ALTER TABLE customers ADD COLUMN name_en VARCHAR(255) NULL",
+  ]);
+}
