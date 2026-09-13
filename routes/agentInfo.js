@@ -36,7 +36,7 @@ router.get("/", async (req, res) => {
         c.is_active,
 
         COALESCE(a.name, k.name) AS agent_name,
-        g.name AS group_name,
+        COALESCE(ag.name, cg.name) AS group_name,
 
         acc1.name_ar AS agent_account_name,
         acc2.name_ar AS commission_account_name,
@@ -58,8 +58,11 @@ router.get("/", async (req, res) => {
       LEFT JOIN captains k 
         ON c.account_type = 'captain' AND k.id = c.account_id
 
-      LEFT JOIN agent_groups g 
-        ON g.id = c.group_id
+      LEFT JOIN agent_groups ag
+        ON c.account_type = 'agent' AND ag.id = c.group_id
+
+      LEFT JOIN captain_groups cg
+        ON c.account_type = 'captain' AND cg.id = c.group_id
 
       LEFT JOIN accounts acc1 
         ON acc1.id = c.agent_account_id
@@ -210,35 +213,73 @@ router.post("/", async (req, res) => {
    PUT /agent-info/:id
 ========================= */
 router.put("/:id", async (req, res) => {
-  const {
-    commission_type,
-    commission_value,
-    contract_start,
-    contract_end,
-    is_active,
-  } = req.body;
-
-  await db.query(
-    `
-    UPDATE commissions SET
-      commission_type = ?,
-      commission_value = ?,
-      contract_start = ?,
-      contract_end = ?,
-      is_active = ?
-    WHERE id = ?
-    `,
-    [
+  try {
+    const {
+      account_type,
+      account_id,
+      group_id,
       commission_type,
       commission_value,
       contract_start,
       contract_end,
-      is_active ? 1 : 0,
-      req.params.id,
-    ]
-  );
+      agent_account_id,
+      commission_account_id,
+      currency_id,
+      is_active,
+    } = req.body;
 
-  res.json({ success: true });
+    await db.query(
+      `
+      UPDATE commissions SET
+        account_type = COALESCE(?, account_type),
+        account_id = COALESCE(?, account_id),
+        group_id = ?,
+        commission_type = COALESCE(?, commission_type),
+        commission_value = COALESCE(?, commission_value),
+        contract_start = COALESCE(?, contract_start),
+        contract_end = COALESCE(?, contract_end),
+        agent_account_id = ?,
+        commission_account_id = ?,
+        currency_id = ?,
+        is_active = COALESCE(?, is_active)
+      WHERE id = ?
+      `,
+      [
+        account_type || null,
+        account_id ? Number(account_id) : null,
+        group_id ? Number(group_id) : null,
+        commission_type || null,
+        commission_value != null && commission_value !== ""
+          ? Number(commission_value)
+          : null,
+        contract_start || null,
+        contract_end || null,
+        agent_account_id ? Number(agent_account_id) : null,
+        commission_account_id ? Number(commission_account_id) : null,
+        currency_id ? Number(currency_id) : null,
+        typeof is_active === "undefined" ? null : is_active ? 1 : 0,
+        req.params.id,
+      ]
+    );
+
+    res.json({ success: true });
+  } catch (e) {
+    console.error("UPDATE COMMISSION ERROR:", e);
+    res.status(500).json({
+      success: false,
+      message: "حدث خطأ أثناء التعديل",
+    });
+  }
+});
+
+router.delete("/:id", async (req, res) => {
+  try {
+    await db.query("DELETE FROM commissions WHERE id = ?", [req.params.id]);
+    res.json({ success: true });
+  } catch (e) {
+    console.error("DELETE COMMISSION ERROR:", e);
+    res.status(500).json({ success: false, message: "فشل الحذف" });
+  }
 });
 
 export default router;
