@@ -205,10 +205,10 @@ router.post("/", async (req, res) => {
     image_url,
   } = req.body;
 
-  if (!name || !phone || !password || !account_id) {
+  if (!name || !phone || !password) {
     return res.json({
       success: false,
-      message: "الاسم، الجوال، كلمة المرور، والحساب المحاسبي مطلوبة",
+      message: "الاسم، الجوال، وكلمة المرور مطلوبة",
     });
   }
 
@@ -224,24 +224,43 @@ router.post("/", async (req, res) => {
 
     await ensureImageColumn();
 
+    const columns = [
+      "name",
+      "email",
+      "phone",
+      "password",
+      "vehicle_type",
+      "vehicle_number",
+      "status",
+      "branch_id",
+      "image_url",
+      "created_at",
+    ];
+    const values = [
+      name,
+      email || null,
+      phone,
+      password,
+      vehicle_type || "دراجة",
+      vehicle_number || null,
+      status || "available",
+      finalBranchId,
+      image_url || null,
+    ];
+
+    if (account_id) {
+      columns.splice(8, 0, "account_id");
+      values.splice(8, 0, account_id);
+    }
+
+    const placeholders = columns.map((col) => (col === "created_at" ? "NOW()" : "?")).join(", ");
     const [result] = await db.query(
       `
       INSERT INTO captains
-      (name, email, phone, password, vehicle_type, vehicle_number, status, branch_id, account_id, image_url, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      (${columns.join(", ")})
+      VALUES (${placeholders})
       `,
-      [
-        name,
-        email || null,
-        phone,
-        password,
-        vehicle_type || "دراجة",
-        vehicle_number || null,
-        status || "available",
-        finalBranchId,
-        account_id,
-        image_url || null,
-      ]
+      values
     );
 
     res.json({ success: true, id: result?.insertId });
