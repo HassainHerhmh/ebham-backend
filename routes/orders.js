@@ -9,6 +9,7 @@ import {
   postDeliveringJournals,
   upsertJournalJob,
 } from "../utils/orderJournals.js";
+import { logAudit } from "../utils/auditLog.js";
 
 function getStatusLabel(status) {
   switch (status) {
@@ -1936,6 +1937,13 @@ router.put("/:id/status", async (req, res) => {
 
     await conn.commit();
 
+    logAudit(req, {
+      action: "تغيير حالة الطلب",
+      entityType: "order",
+      entityId: orderId,
+      details: `الحالة أصبحت: ${getStatusLabel(status)}`,
+    });
+
     try {
       const [[orderContacts]] = await conn.query(
         `SELECT
@@ -2143,6 +2151,13 @@ router.post("/:id/assign", async (req, res) => {
     res.json({
       success: true,
       message: "تم تعيين الكابتن بنجاح",
+    });
+
+    logAudit(req, {
+      action: "إسناد كابتن",
+      entityType: "order",
+      entityId: orderId,
+      details: `تم تعيين الكابتن ${captain.name}`,
     });
   } catch (err) {
     console.error("ASSIGN CAPTAIN ERROR:", err?.message || err);
@@ -2505,6 +2520,12 @@ router.put("/:id/cancel", async (req, res) => {
     );
 
 await conn.commit();
+logAudit(req, {
+  action: "إلغاء طلب",
+  entityType: "order",
+  entityId: orderId,
+  details: reason ? `السبب: ${reason}` : "تم إلغاء الطلب",
+});
 /* =========================
    🔔 حفظ إشعار إلغاء للكابتن
 ========================= */

@@ -55,6 +55,35 @@ const TABLES = [
     PRIMARY KEY (\`id\`),
     UNIQUE KEY \`uniq_journal_job_source\` (\`source_type\`, \`source_id\`)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS \`audit_logs\` (
+    \`id\` INT NOT NULL AUTO_INCREMENT,
+    \`actor_type\` VARCHAR(30) NULL,
+    \`actor_id\` INT NULL,
+    \`actor_name\` VARCHAR(255) NULL,
+    \`action\` VARCHAR(120) NOT NULL,
+    \`entity_type\` VARCHAR(50) NULL,
+    \`entity_id\` VARCHAR(50) NULL,
+    \`details\` TEXT NULL,
+    \`branch_id\` INT NULL,
+    \`created_at\` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (\`id\`),
+    KEY \`idx_audit_created\` (\`created_at\`),
+    KEY \`idx_audit_entity\` (\`entity_type\`, \`entity_id\`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS \`order_ratings\` (
+    \`id\` INT NOT NULL AUTO_INCREMENT,
+    \`order_kind\` VARCHAR(20) NOT NULL DEFAULT 'order',
+    \`order_id\` INT NOT NULL,
+    \`customer_id\` INT NULL,
+    \`restaurant_id\` INT NULL,
+    \`restaurant_rating\` TINYINT NULL,
+    \`captain_id\` INT NULL,
+    \`captain_rating\` TINYINT NULL,
+    \`notes\` TEXT NULL,
+    \`created_at\` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (\`id\`),
+    UNIQUE KEY \`uniq_order_rating\` (\`order_kind\`, \`order_id\`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 ];
 
 const COLUMNS = [

@@ -497,6 +497,12 @@ app.use("/api/settings/transit-accounts", transitAccounts);
 import journalPosting from "./routes/journalPosting.js";
 app.use("/api/journal-posting", journalPosting);
 
+import auditLogs from "./routes/auditLogs.js";
+app.use("/api/audit-logs", auditLogs);
+
+import ratingsRoutes from "./routes/ratings.js";
+app.use("/api/ratings", ratingsRoutes);
+
 /* =========================
      الوكلاء
 ========================= */
