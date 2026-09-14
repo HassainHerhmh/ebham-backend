@@ -159,13 +159,12 @@ async function prepareOrderJournalContext(conn, orderId) {
     `
     SELECT
       o.*,
-      COALESCE(bpa.account_id, pm.account_id) AS bank_account_id,
+      bpa.account_id AS bank_account_id,
       cap.name AS captain_name,
       COALESCE(c_comm.agent_account_id, cap.account_id) AS cap_acc_id,
       c_comm.commission_type AS cap_comm_type,
       c_comm.commission_value AS cap_comm_val
     FROM orders o
-    LEFT JOIN payment_methods pm ON o.bank_id = pm.id
     LEFT JOIN branch_payment_accounts bpa
       ON bpa.payment_method_id = o.bank_id
       AND bpa.branch_id = o.branch_id
@@ -519,10 +518,9 @@ async function ensureBankCaptainCompensationEntry(conn, orderId, req) {
       o.payment_method,
       o.delivery_fee,
       o.extra_store_fee,
-      COALESCE(bpa.account_id, pm.account_id) AS bank_account_id,
+      bpa.account_id AS bank_account_id,
       COALESCE(c_comm.agent_account_id, cap.account_id) AS cap_acc_id
     FROM orders o
-    LEFT JOIN payment_methods pm ON o.bank_id = pm.id
     LEFT JOIN branch_payment_accounts bpa
       ON bpa.payment_method_id = o.bank_id
       AND bpa.branch_id = o.branch_id

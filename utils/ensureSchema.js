@@ -181,6 +181,7 @@ const COLUMNS = [
   ["payment_vouchers", "notes", "TEXT NULL"],
   ["payment_vouchers", "handling", "VARCHAR(50) NULL"],
   ["payment_vouchers", "created_by", "INT NULL"],
+  ["payment_methods", "account_id", "INT NULL"],
   ["notifications", "type", "VARCHAR(50) NULL"],
   ["notifications", "reference_id", "INT NULL"],
   ["notifications", "title", "VARCHAR(255) NULL"],
