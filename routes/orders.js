@@ -1911,6 +1911,8 @@ router.put("/:id/status", async (req, res) => {
 
     // القيود المحاسبية فقط عند قيد التوصيل
     if (status === "delivering") {
+      try {
+        await conn.query("SAVEPOINT delivering_journals");
       const [[existsEntry]] = await conn.query(
         `SELECT id FROM journal_entries
          WHERE reference_type='order'
@@ -1923,7 +1925,17 @@ router.put("/:id/status", async (req, res) => {
         console.log("⚠️ القيود موجودة مسبقاً للطلب:", orderId);
       } else {
         const [[settings]] = await conn.query("SELECT * FROM settings LIMIT 1");
-        const [[baseCur]] = await conn.query("SELECT id FROM currencies WHERE is_local=1 LIMIT 1");
+        let [[baseCur]] = await conn.query(
+          "SELECT id FROM currencies WHERE is_local=1 LIMIT 1"
+        );
+        if (!baseCur?.id) {
+          [[baseCur]] = await conn.query(
+            "SELECT id FROM currencies ORDER BY id ASC LIMIT 1"
+          );
+        }
+        if (!settings || !baseCur?.id) {
+          throw new Error("إعدادات الحسابات أو العملة غير مكتملة");
+        }
         const journalTypeId = 5;
 
         const [orderRows] = await conn.query(
@@ -1933,7 +1945,7 @@ router.put("/:id/status", async (req, res) => {
             cap.name AS captain_name,
             cg.type AS guarantee_type,
             cg.account_id AS direct_acc_id,
-            c_comm.agent_account_id AS cap_acc_id,
+            COALESCE(c_comm.agent_account_id, cap.account_id) AS cap_acc_id,
             c_comm.commission_type AS cap_comm_type,
             c_comm.commission_value AS cap_comm_val
           FROM orders o
@@ -2102,7 +2114,7 @@ router.put("/:id/status", async (req, res) => {
           Number(order.delivery_fee || 0) +
           Number(order.extra_store_fee || 0);
 
-        if (deliveryTotal > 0) {
+        if (deliveryTotal > 0 && mainDebitAccount) {
           await insertJournalEntry(
             conn,
             journalTypeId,
@@ -2128,7 +2140,12 @@ router.put("/:id/status", async (req, res) => {
           );
         }
 
-        if (deliveryTotal > 0 && order.cap_comm_val > 0) {
+        if (
+          deliveryTotal > 0 &&
+          order.cap_comm_val > 0 &&
+          order.cap_acc_id &&
+          settings.courier_commission_account
+        ) {
           const captainCommission =
             order.cap_comm_type === "percent"
               ? (deliveryTotal * Number(order.cap_comm_val)) / 100
@@ -2190,6 +2207,18 @@ router.put("/:id/status", async (req, res) => {
         }
       }
       await ensureBankCaptainCompensationEntry(conn, orderId, req);
+        await conn.query("RELEASE SAVEPOINT delivering_journals");
+      } catch (journalErr) {
+        try {
+          await conn.query("ROLLBACK TO SAVEPOINT delivering_journals");
+        } catch {
+          // savepoint may already be gone
+        }
+        console.error(
+          "DELIVERING JOURNALS ERROR:",
+          journalErr?.message || journalErr
+        );
+      }
     }
 
     await conn.commit();
@@ -2260,35 +2289,32 @@ router.put("/:id/status", async (req, res) => {
           orderKind: "delivery",
         });
 
-        io.emit("admin_notification", {
-          type: "order_status_updated",
-          order_id: orderId,
-          order_number: orderDisplayNumber,
-          message: `📦 ${actorLabel} ${actorName} حدّث طلب #${orderDisplayNumber} للعميل ${orderContacts.customer_name} إلى (${getStatusLabel(status)})`
-        });
+        if (io) {
+          io.emit("admin_notification", {
+            type: "order_status_updated",
+            order_id: orderId,
+            order_number: orderDisplayNumber,
+            message: `📦 ${actorLabel} ${actorName} حدّث طلب #${orderDisplayNumber} للعميل ${orderContacts.customer_name} إلى (${getStatusLabel(status)})`
+          });
+        }
 
         if (orderContacts.captain_id) {
-          await db.query(
-            `INSERT INTO notifications
-             (captain_id, title, message, type, reference_id)
-             VALUES (?,?,?,?,?)`,
-            [
-              orderContacts.captain_id,
-              "تحديث حالة الطلب",
-              `📦 تحديث الطلب #${orderDisplayNumber} إلى (${getStatusLabel(status)})`,
-              "order_status",
-              orderId
-            ]
-          );
+          await insertCaptainNotification({
+            captainId: orderContacts.captain_id,
+            title: "تحديث حالة الطلب",
+            message: `📦 تحديث الطلب #${orderDisplayNumber} إلى (${getStatusLabel(status)})`,
+            type: "order_status",
+            referenceId: orderId,
+          });
 
-          io.to("captain_" + orderContacts.captain_id).emit("new_notification", {
+          io?.to("captain_" + orderContacts.captain_id).emit("new_notification", {
             message: `📦 تحديث الطلب #${orderDisplayNumber} إلى (${getStatusLabel(status)})`,
             createdAt: new Date()
           });
         }
       }
     } catch (fcmErr) {
-      console.error("FCM NOTIFICATION ERROR:", fcmErr.message);
+      console.error("FCM NOTIFICATION ERROR:", fcmErr?.message || fcmErr);
     }
 
     res.json({ success: true });
@@ -2395,12 +2421,41 @@ async function ensureBankCaptainCompensationEntry(conn, orderId, req) {
 }
 
 async function insertJournalEntry(conn, type, refId, cur, acc, debit, credit, notes, req) {
-  return conn.query(
-    `INSERT INTO journal_entries 
-     (journal_type_id, reference_type, reference_id, journal_date, currency_id, account_id, debit, credit, notes, created_by, branch_id)
-     VALUES (?, 'order', ?, CURDATE(), ?, ?, ?, ?, ?, ?, ?)`,
-    [type, refId, cur, acc, debit || 0, credit || 0, notes, req.user.id, req.user.branch_id]
-  );
+  if (!acc || !cur) {
+    console.warn("Skip journal entry: missing account or currency", {
+      acc,
+      cur,
+      notes,
+    });
+    return;
+  }
+
+  try {
+    return await conn.query(
+      `INSERT INTO journal_entries 
+       (journal_type_id, reference_type, reference_id, journal_date, currency_id, account_id, debit, credit, notes, created_by, branch_id)
+       VALUES (?, 'order', ?, CURDATE(), ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        type,
+        refId,
+        cur,
+        acc,
+        debit || 0,
+        credit || 0,
+        notes,
+        req.user?.id || null,
+        req.user?.branch_id || null,
+      ]
+    );
+  } catch (err) {
+    if (err?.code !== "ER_BAD_FIELD_ERROR") throw err;
+    return conn.query(
+      `INSERT INTO journal_entries 
+       (journal_type_id, reference_type, reference_id, journal_date, currency_id, account_id, debit, credit, notes)
+       VALUES (?, 'order', ?, CURDATE(), ?, ?, ?, ?, ?)`,
+      [type, refId, cur, acc, debit || 0, credit || 0, notes]
+    );
+  }
 }
 /* =========================
    POST /orders/:id/assign
