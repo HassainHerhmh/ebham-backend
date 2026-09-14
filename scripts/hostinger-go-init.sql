@@ -443,6 +443,8 @@ CREATE TABLE IF NOT EXISTS `notifications` (
   `captain_id` INT NULL,
   `customer_id` INT NULL,
   `order_id` INT NULL,
+  `type` VARCHAR(50) NULL,
+  `reference_id` INT NULL,
   `is_read` TINYINT(1) NOT NULL DEFAULT 0,
   `created_at` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`)

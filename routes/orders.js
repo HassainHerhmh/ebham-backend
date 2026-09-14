@@ -4,6 +4,7 @@ import auth from "../middlewares/auth.js";
 import admin from "firebase-admin";
 import { addPointsAfterOrder } from "./loyalty.js";
 import { ensureOrderNumberSchema, getNextOrderNumber } from "../utils/orderNumbers.js";
+import { emitCustomerOrderUpdate } from "../utils/orderRealtime.js";
 
 function getStatusLabel(status) {
   switch (status) {
@@ -2197,6 +2198,7 @@ router.put("/:id/status", async (req, res) => {
       const [[orderContacts]] = await conn.query(
         `SELECT
           o.id,
+          o.customer_id,
           COALESCE(o.order_number, o.id) AS order_number,
           o.captain_id,
           c.fcm_token AS customer_token,
@@ -2216,11 +2218,17 @@ router.put("/:id/status", async (req, res) => {
         let title = "تحديث في طلبك 📦";
         let body = "";
 
-        if (status === "processing") body = `بدأ المطعم في تحضير طلبك رقم #${orderDisplayNumber} 👨‍🍳`;
-        else if (status === "ready") body = `أبشر! طلبك رقم #${orderDisplayNumber} جاهز للاستلام 🥯`;
-        else if (status === "delivering") body = `الكابتن استلم طلبك رقم #${orderDisplayNumber} وهو في الطريق إليك 🏍️`;
-        else if (status === "completed") body = `تم توصيل الطلب رقم #${orderDisplayNumber} بنجاح، بالعافية! ❤️`;
-        else if (status === "cancelled") body = `نعتذر منك، تم إلغاء طلبك رقم #${orderDisplayNumber} ❌`;
+        if (status === "confirmed" || status === "processing" || status === "preparing") {
+          body = `بدأ المطعم في تحضير طلبك رقم #${orderDisplayNumber} 👨‍🍳`;
+        } else if (status === "ready") {
+          body = `أبشر! طلبك رقم #${orderDisplayNumber} جاهز للاستلام 🥯`;
+        } else if (status === "delivering") {
+          body = `الكابتن استلم طلبك رقم #${orderDisplayNumber} وهو في الطريق إليك 🏍️`;
+        } else if (status === "completed") {
+          body = `تم توصيل الطلب رقم #${orderDisplayNumber} بنجاح، بالعافية! ❤️`;
+        } else if (status === "cancelled" || status === "canceled") {
+          body = `نعتذر منك، تم إلغاء طلبك رقم #${orderDisplayNumber} ❌`;
+        }
 
         if (body && orderContacts.customer_token) {
           await sendFCMNotification(orderContacts.customer_token, title, body, {
@@ -2240,6 +2248,17 @@ router.put("/:id/status", async (req, res) => {
         }
 
         const io = req.app.get("io");
+
+        emitCustomerOrderUpdate(io, {
+          customerId: orderContacts.customer_id,
+          orderId,
+          orderNumber: orderDisplayNumber,
+          status,
+          statusLabel: getStatusLabel(status),
+          title,
+          body: body || `تم تحديث طلبك رقم #${orderDisplayNumber} إلى (${getStatusLabel(status)})`,
+          orderKind: "delivery",
+        });
 
         io.emit("admin_notification", {
           type: "order_status_updated",
@@ -2388,159 +2407,113 @@ async function insertJournalEntry(conn, type, refId, cur, acc, debit, credit, no
    تعيين كابتن + إشعارات كاملة
 ========================= */
 router.post("/:id/assign", async (req, res) => {
-
   try {
-
     const { captain_id } = req.body;
     const orderId = req.params.id;
 
     if (!captain_id) {
       return res.status(400).json({
         success: false,
-        message: "captain_id مطلوب"
+        message: "captain_id مطلوب",
       });
     }
 
-    /* =========================
-       تحديث الطلب
-    ========================= */
-    await db.query(
-      "UPDATE orders SET captain_id=? WHERE id=?",
-      [captain_id, orderId]
-    );
-
-    const io = req.app.get("io");
-
-    /* =========================
-       جلب بيانات الكابتن
-    ========================= */
     const [[captain]] = await db.query(
       "SELECT id, name, fcm_token FROM captains WHERE id=?",
       [captain_id]
     );
 
-    /* =========================
-       جلب بيانات الطلب والعميل
-    ========================= */
-    const [[order]] = await db.query(`
-      SELECT 
+    if (!captain) {
+      return res.status(404).json({
+        success: false,
+        message: "الكابتن غير موجود",
+      });
+    }
+
+    const [updateResult] = await db.query(
+      "UPDATE orders SET captain_id=? WHERE id=?",
+      [captain_id, orderId]
+    );
+
+    if (!updateResult?.affectedRows) {
+      return res.status(404).json({
+        success: false,
+        message: "الطلب غير موجود",
+      });
+    }
+
+    const [[order]] = await db.query(
+      `
+      SELECT
         o.id,
+        o.customer_id,
         COALESCE(o.order_number, o.id) AS order_number,
         c.name AS customer_name
       FROM orders o
       LEFT JOIN customers c ON c.id = o.customer_id
       WHERE o.id=?
-    `, [orderId]);
+      `,
+      [orderId]
+    );
 
     const customerName = order?.customer_name || "غير معروف";
     const orderDisplayNumber = order?.order_number || orderId;
+    const notifyMessage = `🚀 وصلك طلب رقم #${orderDisplayNumber} للعميل ${customerName}`;
 
-/* =========================
-   🔔 حفظ الإشعار في الداتابيز
-========================= */
-await db.query(
-  `INSERT INTO notifications
-   (captain_id, title, message, type, reference_id)
-   VALUES (?,?,?,?,?)`,
-  [
-    captain_id,
-    "طلب جديد",
-    `🚀 وصلك طلب رقم #${orderDisplayNumber} للعميل ${customerName}`,
-    "new_order",
-    orderId
-  ]
-);
+    await insertCaptainNotification({
+      captainId: captain_id,
+      title: "طلب جديد",
+      message: notifyMessage,
+      type: "new_order",
+      referenceId: orderId,
+    });
 
-/* =========================
-   realtime للكابتن
-========================= */
-io.to("captain_" + captain_id).emit("new_order_assigned", {
-
-  type: "new_order",
-
-  order_id: orderId,
-  order_number: orderDisplayNumber,
-
-  message:
-    `🚀 وصلك طلب رقم #${orderDisplayNumber} للعميل ${customerName} — عجل عليه يا وحش`
-
-});
-
-io.to("captain_" + captain_id).emit("new_notification", {
-  message: `🚀 وصلك طلب رقم #${orderDisplayNumber} للعميل ${customerName}`,
-  createdAt: new Date()
-});
-
-    /* =========================
-       Push Notification للكابتن
-    ========================= */
-    if (captain?.fcm_token) {
-
-      await admin.messaging().send({
-
-        token: captain.fcm_token,
-
-        notification: {
-
-          title: "🚀 طلب جديد",
-
-          body:
-            `طلب رقم #${orderDisplayNumber} للعميل ${customerName}`
-
-        },
-
-        data: {
-
-          orderId: String(orderId),
-          orderNumber: String(orderDisplayNumber),
-
-          customerName: customerName,
-
-          type: "new_order"
-
-        }
-
+    const io = req.app.get("io");
+    if (io) {
+      io.to("captain_" + captain_id).emit("new_order_assigned", {
+        type: "new_order",
+        order_id: orderId,
+        order_number: orderDisplayNumber,
+        message: `${notifyMessage} — عجل عليه يا وحش`,
       });
 
+      io.to("captain_" + captain_id).emit("new_notification", {
+        message: notifyMessage,
+        createdAt: new Date(),
+      });
+
+      io.emit("admin_notification", {
+        type: "captain_assigned",
+        order_id: orderId,
+        order_number: orderDisplayNumber,
+        captain_id,
+        message: `👨‍✈️ تم تعيين الكابتن ${captain.name} للطلب رقم #${orderDisplayNumber} الخاص بالعميل ${customerName}`,
+      });
     }
 
-    /* =========================
-       إشعار لوحة التحكم
-    ========================= */
-    io.emit("admin_notification", {
+    await sendFCMNotification(
+      captain.fcm_token,
+      "🚀 طلب جديد",
+      `طلب رقم #${orderDisplayNumber} للعميل ${customerName}`,
+      {
+        orderId: String(orderId),
+        orderNumber: String(orderDisplayNumber),
+        customerName,
+        type: "new_order",
+      }
+    );
 
-      type: "captain_assigned",
-
-      order_id: orderId,
-      order_number: orderDisplayNumber,
-
-      captain_id: captain_id,
-
-      message:
-        `👨‍✈️ تم تعيين الكابتن ${captain?.name} للطلب رقم #${orderDisplayNumber} الخاص بالعميل ${customerName}`
-
-    });
-
-    /* =========================
-       الرد
-    ========================= */
     res.json({
       success: true,
-      message: "تم تعيين الكابتن بنجاح"
+      message: "تم تعيين الكابتن بنجاح",
     });
-
-  }
-  catch (err) {
-
+  } catch (err) {
     console.error("ASSIGN CAPTAIN ERROR:", err?.message || err);
-
     res.status(500).json({
       success: false,
-      message: "فشل تعيين الكابتن"
+      message: err?.sqlMessage || err?.message || "فشل تعيين الكابتن",
     });
-
   }
-
 });
 
 
@@ -2978,9 +2951,40 @@ if (orderData?.captain_id) {
 /* =========================
    دالة مساعدة لإرسال إشعارات FCM (محدثة)
 ========================= */
+async function insertCaptainNotification({
+  captainId,
+  title,
+  message,
+  type,
+  referenceId,
+}) {
+  if (!captainId) return;
+
+  try {
+    await db.query(
+      `INSERT INTO notifications
+       (captain_id, title, message, type, reference_id, order_id)
+       VALUES (?,?,?,?,?,?)`,
+      [captainId, title, message, type, referenceId, referenceId]
+    );
+  } catch (err) {
+    console.error("NOTIFICATION INSERT:", err?.message || err);
+    try {
+      await db.query(
+        `INSERT INTO notifications (captain_id, title, message, order_id)
+         VALUES (?,?,?,?)`,
+        [captainId, title, message, referenceId]
+      );
+    } catch (fallbackErr) {
+      console.error("NOTIFICATION FALLBACK:", fallbackErr?.message || fallbackErr);
+    }
+  }
+}
+
 async function sendFCMNotification(token, title, body, data = {}) {
   if (!token) return;
   try {
+    if (!admin.apps?.length) return;
     await admin.messaging().send({
       token: token,
       notification: { title, body },
@@ -2989,7 +2993,7 @@ async function sendFCMNotification(token, title, body, data = {}) {
         priority: "high",
         notification: {
           sound: "default",
-          channelId: "orders_channel", // تأكد أن هذا الاسم مطابق لما في كود الأندرويد
+          channelId: "orders_channel",
         }
       }
     });
