@@ -1,6 +1,7 @@
 import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
+import { processOpenJournalJobs } from "../utils/orderJournals.js";
 
 const router = express.Router();
 router.use(auth);
@@ -197,6 +198,10 @@ router.post("/", async (req, res) => {
       message: "تم حفظ العقد بنجاح",
     });
 
+    processOpenJournalJobs(req).catch((err) =>
+      console.error("JOURNAL RETRY AFTER COMMISSION ADD:", err?.message || err)
+    );
+
   } catch (err) {
 
     console.error("ADD COMMISSION ERROR:", err?.message || err);
@@ -263,6 +268,9 @@ router.put("/:id", async (req, res) => {
     );
 
     res.json({ success: true });
+    processOpenJournalJobs(req).catch((err) =>
+      console.error("JOURNAL RETRY AFTER COMMISSION UPDATE:", err?.message || err)
+    );
   } catch (e) {
     console.error("UPDATE COMMISSION ERROR:", e);
     res.status(500).json({

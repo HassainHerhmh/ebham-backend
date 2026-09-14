@@ -494,6 +494,9 @@ import transitAccounts from "./routes/transit-accounts.js";
 
 app.use("/api/settings/transit-accounts", transitAccounts);
 
+import journalPosting from "./routes/journalPosting.js";
+app.use("/api/journal-posting", journalPosting);
+
 /* =========================
      الوكلاء
 ========================= */

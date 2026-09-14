@@ -2,6 +2,7 @@
 import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
+import { processOpenJournalJobs } from "../utils/orderJournals.js";
 
 const router = express.Router();
 router.use(auth);
@@ -119,7 +120,12 @@ WHERE id = 1
       );
     }
 
-    res.json({ success: true });
+    const processed = await processOpenJournalJobs(req).catch((err) => {
+      console.error("JOURNAL RETRY AFTER TRANSIT SAVE:", err?.message || err);
+      return { posted: 0, failed: 0 };
+    });
+
+    res.json({ success: true, processed });
   } catch (err) {
     console.error("SAVE TRANSIT SETTINGS ERROR:", err?.message || err);
     res.status(500).json({ success: false });

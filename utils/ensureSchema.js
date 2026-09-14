@@ -39,6 +39,22 @@ const TABLES = [
     PRIMARY KEY (\`product_id\`, \`restaurant_id\`),
     KEY \`idx_pr_restaurant\` (\`restaurant_id\`)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS \`journal_posting_jobs\` (
+    \`id\` INT NOT NULL AUTO_INCREMENT,
+    \`source_type\` VARCHAR(30) NOT NULL DEFAULT 'order',
+    \`source_id\` INT NOT NULL,
+    \`order_number\` VARCHAR(50) NULL,
+    \`status\` VARCHAR(20) NOT NULL DEFAULT 'pending',
+    \`error_code\` VARCHAR(80) NULL,
+    \`error_message\` TEXT NULL,
+    \`retry_count\` INT NOT NULL DEFAULT 0,
+    \`posted_at\` DATETIME NULL,
+    \`last_attempt_at\` DATETIME NULL,
+    \`created_at\` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+    \`updated_at\` DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (\`id\`),
+    UNIQUE KEY \`uniq_journal_job_source\` (\`source_type\`, \`source_id\`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 ];
 
 const COLUMNS = [
