@@ -235,6 +235,7 @@ const COLUMNS = [
   ["wassel_orders", "bank_id", "INT NULL"],
   ["wassel_orders", "payment_method_id", "INT NULL"],
   ["wassel_orders", "customer_price_decision", "VARCHAR(30) NULL DEFAULT 'pending_quote'"],
+  ["wassel_orders", "branch_id", "INT NULL"],
   ["wassel_orders", "scheduled_at", "DATETIME NULL"],
   ["wassel_orders", "processing_at", "DATETIME NULL"],
   ["wassel_orders", "ready_at", "DATETIME NULL"],

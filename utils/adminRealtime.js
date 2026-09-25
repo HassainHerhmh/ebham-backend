@@ -28,6 +28,38 @@ export function emitAdminNotification(io, payload = {}) {
   }
 }
 
+/** يصل لكل غرف الداشبورد المفتوحة (فرع محدد أو الكل)، حتى لو branch_id ناقص من العميل */
+export function emitAdminNotificationAllDashboards(io, payload = {}) {
+  if (!io) return;
+
+  const branchId = parseBranchId(payload.branch_id);
+  const data = {
+    ...payload,
+    branch_id: branchId,
+  };
+
+  const rooms = new Set(["branch_all"]);
+  if (branchId) rooms.add("branch_" + branchId);
+
+  try {
+    const adapterRooms = io.sockets?.adapter?.rooms;
+    if (adapterRooms?.keys) {
+      for (const room of adapterRooms.keys()) {
+        if (/^branch_\d+$/.test(room)) rooms.add(room);
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  for (const room of rooms) {
+    io.to(room).emit("admin_notification", data);
+    if (data.type) {
+      io.to(room).emit(data.type, data);
+    }
+  }
+}
+
 export function joinDashboardBranchRooms(socket, branchId) {
   for (const room of socket.rooms) {
     if (room.startsWith("branch_")) {

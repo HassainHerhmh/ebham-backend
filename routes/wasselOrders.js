@@ -4,7 +4,7 @@ import auth from "../middlewares/auth.js";
 import admin from "firebase-admin";
 import { ensureOrderNumberSchema, getNextOrderNumber } from "../utils/orderNumbers.js";
 import { emitCustomerOrderUpdate } from "../utils/orderRealtime.js";
-import { emitAdminNotification, resolveScopedBranchId } from "../utils/adminRealtime.js";
+import { emitAdminNotificationAllDashboards, parseBranchId, resolveScopedBranchId } from "../utils/adminRealtime.js";
 import { emitCatalogUpdate } from "../utils/catalogEvents.js";
 const router = express.Router();
 
@@ -27,6 +27,14 @@ function haversineKm(lat1, lng1, lat2, lng2) {
 
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
+}
+
+function notifyBranchId(req) {
+  return parseBranchId(req?.headers?.["x-branch-id"]) || resolveScopedBranchId(req);
+}
+
+function wasselFeesTotal(deliveryFee, extraFee) {
+  return Number(deliveryFee || 0) + Number(extraFee || 0);
 }
 
 
@@ -464,7 +472,9 @@ router.get("/", auth, async (req, res) => {
         COALESCE(nf.name, ca_from.district, '') AS from_neighborhood_name,
         ca_from.address AS from_address_detail,
         COALESCE(nt.name, ca_to.district, '') AS to_neighborhood_name,
-        ca_to.address AS to_address_detail
+        ca_to.address AS to_address_detail,
+        (COALESCE(w.delivery_fee, 0) + COALESCE(w.extra_fee, 0)) AS total_fee,
+        (COALESCE(w.delivery_fee, 0) + COALESCE(w.extra_fee, 0)) AS total_amount
       FROM wassel_orders w
       LEFT JOIN wassel_order_types wt ON wt.id = w.order_type
       LEFT JOIN wassel_transport_methods tm ON tm.id = w.transport_method_id
@@ -495,7 +505,10 @@ router.get("/", auth, async (req, res) => {
 
     res.json({
       success: true,
-      orders: rows
+      orders: (rows || []).map((row) => {
+        const total = wasselFeesTotal(row.delivery_fee, row.extra_fee);
+        return { ...row, total_fee: total, total_amount: total };
+      })
     });
   } catch (err) {
     console.error(err);
@@ -626,6 +639,8 @@ router.post("/", async (req, res) => {
        الإدخال
     ====================== */
     const orderNumber = await getNextOrderNumber();
+    const feesTotal = wasselFeesTotal(delivery_fee, extra_fee);
+    const orderBranchId = notifyBranchId(req);
 
     const [result] = await db.query(`
       INSERT INTO wassel_orders (
@@ -648,6 +663,7 @@ router.post("/", async (req, res) => {
         distance_km,
         delivery_fee,
         extra_fee,
+        total_amount,
         notes,
 
         status,
@@ -658,9 +674,10 @@ router.post("/", async (req, res) => {
         scheduled_at,
         is_manual,
         customer_price_decision,
+        branch_id,
         created_at
 
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,NOW())
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,NOW())
     `, [
       orderNumber,
       customer_id || null,
@@ -681,6 +698,7 @@ router.post("/", async (req, res) => {
       Number(distance_km || 0),
       delivery_fee || 0,
       extra_fee || 0,
+      feesTotal,
       notes || "",
 
       status,
@@ -690,12 +708,13 @@ router.post("/", async (req, res) => {
       req.user?.id || null,
       scheduledAt,
       req.user?.role === "customer" || !req.user
-        ? Number(delivery_fee || 0) + Number(extra_fee || 0) > 0
+        ? feesTotal > 0
           ? "pending_approval"
           : "pending_quote"
-        : Number(delivery_fee || 0) + Number(extra_fee || 0) > 0
+        : feesTotal > 0
           ? "approved"
           : "pending_quote",
+      orderBranchId,
     ]);
 
     const orderId = result.insertId;
@@ -723,13 +742,13 @@ router.post("/", async (req, res) => {
     /* ======================
        إشعار لوحة التحكم فقط
     ====================== */
-    emitAdminNotification(io, {
+    emitAdminNotificationAllDashboards(io, {
       type: "wassel_order_created",
       order_id: orderId,
       order_number: orderNumber,
       actor_name: actorName,
       customer_name: customerName,
-      branch_id: req.user?.branch_id || req.headers["x-branch-id"] || null,
+      branch_id: orderBranchId,
       message: adminMessage
     });
 
@@ -913,14 +932,14 @@ router.put("/status/:id", async (req, res) => {
       body: `تم تحديث طلبك رقم #${order?.order_number || orderId} إلى ${statusText}`,
       orderKind: "wassel",
     });
-    emitAdminNotification(io, {
+    emitAdminNotificationAllDashboards(io, {
       type: "wassel_status",
       order_id: orderId,
       order_number: order?.order_number || orderId,
       actor_name: actorName,
       customer_name: order.customer_name,
       status: status,
-      branch_id: req.user?.branch_id || req.headers["x-branch-id"] || null,
+      branch_id: notifyBranchId(req),
       message: `${actorIcon} ${actorName} حدّث حالة طلب العميل ${order.customer_name} رقم #${order?.order_number || orderId} إلى ${statusText}`
     });
     res.json({
@@ -998,13 +1017,13 @@ router.post("/assign", async (req, res) => {
     }
 
     /* إشعار لوحة التحكم */
-    emitAdminNotification(io, {
+    emitAdminNotificationAllDashboards(io, {
       type: order?.is_manual ? "manual_order_assigned" : "wassel_assigned",
       order_id: orderId,
       order_number: orderNumber,
       captain_name: captainName,
       customer_name: customerName,
-      branch_id: req.user?.branch_id || null,
+      branch_id: notifyBranchId(req),
       message: `👨‍✈️ تم إسناد طلب وصل لي #${orderNumber} إلى ${captainName} للعميل ${customerName}`
     });
 
@@ -1144,6 +1163,7 @@ router.put("/:id", async (req, res) => {
     distance_km        = ?,
     delivery_fee       = ?,
     extra_fee          = ?,
+    total_amount       = ?,
     notes              = ?,
 
     payment_method     = ?,
@@ -1175,6 +1195,7 @@ router.put("/:id", async (req, res) => {
   Number(distance_km || 0),
   delivery_fee || 0,
   extra_fee || 0,
+  wasselFeesTotal(delivery_fee, extra_fee),
   notes || "",
 
   payment_method,
@@ -1227,6 +1248,14 @@ router.put("/:id", async (req, res) => {
         });
       }
     }
+
+    emitAdminNotificationAllDashboards(req.app.get("io"), {
+      type: "wassel_order_updated",
+      order_id: orderId,
+      order_number: updated?.order_number || orderId,
+      branch_id: notifyBranchId(req),
+      message: `تم تحديث طلب وصل لي #${updated?.order_number || orderId}`,
+    });
 
     res.json({ success: true });
 
@@ -1291,12 +1320,12 @@ router.post("/:id/price-decision", auth, async (req, res) => {
     }
 
     const io = req.app.get("io");
-    emitAdminNotification(io, {
+    emitAdminNotificationAllDashboards(io, {
       type: "wassel_price_decision",
       order_id: order.id,
       order_number: order.order_number || order.id,
       customer_name: req.user?.name,
-      branch_id: req.headers["x-branch-id"] || null,
+      branch_id: notifyBranchId(req),
       message:
         decision === "approved"
           ? `العميل وافق على سعر طلب وصل لي #${order.order_number || order.id}`
@@ -1352,7 +1381,8 @@ const [[order]] = await db.query(`
     w.extra_fee,
     w.customer_price_decision,
 
-    (w.delivery_fee + w.extra_fee) AS total_fee,
+    (COALESCE(w.delivery_fee, 0) + COALESCE(w.extra_fee, 0)) AS total_fee,
+    (COALESCE(w.delivery_fee, 0) + COALESCE(w.extra_fee, 0)) AS total_amount,
 
     w.notes,
     w.payment_method,
@@ -1549,14 +1579,14 @@ router.put("/:id/status", auth, async (req, res) => {
     ====================== */
     const io = req.app.get("io");
 
-    emitAdminNotification(io, {
+    emitAdminNotificationAllDashboards(io, {
       type: "wassel_status",
       order_id: id,
       order_number: order?.order_number || id,
       actor_name: actorName,
       customer_name: order.customer_name,
       status: status,
-      branch_id: req.user?.branch_id || req.headers["x-branch-id"] || null,
+      branch_id: notifyBranchId(req),
       message: `${actorIcon} ${actorName} حدّث حالة طلب العميل ${order.customer_name} رقم #${order?.order_number || id} إلى ${statusText}`
     });
 
@@ -1686,12 +1716,12 @@ router.put("/item/:id", auth, async (req,res)=>{
     await conn.commit();
 
     const io = req.app.get("io");
-    emitAdminNotification(io, {
+    emitAdminNotificationAllDashboards(io, {
       type: orderInfo?.is_manual ? "manual_order_updated" : "wassel_order_updated",
       order_id: item.order_id,
       order_number: orderInfo?.order_number || item.order_id,
       total_amount: orderInfo?.total_amount,
-      branch_id: req.user?.branch_id || null,
+      branch_id: notifyBranchId(req),
       message: `تم تحديث أسعار الطلب رقم #${orderInfo?.order_number || item.order_id}`
     });
 
