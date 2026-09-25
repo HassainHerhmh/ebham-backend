@@ -4,7 +4,7 @@ import auth from "../middlewares/auth.js";
 import admin from "firebase-admin";
 import { ensureOrderNumberSchema, getNextOrderNumber } from "../utils/orderNumbers.js";
 import { emitCustomerOrderUpdate } from "../utils/orderRealtime.js";
-import { emitAdminNotification } from "../utils/adminRealtime.js";
+import { emitAdminNotification, resolveScopedBranchId } from "../utils/adminRealtime.js";
 
 const router = express.Router();
 router.use(auth);
@@ -151,6 +151,7 @@ router.post("/", async (req, res) => {
       notes,
       payment_method,
       payment_method_id,
+      bank_id,
       scheduled_time,
       items,
       total_amount
@@ -163,6 +164,14 @@ router.post("/", async (req, res) => {
       });
     }
 
+    const addressText =
+      typeof to_address === "string"
+        ? to_address
+        : to_address?.address || to_address?.label || "";
+
+    const bankMethodId = Number(bank_id || payment_method_id) || null;
+    const branchId = resolveScopedBranchId(req) || req.user?.branch_id || null;
+
     await conn.beginTransaction();
 
     let scheduledAt = null;
@@ -170,15 +179,16 @@ router.post("/", async (req, res) => {
 
     if (scheduled_time) {
       const d = new Date(scheduled_time);
+      if (!Number.isNaN(d.getTime())) {
+        scheduledAt =
+          d.getFullYear() + "-" +
+          String(d.getMonth() + 1).padStart(2, "0") + "-" +
+          String(d.getDate()).padStart(2, "0") + " " +
+          String(d.getHours()).padStart(2, "0") + ":" +
+          String(d.getMinutes()).padStart(2, "0") + ":00";
 
-      scheduledAt =
-        d.getFullYear() + "-" +
-        String(d.getMonth() + 1).padStart(2, "0") + "-" +
-        String(d.getDate()).padStart(2, "0") + " " +
-        String(d.getHours()).padStart(2, "0") + ":" +
-        String(d.getMinutes()).padStart(2, "0") + ":00";
-
-      status = "scheduled";
+        status = "scheduled";
+      }
     }
 
     const orderNumber = await getNextOrderNumber(conn);
@@ -192,28 +202,32 @@ router.post("/", async (req, res) => {
         delivery_fee,
         total_amount,
         payment_method,
+        bank_id,
         payment_method_id,
         scheduled_at,
         notes,
         status,
         is_manual,
         user_id,
+        branch_id,
         created_at
       )
-      VALUES (?,?,?,?,?,?,?,?,?,?, ?, 1, ?, NOW())
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,NOW())
     `, [
       orderNumber,
       customer_id,
       restaurant_id || null,
-      to_address,
-      delivery_fee,
-      total_amount,
-      payment_method,
-      payment_method_id,
+      addressText || null,
+      delivery_fee || 0,
+      total_amount || 0,
+      payment_method || "cod",
+      bankMethodId,
+      bankMethodId,
       scheduledAt,
-      notes,
+      notes || null,
       status,
-      req.user.id
+      req.user.id,
+      branchId
     ]);
 
     const orderId = orderRes.insertId;
@@ -280,7 +294,10 @@ router.post("/", async (req, res) => {
 
     console.error(err);
 
-    res.status(500).json({ success: false });
+    res.status(500).json({
+      success: false,
+      message: err?.message || "فشل حفظ الطلب اليدوي"
+    });
   } finally {
     conn.release();
   }
@@ -582,7 +599,7 @@ router.put("/status/:id", async (req, res) => {
           LIMIT 1
         `, [
           req.user.branch_id,
-          o.payment_method_id
+          o.payment_method_id || o.bank_id
         ]);
 
         if (!bankRow?.bank_account_id) {
@@ -686,6 +703,7 @@ router.put("/status/:id", async (req, res) => {
         w.id,
         COALESCE(w.order_number, w.id) AS order_number,
         w.status,
+        w.captain_id,
         c.id AS customer_id,
         c.name AS customer_name,
         c.fcm_token AS customer_fcm_token,
@@ -693,18 +711,18 @@ router.put("/status/:id", async (req, res) => {
         u.name AS user_name
       FROM wassel_orders w
       LEFT JOIN customers c ON c.id = w.customer_id
-      LEFT JOIN captains cap ON cap.id = ?
+      LEFT JOIN captains cap ON cap.id = w.captain_id
       LEFT JOIN users u ON u.id = ?
       WHERE w.id = ?
       LIMIT 1
-    `, [req.user.id, req.user.id, orderId]);
+    `, [req.user.id, orderId]);
 
     const orderDisplayNumber = orderInfo?.order_number || orderId;
 
-    let actorName = "النظام";
-    let actorIcon = "⚙️";
+    let actorName = req.user?.name || "النظام";
+    let actorIcon = "🧑‍💼";
 
-    if (orderInfo?.captain_name) {
+    if (orderInfo?.captain_name && Number(req.user?.id) === Number(orderInfo.captain_id)) {
       actorName = orderInfo.captain_name;
       actorIcon = "👨‍✈️";
     } else if (orderInfo?.user_name) {
@@ -724,21 +742,11 @@ router.put("/status/:id", async (req, res) => {
 
     const statusText = statusMap[status] || status;
 
-
-
-    // إذا تم تعيين كابتن للطلب اليدوي، أضف إشعار موجه للكابتن
-    if (orderInfo?.captain_name && o.cap_acc_id && o.captain_id) {
+    if (orderInfo?.captain_id) {
       await db.query(
         `INSERT INTO notifications (captain_id, type, reference_id, message, is_read, created_at)
          VALUES (?, ?, ?, ?, 0, NOW())`,
-        [o.captain_id, "manual_order_status", orderId, `${actorIcon} ${actorName} حدّث حالة الطلب اليدوي للعميل ${orderInfo?.customer_name} رقم #${orderDisplayNumber} إلى ${statusText}`]
-      );
-    } else {
-      // إذا لم يكن هناك كابتن، أضف إشعار عام (بدون كابتن)
-      await db.query(
-        `INSERT INTO notifications (captain_id, type, reference_id, message, is_read, created_at)
-         VALUES (?, ?, ?, ?, 0, NOW())`,
-        [null, "manual_order_status", orderId, `${actorIcon} ${actorName} حدّث حالة الطلب اليدوي للعميل ${orderInfo?.customer_name} رقم #${orderDisplayNumber} إلى ${statusText}`]
+        [orderInfo.captain_id, "manual_order_status", orderId, `${actorIcon} ${actorName} حدّث حالة الطلب اليدوي للعميل ${orderInfo?.customer_name} رقم #${orderDisplayNumber} إلى ${statusText}`]
       );
     }
 

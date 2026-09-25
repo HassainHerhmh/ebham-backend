@@ -230,6 +230,7 @@ const COLUMNS = [
   ["wassel_orders", "to_lat", "DECIMAL(10,7) NULL"],
   ["wassel_orders", "to_lng", "DECIMAL(10,7) NULL"],
   ["wassel_orders", "bank_id", "INT NULL"],
+  ["wassel_orders", "payment_method_id", "INT NULL"],
   ["wassel_orders", "scheduled_at", "DATETIME NULL"],
   ["wassel_orders", "processing_at", "DATETIME NULL"],
   ["wassel_orders", "ready_at", "DATETIME NULL"],
