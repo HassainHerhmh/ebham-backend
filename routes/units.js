@@ -1,5 +1,6 @@
 import express from "express";
 import db from "../db.js";
+import { catalogBranchId } from "../utils/catalogBranchScope.js";
 
 const router = express.Router();
 
@@ -45,22 +46,27 @@ async function syncUnitRestaurants(unitId, restaurantIds) {
 router.get("/", async (req, res) => {
   try {
     const { q = "", restaurant_id = "" } = req.query;
+    const branchId = catalogBranchId(req);
+    if (!branchId) {
+      return res.json({ success: true, units: [] });
+    }
 
     let sql = `
       SELECT 
         u.id,
         u.name,
         u.restaurant_id,
+        u.branch_id,
         GROUP_CONCAT(DISTINCT ur.restaurant_id ORDER BY ur.restaurant_id) AS restaurant_ids,
         GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS restaurant_names,
         MIN(r.name) AS restaurant_name
       FROM units u
       LEFT JOIN unit_restaurants ur ON ur.unit_id = u.id
       LEFT JOIN restaurants r ON r.id = COALESCE(ur.restaurant_id, u.restaurant_id)
-      WHERE 1=1
+      WHERE u.branch_id = ?
     `;
 
-    const params = [];
+    const params = [branchId];
 
     if (q) {
       sql += ` AND (u.name LIKE ? OR r.name LIKE ?) `;
@@ -104,6 +110,13 @@ router.post("/", async (req, res) => {
   try {
     const { name } = req.body;
     const restaurantIds = parseRestaurantIds(req.body);
+    const branchId = catalogBranchId(req);
+    if (!branchId) {
+      return res.status(400).json({
+        success: false,
+        message: "❌ حدد الفرع أولاً",
+      });
+    }
 
     if (!name || !name.trim()) {
       return res.status(400).json({
@@ -120,22 +133,22 @@ router.post("/", async (req, res) => {
     }
 
     const [restaurantRows] = await db.query(
-      `SELECT id FROM restaurants WHERE id IN (${restaurantIds.map(() => "?").join(",")})`,
-      restaurantIds
+      `SELECT id FROM restaurants WHERE branch_id = ? AND id IN (${restaurantIds.map(() => "?").join(",")})`,
+      [branchId, ...restaurantIds]
     );
 
     if (restaurantRows.length !== restaurantIds.length) {
       return res.status(404).json({
         success: false,
-        message: "❌ أحد المتاجر غير موجود",
+        message: "❌ أحد المتاجر غير موجود في هذا الفرع",
       });
     }
 
     const unitName = name.trim();
 
     const [duplicate] = await db.query(
-      `SELECT id FROM units WHERE name = ? LIMIT 1`,
-      [unitName]
+      `SELECT id FROM units WHERE name = ? AND branch_id = ? LIMIT 1`,
+      [unitName, branchId]
     );
 
     if (duplicate.length) {
@@ -146,8 +159,8 @@ router.post("/", async (req, res) => {
     }
 
     const [result] = await db.query(
-      "INSERT INTO units (name, restaurant_id) VALUES (?, ?)",
-      [unitName, restaurantIds[0]]
+      "INSERT INTO units (name, restaurant_id, branch_id) VALUES (?, ?, ?)",
+      [unitName, restaurantIds[0], branchId]
     );
 
     await syncUnitRestaurants(result.insertId, restaurantIds);
@@ -170,6 +183,13 @@ router.put("/:id", async (req, res) => {
     const { name } = req.body;
     const { id } = req.params;
     const restaurantIds = parseRestaurantIds(req.body);
+    const branchId = catalogBranchId(req);
+    if (!branchId) {
+      return res.status(400).json({
+        success: false,
+        message: "❌ حدد الفرع أولاً",
+      });
+    }
 
     if (!name || !name.trim()) {
       return res.status(400).json({
@@ -186,8 +206,8 @@ router.put("/:id", async (req, res) => {
     }
 
     const [exists] = await db.query(
-      "SELECT id FROM units WHERE id = ? LIMIT 1",
-      [id]
+      "SELECT id FROM units WHERE id = ? AND branch_id = ? LIMIT 1",
+      [id, branchId]
     );
 
     if (!exists.length) {
@@ -198,22 +218,22 @@ router.put("/:id", async (req, res) => {
     }
 
     const [restaurantRows] = await db.query(
-      `SELECT id FROM restaurants WHERE id IN (${restaurantIds.map(() => "?").join(",")})`,
-      restaurantIds
+      `SELECT id FROM restaurants WHERE branch_id = ? AND id IN (${restaurantIds.map(() => "?").join(",")})`,
+      [branchId, ...restaurantIds]
     );
 
     if (restaurantRows.length !== restaurantIds.length) {
       return res.status(404).json({
         success: false,
-        message: "❌ أحد المتاجر غير موجود",
+        message: "❌ أحد المتاجر غير موجود في هذا الفرع",
       });
     }
 
     const unitName = name.trim();
 
     const [duplicate] = await db.query(
-      `SELECT id FROM units WHERE name = ? AND id != ? LIMIT 1`,
-      [unitName, id]
+      `SELECT id FROM units WHERE name = ? AND id != ? AND branch_id = ? LIMIT 1`,
+      [unitName, id, branchId]
     );
 
     if (duplicate.length) {
@@ -223,11 +243,10 @@ router.put("/:id", async (req, res) => {
       });
     }
 
-    await db.query("UPDATE units SET name = ?, restaurant_id = ? WHERE id = ?", [
-      unitName,
-      restaurantIds[0],
-      id,
-    ]);
+    await db.query(
+      "UPDATE units SET name = ?, restaurant_id = ?, branch_id = ? WHERE id = ? AND branch_id = ?",
+      [unitName, restaurantIds[0], branchId, id, branchId]
+    );
     await syncUnitRestaurants(id, restaurantIds);
 
     res.json({ success: true, message: "✅ تم تعديل الوحدة" });
@@ -242,9 +261,17 @@ router.put("/:id", async (req, res) => {
 ====================================================== */
 router.delete("/:id", async (req, res) => {
   try {
+    const branchId = catalogBranchId(req);
+    if (!branchId) {
+      return res.status(400).json({
+        success: false,
+        message: "❌ حدد الفرع أولاً",
+      });
+    }
+
     const [exists] = await db.query(
-      "SELECT id FROM units WHERE id = ? LIMIT 1",
-      [req.params.id]
+      "SELECT id FROM units WHERE id = ? AND branch_id = ? LIMIT 1",
+      [req.params.id, branchId]
     );
 
     if (!exists.length) {
@@ -257,7 +284,10 @@ router.delete("/:id", async (req, res) => {
     await db.query("DELETE FROM unit_restaurants WHERE unit_id = ?", [
       req.params.id,
     ]);
-    await db.query("DELETE FROM units WHERE id = ?", [req.params.id]);
+    await db.query("DELETE FROM units WHERE id = ? AND branch_id = ?", [
+      req.params.id,
+      branchId,
+    ]);
 
     res.json({ success: true, message: "🗑️ تم حذف الوحدة" });
   } catch (err) {

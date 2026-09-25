@@ -173,7 +173,10 @@ const COLUMNS = [
   ["categories", "icon_url", "VARCHAR(500) NULL"],
   ["categories", "image_url", "VARCHAR(1000) NULL"],
   ["categories", "sort_order", "INT NULL DEFAULT 0"],
+  ["categories", "branch_id", "INT NULL"],
+  ["types", "branch_id", "INT NULL"],
   ["units", "restaurant_id", "INT NULL"],
+  ["units", "branch_id", "INT NULL"],
   ["wassel_order_items", "product_name", "VARCHAR(255) NULL"],
   ["wassel_order_items", "total", "DECIMAL(12,2) NULL"],
   ["receipt_vouchers", "voucher_no", "BIGINT NULL"],
@@ -300,6 +303,58 @@ async function addColumn(table, column, definition) {
   );
   console.log(`✅ Schema added ${table}.${column}`);
   return true;
+}
+
+async function tableColumns(table) {
+  const [cols] = await db.query(`SHOW COLUMNS FROM \`${table}\``);
+  return (cols || []).map((c) => c.Field);
+}
+
+async function cloneSharedRowsToBranches(table, remap) {
+  const names = await tableColumns(table);
+  if (!names.includes("branch_id")) return;
+
+  const [rows] = await db.query(
+    `SELECT * FROM \`${table}\` WHERE branch_id IS NULL`
+  );
+  if (!rows?.length) return;
+
+  const [branches] = await db.query(
+    `SELECT id FROM branches
+     WHERE is_admin = 0 OR is_admin IS NULL
+     ORDER BY id ASC`
+  );
+  const targets = branches?.length
+    ? branches
+    : (await db.query(`SELECT id FROM branches ORDER BY id ASC`))[0];
+  if (!targets?.length) return;
+
+  const insertCols = names.filter((name) => name !== "id");
+
+  for (const row of rows) {
+    const homeBranch = targets[0];
+    await db.query(
+      `UPDATE \`${table}\` SET branch_id = ? WHERE id = ? AND branch_id IS NULL`,
+      [homeBranch.id, row.id]
+    );
+
+    for (const branch of targets.slice(1)) {
+      const values = insertCols.map((col) =>
+        col === "branch_id" ? branch.id : row[col]
+      );
+      const [result] = await db.query(
+        `INSERT INTO \`${table}\` (${insertCols
+          .map((col) => `\`${col}\``)
+          .join(",")}) VALUES (${insertCols.map(() => "?").join(",")})`,
+        values
+      );
+      if (remap) {
+        await remap(row.id, result.insertId, branch.id);
+      }
+    }
+  }
+
+  console.log(`✅ Cloned shared ${table} rows to each branch`);
 }
 
 export async function ensureSchema() {
@@ -467,6 +522,87 @@ export async function ensureSchema() {
     `);
   } catch (err) {
     console.error("❌ Schema restaurant link backfill:", err?.message || err);
+  }
+
+  try {
+    await cloneSharedRowsToBranches("types", async (oldId, newId, branchId) => {
+      await db.query(
+        `UPDATE restaurants SET type_id = ? WHERE type_id = ? AND branch_id = ?`,
+        [newId, oldId, branchId]
+      );
+    });
+
+    await cloneSharedRowsToBranches(
+      "categories",
+      async (oldId, newId, branchId) => {
+        await db.query(
+          `
+          UPDATE restaurant_categories rc
+          INNER JOIN restaurants r ON r.id = rc.restaurant_id
+          SET rc.category_id = ?
+          WHERE rc.category_id = ? AND r.branch_id = ?
+          `,
+          [newId, oldId, branchId]
+        );
+        await db.query(
+          `
+          UPDATE product_categories pc
+          INNER JOIN product_restaurants pr ON pr.product_id = pc.product_id
+          INNER JOIN restaurants r ON r.id = pr.restaurant_id
+          SET pc.category_id = ?
+          WHERE pc.category_id = ? AND r.branch_id = ?
+          `,
+          [newId, oldId, branchId]
+        );
+        await db.query(
+          `UPDATE ads SET category_id = ? WHERE category_id = ? AND branch_id = ?`,
+          [newId, oldId, branchId]
+        );
+      }
+    );
+
+    await cloneSharedRowsToBranches("units", async (oldId, newId, branchId) => {
+      await db.query(
+        `
+        INSERT IGNORE INTO unit_restaurants (unit_id, restaurant_id)
+        SELECT ?, ur.restaurant_id
+        FROM unit_restaurants ur
+        INNER JOIN restaurants r ON r.id = ur.restaurant_id
+        WHERE ur.unit_id = ? AND r.branch_id = ?
+        `,
+        [newId, oldId, branchId]
+      );
+      await db.query(
+        `
+        DELETE ur FROM unit_restaurants ur
+        INNER JOIN restaurants r ON r.id = ur.restaurant_id
+        WHERE ur.unit_id = ? AND r.branch_id = ?
+        `,
+        [oldId, branchId]
+      );
+      await db.query(
+        `
+        UPDATE products p
+        INNER JOIN product_restaurants pr ON pr.product_id = p.id
+        INNER JOIN restaurants r ON r.id = pr.restaurant_id
+        SET p.unit_id = ?
+        WHERE p.unit_id = ? AND r.branch_id = ?
+        `,
+        [newId, oldId, branchId]
+      );
+      await db.query(
+        `
+        UPDATE units u
+        SET u.restaurant_id = (
+          SELECT ur.restaurant_id FROM unit_restaurants ur WHERE ur.unit_id = u.id LIMIT 1
+        )
+        WHERE u.id = ?
+        `,
+        [newId]
+      );
+    });
+  } catch (err) {
+    console.error("❌ Schema catalog per-branch clone:", err?.message || err);
   }
 
   console.log(`✅ Schema check complete (${added} columns added)`);

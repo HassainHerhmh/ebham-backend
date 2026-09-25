@@ -5,6 +5,7 @@ import db from "../db.js";
 import upload, { uploadToCloudinary } from "../middlewares/upload.js";
 import { emitCatalogUpdate } from "../utils/catalogEvents.js";
 import { ensureCategoriesI18nSchema } from "../utils/catalogI18n.js";
+import { catalogBranchId } from "../utils/catalogBranchScope.js";
 
 const router = express.Router();
 
@@ -42,16 +43,24 @@ const resolveUploadedImageUrl = async (file, req) => {
 /* ======================================================
    🟢 جلب جميع الفئات
 ====================================================== */
-router.get("/", async (_, res) => {
+router.get("/", async (req, res) => {
   try {
     await ensureCategoriesI18nSchema();
+    const branchId = catalogBranchId(req);
+    if (!branchId) {
+      return res.json({ success: true, categories: [] });
+    }
 
-    const [rows] = await db.query(`
+    const [rows] = await db.query(
+      `
       SELECT id, name, name_en, description, description_en, icon_url, image_url,
-             COALESCE(sort_order, 0) AS sort_order, created_at
+             COALESCE(sort_order, 0) AS sort_order, branch_id, created_at
       FROM categories
+      WHERE branch_id = ?
       ORDER BY COALESCE(sort_order, 0) ASC, id DESC
-    `);
+      `,
+      [branchId]
+    );
 
     res.json({ success: true, categories: rows });
   } catch (err) {
@@ -77,6 +86,14 @@ router.post("/", upload.single("image"), async (req, res) => {
       sort_order,
     } = req.body;
 
+    const branchId = catalogBranchId(req);
+    if (!branchId) {
+      return res.status(400).json({
+        success: false,
+        message: "❌ حدد الفرع أولاً",
+      });
+    }
+
     if (!name) {
       return res.status(400).json({
         success: false,
@@ -92,8 +109,8 @@ router.post("/", upload.single("image"), async (req, res) => {
 
     await db.query(
       `INSERT INTO categories
-       (name, name_en, description, description_en, icon_url, image_url, sort_order, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+       (name, name_en, description, description_en, icon_url, image_url, sort_order, branch_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [
         name,
         name_en || null,
@@ -102,11 +119,12 @@ router.post("/", upload.single("image"), async (req, res) => {
         icon_url || "",
         image_url,
         sort_order !== undefined ? Number(sort_order) || 0 : 0,
+        branchId,
       ]
     );
 
     res.json({ success: true, message: "✅ تم إضافة الفئة بنجاح" });
-    emitCatalogUpdate(req.app, { entity: "categories", action: "create" });
+    emitCatalogUpdate(req.app, { entity: "categories", action: "create", branch_id: branchId });
   } catch (err) {
     console.error("❌ خطأ في إضافة الفئة:", err?.message || err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
@@ -171,6 +189,14 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       params.push(bodyImageUrl);
     }
 
+    const branchId = catalogBranchId(req);
+    if (!branchId) {
+      return res.status(400).json({
+        success: false,
+        message: "❌ حدد الفرع أولاً",
+      });
+    }
+
     if (!updates.length) {
       return res.status(400).json({
         success: false,
@@ -178,15 +204,21 @@ router.put("/:id", upload.single("image"), async (req, res) => {
       });
     }
 
-    params.push(req.params.id);
+    params.push(req.params.id, branchId);
 
-    await db.query(
-      `UPDATE categories SET ${updates.join(", ")} WHERE id=?`,
+    const [result] = await db.query(
+      `UPDATE categories SET ${updates.join(", ")} WHERE id=? AND branch_id=?`,
       params
     );
+    if (!result.affectedRows) {
+      return res.status(404).json({
+        success: false,
+        message: "❌ الفئة غير موجودة في هذا الفرع",
+      });
+    }
 
     res.json({ success: true, message: "✅ تم تعديل الفئة" });
-    emitCatalogUpdate(req.app, { entity: "categories", action: "update" });
+    emitCatalogUpdate(req.app, { entity: "categories", action: "update", branch_id: branchId });
   } catch (err) {
     console.error("❌ خطأ في تعديل الفئة:", err?.message || err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
@@ -198,9 +230,17 @@ router.put("/:id", upload.single("image"), async (req, res) => {
 ====================================================== */
 router.delete("/:id", async (req, res) => {
   try {
+    const branchId = catalogBranchId(req);
+    if (!branchId) {
+      return res.status(400).json({
+        success: false,
+        message: "❌ حدد الفرع أولاً",
+      });
+    }
+
     const [exists] = await db.query(
-      "SELECT id FROM categories WHERE id=?",
-      [req.params.id]
+      "SELECT id FROM categories WHERE id=? AND branch_id=?",
+      [req.params.id, branchId]
     );
 
     if (!exists.length) {
@@ -210,10 +250,13 @@ router.delete("/:id", async (req, res) => {
       });
     }
 
-    await db.query("DELETE FROM categories WHERE id=?", [req.params.id]);
+    await db.query("DELETE FROM categories WHERE id=? AND branch_id=?", [
+      req.params.id,
+      branchId,
+    ]);
 
     res.json({ success: true, message: "🗑️ تم حذف الفئة" });
-    emitCatalogUpdate(req.app, { entity: "categories", action: "delete" });
+    emitCatalogUpdate(req.app, { entity: "categories", action: "delete", branch_id: branchId });
   } catch (err) {
     console.error("❌ خطأ في حذف الفئة:", err?.message || err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });

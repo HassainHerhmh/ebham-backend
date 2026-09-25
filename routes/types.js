@@ -3,17 +3,23 @@ import db from "../db.js";
 import upload, { uploadToCloudinary } from "../middlewares/upload.js";
 import { emitCatalogUpdate } from "../utils/catalogEvents.js";
 import { ensureTypesI18nSchema } from "../utils/catalogI18n.js";
+import { catalogBranchId } from "../utils/catalogBranchScope.js";
 
 const router = express.Router();
 
 /* ======================================================
-   🟢 جلب جميع الأنواع
+   🟢 جلب أنواع الفرع الحالي فقط
 ====================================================== */
-router.get("/", async (_, res) => {
+router.get("/", async (req, res) => {
   try {
     await ensureTypesI18nSchema();
+    const branchId = catalogBranchId(req);
+    if (!branchId) {
+      return res.json({ success: true, types: [] });
+    }
 
-    const [rows] = await db.query(`
+    const [rows] = await db.query(
+      `
       SELECT 
         id, 
         name,
@@ -21,11 +27,15 @@ router.get("/", async (_, res) => {
         image_url,
         image_outline_url,
         image_color_url,
-        sort_order, 
+        sort_order,
+        branch_id,
         created_at
       FROM types
+      WHERE branch_id = ?
       ORDER BY sort_order ASC
-    `);
+      `,
+      [branchId]
+    );
 
     res.json({ success: true, types: rows });
   } catch (err) {
@@ -56,6 +66,14 @@ router.post(
         image_outline_url: bodyOutlineUrl,
         image_color_url: bodyColorUrl,
       } = req.body;
+
+      const branchId = catalogBranchId(req);
+      if (!branchId) {
+        return res.status(400).json({
+          success: false,
+          message: "❌ حدد الفرع أولاً",
+        });
+      }
 
       if (!name) {
         return res.status(400).json({
@@ -95,8 +113,8 @@ router.post(
       await db.query(
         `
         INSERT INTO types 
-          (name, name_en, image_url, image_outline_url, image_color_url, sort_order, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, NOW())
+          (name, name_en, image_url, image_outline_url, image_color_url, sort_order, branch_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
         `,
         [
           name,
@@ -105,6 +123,7 @@ router.post(
           image_outline_url,
           image_color_url,
           sort_order || 0,
+          branchId,
         ]
       );
 
@@ -115,7 +134,7 @@ router.post(
         image_outline_url,
         image_color_url,
       });
-      emitCatalogUpdate(req.app, { entity: "types", action: "create" });
+      emitCatalogUpdate(req.app, { entity: "types", action: "create", branch_id: branchId });
     } catch (err) {
       console.error("❌ خطأ في إضافة النوع:", err?.message || err);
       res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
@@ -209,6 +228,14 @@ router.put(
         params.push(image_color_url);
       }
 
+      const branchId = catalogBranchId(req);
+      if (!branchId) {
+        return res.status(400).json({
+          success: false,
+          message: "❌ حدد الفرع أولاً",
+        });
+      }
+
       if (!updates.length) {
         return res.status(400).json({
           success: false,
@@ -216,18 +243,24 @@ router.put(
         });
       }
 
-      params.push(req.params.id);
+      params.push(req.params.id, branchId);
 
-      await db.query(
-        `UPDATE types SET ${updates.join(", ")} WHERE id=?`,
+      const [result] = await db.query(
+        `UPDATE types SET ${updates.join(", ")} WHERE id=? AND branch_id=?`,
         params
       );
+      if (!result.affectedRows) {
+        return res.status(404).json({
+          success: false,
+          message: "❌ النوع غير موجود في هذا الفرع",
+        });
+      }
 
       res.json({
         success: true,
         message: "✅ تم تعديل النوع",
       });
-      emitCatalogUpdate(req.app, { entity: "types", action: "update" });
+      emitCatalogUpdate(req.app, { entity: "types", action: "update", branch_id: catalogBranchId(req) });
     } catch (err) {
       console.error("❌ خطأ في تعديل النوع:", err?.message || err);
       res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
@@ -240,9 +273,17 @@ router.put(
 ====================================================== */
 router.delete("/:id", async (req, res) => {
   try {
+    const branchId = catalogBranchId(req);
+    if (!branchId) {
+      return res.status(400).json({
+        success: false,
+        message: "❌ حدد الفرع أولاً",
+      });
+    }
+
     const [exists] = await db.query(
-      "SELECT id FROM types WHERE id=?",
-      [req.params.id]
+      "SELECT id FROM types WHERE id=? AND branch_id=?",
+      [req.params.id, branchId]
     );
 
     if (!exists.length) {
@@ -252,10 +293,13 @@ router.delete("/:id", async (req, res) => {
       });
     }
 
-    await db.query("DELETE FROM types WHERE id=?", [req.params.id]);
+    await db.query("DELETE FROM types WHERE id=? AND branch_id=?", [
+      req.params.id,
+      branchId,
+    ]);
 
     res.json({ success: true, message: "🗑️ تم حذف النوع" });
-    emitCatalogUpdate(req.app, { entity: "types", action: "delete" });
+    emitCatalogUpdate(req.app, { entity: "types", action: "delete", branch_id: branchId });
   } catch (err) {
     console.error("❌ خطأ في حذف النوع:", err?.message || err);
     res.status(500).json({ success: false, message: "❌ خطأ في السيرفر" });
