@@ -4,7 +4,8 @@ import auth from "../middlewares/auth.js";
 import admin from "firebase-admin";
 import { ensureOrderNumberSchema, getNextOrderNumber } from "../utils/orderNumbers.js";
 import { emitCustomerOrderUpdate } from "../utils/orderRealtime.js";
-import { emitAdminNotification } from "../utils/adminRealtime.js";
+import { emitAdminNotification, resolveScopedBranchId } from "../utils/adminRealtime.js";
+import { emitCatalogUpdate } from "../utils/catalogEvents.js";
 const router = express.Router();
 
 
@@ -82,6 +83,78 @@ router.get("/:customerId/balance", async (req, res) => {
   }
 });
 
+function catalogBranchFilter(alias = "t") {
+  return `(${alias}.branch_id = ? OR ${alias}.branch_id IS NULL)`;
+}
+
+router.get("/types", async (req, res) => {
+  try {
+    const branchId = resolveScopedBranchId(req);
+    const params = [];
+    let where = "";
+
+    if (branchId) {
+      where = `WHERE ${catalogBranchFilter("wassel_order_types")}`;
+      params.push(branchId);
+    }
+
+    const [rows] = await db.query(
+      `
+      SELECT id, name, branch_id
+      FROM wassel_order_types
+      ${where}
+      ORDER BY id DESC
+    `,
+      params
+    );
+
+    res.json({
+      success: true,
+      types: rows,
+    });
+  } catch (err) {
+    console.error("Get Wassel Types Error:", err?.message || err);
+    res.status(500).json({
+      success: false,
+      message: "فشل جلب الأنواع",
+    });
+  }
+});
+
+router.get("/transport-methods", async (req, res) => {
+  try {
+    const branchId = resolveScopedBranchId(req);
+    const params = [];
+    let where = "WHERE (is_active = 1 OR is_active IS NULL)";
+
+    if (branchId) {
+      where += ` AND ${catalogBranchFilter("wassel_transport_methods")}`;
+      params.push(branchId);
+    }
+
+    const [rows] = await db.query(
+      `
+      SELECT id, name, branch_id, base_fee, price_per_km, included_km
+      FROM wassel_transport_methods
+      ${where}
+      ORDER BY id DESC
+    `,
+      params
+    );
+
+    res.json({
+      success: true,
+      methods: rows,
+    });
+  } catch (err) {
+    console.error("Get Transport Methods Error:", err?.message || err);
+    res.status(500).json({
+      success: false,
+      message: "فشل جلب وسائل النقل",
+    });
+  }
+});
+
 /* =========================
     حماية باقي المسارات
 ========================= */
@@ -117,27 +190,6 @@ router.get("/banks", async (req, res) => {
    2.5️⃣ أنواع طلبات وصل لي
 ============================================== */
 
-// جلب الأنواع
-router.get("/types", async (req, res) => {
-  try {
-    const [rows] = await db.query(`
-      SELECT id, name
-      FROM wassel_order_types
-      ORDER BY id DESC
-    `);
-
-    res.json({
-      success: true,
-      types: rows
-    });
-  } catch (err) {
-    console.error("Get Wassel Types Error:", err?.message || err);
-    res.status(500).json({
-      success: false,
-      message: "فشل جلب الأنواع"
-    });
-  }
-});
 
 // إضافة نوع
 router.post("/types", async (req, res) => {
@@ -152,9 +204,12 @@ router.post("/types", async (req, res) => {
       });
     }
 
+    const branchId = resolveScopedBranchId(req);
     const [[exists]] = await db.query(
-      `SELECT id FROM wassel_order_types WHERE name = ? LIMIT 1`,
-      [cleanName]
+      `SELECT id FROM wassel_order_types
+       WHERE name = ? AND (branch_id <=> ?)
+       LIMIT 1`,
+      [cleanName, branchId]
     );
 
     if (exists) {
@@ -165,9 +220,11 @@ router.post("/types", async (req, res) => {
     }
 
     const [result] = await db.query(
-      `INSERT INTO wassel_order_types (name, created_at) VALUES (?, NOW())`,
-      [cleanName]
+      `INSERT INTO wassel_order_types (name, branch_id, created_at) VALUES (?, ?, NOW())`,
+      [cleanName, branchId]
     );
+
+    emitCatalogUpdate(req.app, { entity: "wassel_types", action: "create", branch_id: branchId });
 
     res.json({
       success: true,
@@ -197,9 +254,12 @@ router.put("/types/:id", async (req, res) => {
       });
     }
 
+    const branchId = resolveScopedBranchId(req);
     const [[exists]] = await db.query(
-      `SELECT id FROM wassel_order_types WHERE name = ? AND id <> ? LIMIT 1`,
-      [cleanName, id]
+      `SELECT id FROM wassel_order_types
+       WHERE name = ? AND id <> ? AND (branch_id <=> ?)
+       LIMIT 1`,
+      [cleanName, id, branchId]
     );
 
     if (exists) {
@@ -210,9 +270,11 @@ router.put("/types/:id", async (req, res) => {
     }
 
     await db.query(
-      `UPDATE wassel_order_types SET name = ? WHERE id = ?`,
-      [cleanName, id]
+      `UPDATE wassel_order_types SET name = ?, branch_id = COALESCE(branch_id, ?) WHERE id = ?`,
+      [cleanName, resolveScopedBranchId(req), id]
     );
+
+    emitCatalogUpdate(req.app, { entity: "wassel_types", action: "update" });
 
     res.json({
       success: true,
@@ -237,6 +299,8 @@ router.delete("/types/:id", async (req, res) => {
       [id]
     );
 
+    emitCatalogUpdate(req.app, { entity: "wassel_types", action: "delete" });
+
     res.json({
       success: true,
       message: "تم حذف النوع"
@@ -254,39 +318,11 @@ router.delete("/types/:id", async (req, res) => {
    2.6️⃣ وسائل النقل
 ============================================== */
 
-// جلب وسائل النقل
-router.get("/transport-methods", async (req, res) => {
-  try {
-    const [rows] = await db.query(`
-      SELECT id, name, base_fee, price_per_km, included_km
-      FROM wassel_transport_methods
-      WHERE is_active = 1
-      ORDER BY id DESC
-    `);
-
-    res.json({
-      success: true,
-      methods: rows
-    });
-  } catch (err) {
-    console.error("Get Transport Methods Error:", err?.message || err);
-    res.status(500).json({
-      success: false,
-      message: "فشل جلب وسائل النقل"
-    });
-  }
-});
-
-// إضافة وسيلة نقل
-// إضافة وسيلة نقل
 router.post("/transport-methods", async (req, res) => {
   try {
-    const { name, base_fee, price_per_km, included_km } = req.body;
-
+    const { name } = req.body;
     const cleanName = String(name || "").trim();
-    const baseFee = Number(base_fee || 0);
-    const pricePerKm = Number(price_per_km || 0);
-    const includedKm = Number(included_km || 0);
+    const branchId = resolveScopedBranchId(req);
 
     if (!cleanName) {
       return res.status(400).json({
@@ -295,16 +331,11 @@ router.post("/transport-methods", async (req, res) => {
       });
     }
 
-    if ([baseFee, pricePerKm, includedKm].some(v => Number.isNaN(v) || v < 0)) {
-      return res.status(400).json({
-        success: false,
-        message: "بيانات التسعير غير صحيحة"
-      });
-    }
-
     const [[exists]] = await db.query(
-      `SELECT id FROM wassel_transport_methods WHERE name = ? LIMIT 1`,
-      [cleanName]
+      `SELECT id FROM wassel_transport_methods
+       WHERE name = ? AND (branch_id <=> ?)
+       LIMIT 1`,
+      [cleanName, branchId]
     );
 
     if (exists) {
@@ -317,11 +348,13 @@ router.post("/transport-methods", async (req, res) => {
     const [result] = await db.query(
       `
       INSERT INTO wassel_transport_methods
-      (name, base_fee, price_per_km, included_km, is_active, created_at)
-      VALUES (?, ?, ?, ?, 1, NOW())
+      (name, branch_id, base_fee, price_per_km, included_km, is_active, created_at)
+      VALUES (?, ?, 0, 0, 0, 1, NOW())
       `,
-      [cleanName, baseFee, pricePerKm, includedKm]
+      [cleanName, branchId]
     );
+
+    emitCatalogUpdate(req.app, { entity: "wassel_transport", action: "create", branch_id: branchId });
 
     res.json({
       success: true,
@@ -336,17 +369,13 @@ router.post("/transport-methods", async (req, res) => {
     });
   }
 });
-// تعديل وسيلة نقل
-// تعديل وسيلة نقل
+
 router.put("/transport-methods/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, base_fee, price_per_km, included_km } = req.body;
-
+    const { name } = req.body;
     const cleanName = String(name || "").trim();
-    const baseFee = Number(base_fee || 0);
-    const pricePerKm = Number(price_per_km || 0);
-    const includedKm = Number(included_km || 0);
+    const branchId = resolveScopedBranchId(req);
 
     if (!cleanName) {
       return res.status(400).json({
@@ -355,16 +384,11 @@ router.put("/transport-methods/:id", async (req, res) => {
       });
     }
 
-    if ([baseFee, pricePerKm, includedKm].some(v => Number.isNaN(v) || v < 0)) {
-      return res.status(400).json({
-        success: false,
-        message: "بيانات التسعير غير صحيحة"
-      });
-    }
-
     const [[exists]] = await db.query(
-      `SELECT id FROM wassel_transport_methods WHERE name = ? AND id <> ? LIMIT 1`,
-      [cleanName, id]
+      `SELECT id FROM wassel_transport_methods
+       WHERE name = ? AND id <> ? AND (branch_id <=> ?)
+       LIMIT 1`,
+      [cleanName, id, branchId]
     );
 
     if (exists) {
@@ -377,11 +401,13 @@ router.put("/transport-methods/:id", async (req, res) => {
     await db.query(
       `
       UPDATE wassel_transport_methods
-      SET name = ?, base_fee = ?, price_per_km = ?, included_km = ?
+      SET name = ?, branch_id = COALESCE(branch_id, ?)
       WHERE id = ?
       `,
-      [cleanName, baseFee, pricePerKm, includedKm, id]
+      [cleanName, branchId, id]
     );
+
+    emitCatalogUpdate(req.app, { entity: "wassel_transport", action: "update" });
 
     res.json({
       success: true,
@@ -405,6 +431,8 @@ router.delete("/transport-methods/:id", async (req, res) => {
       `DELETE FROM wassel_transport_methods WHERE id = ?`,
       [id]
     );
+
+    emitCatalogUpdate(req.app, { entity: "wassel_transport", action: "delete" });
 
     res.json({
       success: true,
@@ -1553,24 +1581,10 @@ router.post("/calculate-fee", async (req, res) => {
       to_lng
     } = req.body;
 
-    if (!transport_method_id || !from_lat || !from_lng || !to_lat || !to_lng) {
+    if (!from_lat || !from_lng || !to_lat || !to_lng) {
       return res.status(400).json({
         success: false,
-        message: "بيانات الحساب ناقصة"
-      });
-    }
-
-    const [[method]] = await db.query(`
-      SELECT id, name, base_fee, price_per_km, included_km
-      FROM wassel_transport_methods
-      WHERE id = ?
-      LIMIT 1
-    `, [transport_method_id]);
-
-    if (!method) {
-      return res.status(404).json({
-        success: false,
-        message: "وسيلة النقل غير موجودة"
+        message: "بيانات المسافة ناقصة"
       });
     }
 
@@ -1581,24 +1595,12 @@ router.post("/calculate-fee", async (req, res) => {
       Number(to_lng)
     );
 
-    const includedKm = Number(method.included_km || 0);
-    const baseFee = Number(method.base_fee || 0);
-    const pricePerKm = Number(method.price_per_km || 0);
-
-    const chargeableKm = Math.max(distanceKm - includedKm, 0);
-    const deliveryFee = baseFee + (chargeableKm * pricePerKm);
-    const extraFee = 0;
-
     res.json({
       success: true,
-      transport_method: {
-        id: method.id,
-        name: method.name
-      },
       distance_km: Number(distanceKm.toFixed(2)),
-      delivery_fee: Number(deliveryFee.toFixed(2)),
-      extra_fee: Number(extraFee.toFixed(2)),
-      total_fee: Number((deliveryFee + extraFee).toFixed(2))
+      delivery_fee: 0,
+      extra_fee: 0,
+      total_fee: 0
     });
   } catch (err) {
     console.error("Calculate Wassel Fee Error:", err?.message || err);

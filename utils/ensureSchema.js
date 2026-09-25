@@ -99,6 +99,24 @@ const TABLES = [
     PRIMARY KEY (\`id\`),
     KEY \`idx_loyalty_logs_user_branch\` (\`user_id\`, \`branch_id\`)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS \`wassel_order_types\` (
+    \`id\` INT NOT NULL AUTO_INCREMENT,
+    \`name\` VARCHAR(255) NOT NULL,
+    \`branch_id\` INT NULL,
+    \`created_at\` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (\`id\`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS \`wassel_transport_methods\` (
+    \`id\` INT NOT NULL AUTO_INCREMENT,
+    \`name\` VARCHAR(255) NOT NULL,
+    \`branch_id\` INT NULL,
+    \`base_fee\` DECIMAL(12,2) NULL DEFAULT 0,
+    \`price_per_km\` DECIMAL(12,2) NULL DEFAULT 0,
+    \`included_km\` DECIMAL(12,2) NULL DEFAULT 0,
+    \`is_active\` TINYINT(1) NOT NULL DEFAULT 1,
+    \`created_at\` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (\`id\`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
   `CREATE TABLE IF NOT EXISTS \`order_ratings\` (
     \`id\` INT NOT NULL AUTO_INCREMENT,
     \`order_kind\` VARCHAR(20) NOT NULL DEFAULT 'order',
@@ -204,7 +222,9 @@ const COLUMNS = [
   ["loyalty_logs", "branch_id", "INT NULL"],
   ["loyalty_logs", "order_id", "INT NULL"],
   ["loyalty_logs", "amount", "DECIMAL(12,2) NULL DEFAULT 0"],
-  ["loyalty_logs", "type", "VARCHAR(20) NULL"],
+  ["wassel_order_types", "branch_id", "INT NULL"],
+  ["wassel_transport_methods", "branch_id", "INT NULL"],
+  ["wassel_transport_methods", "is_active", "TINYINT(1) NOT NULL DEFAULT 1"],
   ["wassel_orders", "from_lat", "DECIMAL(10,7) NULL"],
   ["wassel_orders", "from_lng", "DECIMAL(10,7) NULL"],
   ["wassel_orders", "to_lat", "DECIMAL(10,7) NULL"],
