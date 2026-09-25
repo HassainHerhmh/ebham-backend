@@ -4,7 +4,7 @@ import auth from "../middlewares/auth.js";
 import admin from "firebase-admin";
 import { ensureOrderNumberSchema, getNextOrderNumber } from "../utils/orderNumbers.js";
 import { emitCustomerOrderUpdate } from "../utils/orderRealtime.js";
-import { emitAdminNotification, resolveScopedBranchId } from "../utils/adminRealtime.js";
+import { emitAdminNotification, resolveDashboardViewBranchId, resolveScopedBranchId } from "../utils/adminRealtime.js";
 
 const router = express.Router();
 router.use(auth);
@@ -22,6 +22,10 @@ router.use(async (req, res, next) => {
 ============================================== */
 router.get("/manual-list", async (req, res) => {
   try {
+    const viewBranch = resolveDashboardViewBranchId(req);
+    if (!viewBranch) {
+      return res.json({ success: true, orders: [] });
+    }
 
 const [rows] = await db.query(`
 
@@ -114,11 +118,12 @@ LEFT JOIN wassel_order_items i
   ON i.order_id = w.id
 
 WHERE w.is_manual = 1
+AND COALESCE(w.branch_id, r.branch_id, u.branch_id) = ?
 
 GROUP BY w.id
 ORDER BY w.id DESC
 
-`);
+`, [viewBranch]);
 
 
 
@@ -170,7 +175,7 @@ router.post("/", async (req, res) => {
         : to_address?.address || to_address?.label || "";
 
     const bankMethodId = Number(bank_id || payment_method_id) || null;
-    const branchId = resolveScopedBranchId(req) || req.user?.branch_id || null;
+    const branchId = resolveDashboardViewBranchId(req) || resolveScopedBranchId(req) || req.user?.branch_id || null;
 
     await conn.beginTransaction();
 

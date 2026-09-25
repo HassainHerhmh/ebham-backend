@@ -4,7 +4,7 @@ import auth from "../middlewares/auth.js";
 import admin from "firebase-admin";
 import { ensureOrderNumberSchema, getNextOrderNumber } from "../utils/orderNumbers.js";
 import { emitCustomerOrderUpdate } from "../utils/orderRealtime.js";
-import { emitAdminNotificationAllDashboards, parseBranchId, resolveScopedBranchId } from "../utils/adminRealtime.js";
+import { emitAdminNotification, parseBranchId, resolveDashboardViewBranchId, resolveScopedBranchId } from "../utils/adminRealtime.js";
 import { emitCatalogUpdate } from "../utils/catalogEvents.js";
 const router = express.Router();
 
@@ -30,7 +30,7 @@ function haversineKm(lat1, lng1, lat2, lng2) {
 }
 
 function notifyBranchId(req) {
-  return parseBranchId(req?.headers?.["x-branch-id"]) || resolveScopedBranchId(req);
+  return resolveDashboardViewBranchId(req) || parseBranchId(req?.headers?.["x-branch-id"]);
 }
 
 function wasselFeesTotal(deliveryFee, extraFee) {
@@ -497,6 +497,13 @@ router.get("/", auth, async (req, res) => {
     } else if (req.user.role === "customer") {
       query += ` AND w.customer_id = ?`;
       params.push(req.user.id);
+    } else {
+      const viewBranch = resolveDashboardViewBranchId(req);
+      if (!viewBranch) {
+        return res.json({ success: true, orders: [] });
+      }
+      query += ` AND COALESCE(w.branch_id, ca_from.branch_id, ca_to.branch_id, u1.branch_id) = ?`;
+      params.push(viewBranch);
     }
 
     query += ` ORDER BY w.id DESC`;
@@ -742,7 +749,7 @@ router.post("/", async (req, res) => {
     /* ======================
        إشعار لوحة التحكم فقط
     ====================== */
-    emitAdminNotificationAllDashboards(io, {
+    emitAdminNotification(io, {
       type: "wassel_order_created",
       order_id: orderId,
       order_number: orderNumber,
@@ -932,7 +939,7 @@ router.put("/status/:id", async (req, res) => {
       body: `تم تحديث طلبك رقم #${order?.order_number || orderId} إلى ${statusText}`,
       orderKind: "wassel",
     });
-    emitAdminNotificationAllDashboards(io, {
+    emitAdminNotification(io, {
       type: "wassel_status",
       order_id: orderId,
       order_number: order?.order_number || orderId,
@@ -1017,7 +1024,7 @@ router.post("/assign", async (req, res) => {
     }
 
     /* إشعار لوحة التحكم */
-    emitAdminNotificationAllDashboards(io, {
+    emitAdminNotification(io, {
       type: order?.is_manual ? "manual_order_assigned" : "wassel_assigned",
       order_id: orderId,
       order_number: orderNumber,
@@ -1249,7 +1256,7 @@ router.put("/:id", async (req, res) => {
       }
     }
 
-    emitAdminNotificationAllDashboards(req.app.get("io"), {
+    emitAdminNotification(req.app.get("io"), {
       type: "wassel_order_updated",
       order_id: orderId,
       order_number: updated?.order_number || orderId,
@@ -1320,7 +1327,7 @@ router.post("/:id/price-decision", auth, async (req, res) => {
     }
 
     const io = req.app.get("io");
-    emitAdminNotificationAllDashboards(io, {
+    emitAdminNotification(io, {
       type: "wassel_price_decision",
       order_id: order.id,
       order_number: order.order_number || order.id,
@@ -1579,7 +1586,7 @@ router.put("/:id/status", auth, async (req, res) => {
     ====================== */
     const io = req.app.get("io");
 
-    emitAdminNotificationAllDashboards(io, {
+    emitAdminNotification(io, {
       type: "wassel_status",
       order_id: id,
       order_number: order?.order_number || id,
@@ -1716,7 +1723,7 @@ router.put("/item/:id", auth, async (req,res)=>{
     await conn.commit();
 
     const io = req.app.get("io");
-    emitAdminNotificationAllDashboards(io, {
+    emitAdminNotification(io, {
       type: orderInfo?.is_manual ? "manual_order_updated" : "wassel_order_updated",
       order_id: item.order_id,
       order_number: orderInfo?.order_number || item.order_id,

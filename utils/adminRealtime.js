@@ -96,3 +96,13 @@ export function resolveScopedBranchId(req) {
 export function isHqAdminUser(user) {
   return Boolean(user?.is_admin_branch);
 }
+
+/** فرع شاشة الداشبورد: الإدارة العامة تستخدم الهيدر، مدير الفرع يستخدم فرعه */
+export function resolveDashboardViewBranchId(req) {
+  const user = req?.user || {};
+  const fromHeader = parseBranchId(req?.headers?.["x-branch-id"] || req?.query?.branch_id);
+  if (isHqAdminUser(user)) {
+    return fromHeader || parseBranchId(user.branch_id);
+  }
+  return parseBranchId(user.branch_id) || fromHeader;
+}
