@@ -4,7 +4,7 @@ import auth from "../middlewares/auth.js";
 import admin from "firebase-admin";
 import { ensureOrderNumberSchema, getNextOrderNumber } from "../utils/orderNumbers.js";
 import { emitCustomerOrderUpdate } from "../utils/orderRealtime.js";
-import { emitAdminNotification, resolveDashboardViewBranchId, resolveScopedBranchId } from "../utils/adminRealtime.js";
+import { emitOrderAdminNotification, resolveDashboardViewBranchId, resolveScopedBranchId } from "../utils/adminRealtime.js";
 
 const router = express.Router();
 router.use(auth);
@@ -270,7 +270,7 @@ router.post("/", async (req, res) => {
     const io = req.app.get("io");
 
     const [[customer]] = await db.query(
-      `SELECT name FROM customers WHERE id = ? LIMIT 1`,
+      `SELECT name, fcm_token FROM customers WHERE id = ? LIMIT 1`,
       [customer_id]
     );
 
@@ -296,15 +296,38 @@ router.post("/", async (req, res) => {
       );
     }
 
-    emitAdminNotification(io, {
+    emitOrderAdminNotification(io, {
       type: "manual_order_created",
       order_id: orderId,
       order_number: orderNumber,
       actor_name: actorName,
       customer_name: customerName,
-      branch_id: req.user?.branch_id || null,
+      branch_id: branchId,
       message: adminMessage
     });
+
+    emitCustomerOrderUpdate(io, {
+      customerId: customer_id,
+      orderId,
+      orderNumber,
+      status,
+      statusLabel: status === "scheduled" ? "مجدول" : "قيد الانتظار",
+      title: "طلب يدوي جديد",
+      body: `تم إنشاء طلب يدوي رقم #${orderNumber}`,
+      orderKind: "manual",
+    });
+    if (customer?.fcm_token) {
+      await sendFCMNotification(
+        customer.fcm_token,
+        "طلب يدوي جديد",
+        `تم إنشاء طلب يدوي رقم #${orderNumber}`,
+        {
+          orderId: String(orderId),
+          orderNumber: String(orderNumber),
+          type: "manual_order_created",
+        }
+      );
+    }
 
     res.json({ success: true, order_id: orderId, order_number: orderNumber });
 
@@ -723,6 +746,7 @@ router.put("/status/:id", async (req, res) => {
         COALESCE(w.order_number, w.id) AS order_number,
         w.status,
         w.captain_id,
+        w.branch_id,
         c.id AS customer_id,
         c.name AS customer_name,
         c.fcm_token AS customer_fcm_token,
@@ -769,18 +793,20 @@ router.put("/status/:id", async (req, res) => {
       );
     }
 
-    emitCustomerOrderUpdate(io, {
-      customerId: orderInfo?.customer_id,
-      orderId,
-      orderNumber: orderDisplayNumber,
-      status,
-      statusLabel: statusText,
-      title: "تحديث حالة الطلب",
-      body: `تم تحديث طلبك اليدوي رقم #${orderDisplayNumber} إلى ${statusText}`,
-      orderKind: "manual",
-    });
+    if (status !== "ready") {
+      emitCustomerOrderUpdate(io, {
+        customerId: orderInfo?.customer_id,
+        orderId,
+        orderNumber: orderDisplayNumber,
+        status,
+        statusLabel: statusText,
+        title: "تحديث حالة الطلب",
+        body: `تم تحديث طلبك اليدوي رقم #${orderDisplayNumber} إلى ${statusText}`,
+        orderKind: "manual",
+      });
+    }
 
-    emitAdminNotification(io, {
+    emitOrderAdminNotification(io, {
       type: "manual_order_status",
       order_id: orderId,
       order_number: orderDisplayNumber,
@@ -788,11 +814,11 @@ router.put("/status/:id", async (req, res) => {
       actor_name: actorName,
       customer_name: orderInfo?.customer_name,
       status,
-      branch_id: req.user?.branch_id || null,
+      branch_id: orderInfo?.branch_id || resolveDashboardViewBranchId(req),
       message: `${actorIcon} ${actorName} حدّث حالة الطلب اليدوي للعميل ${orderInfo?.customer_name} رقم #${orderDisplayNumber} إلى ${statusText}`
     });
 
-    if (orderInfo?.customer_fcm_token) {
+    if (status !== "ready" && orderInfo?.customer_fcm_token) {
       await sendFCMNotification(
         orderInfo.customer_fcm_token,
         "تحديث حالة الطلب",

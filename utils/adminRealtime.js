@@ -60,6 +60,16 @@ export function emitAdminNotificationAllDashboards(io, payload = {}) {
   }
 }
 
+/** إشعار طلبات: غرفة الفرع إن عُرف، وإلا كل لوحات الداشبورد المفتوحة */
+export function emitOrderAdminNotification(io, payload = {}) {
+  const branchId = parseBranchId(payload.branch_id);
+  if (branchId) {
+    emitAdminNotification(io, { ...payload, branch_id: branchId });
+    return;
+  }
+  emitAdminNotificationAllDashboards(io, payload);
+}
+
 export function joinDashboardBranchRooms(socket, branchId) {
   for (const room of socket.rooms) {
     if (room.startsWith("branch_")) {

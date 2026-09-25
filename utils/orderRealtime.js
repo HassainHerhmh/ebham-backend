@@ -10,6 +10,7 @@ export function emitCustomerOrderUpdate(io, payload = {}) {
     status_label: payload.statusLabel || payload.status,
     title: payload.title || "تحديث في طلبك 📦",
     body: payload.body || payload.message || "",
+    message: payload.body || payload.message || "",
     order_kind: payload.orderKind || "delivery",
   };
 

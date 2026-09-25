@@ -4,7 +4,7 @@ import auth from "../middlewares/auth.js";
 import admin from "firebase-admin";
 import { ensureOrderNumberSchema, getNextOrderNumber } from "../utils/orderNumbers.js";
 import { emitCustomerOrderUpdate } from "../utils/orderRealtime.js";
-import { emitAdminNotification, parseBranchId, resolveDashboardViewBranchId, resolveScopedBranchId } from "../utils/adminRealtime.js";
+import { emitOrderAdminNotification, parseBranchId, resolveDashboardViewBranchId, resolveScopedBranchId } from "../utils/adminRealtime.js";
 import { emitCatalogUpdate } from "../utils/catalogEvents.js";
 const router = express.Router();
 
@@ -749,7 +749,7 @@ router.post("/", async (req, res) => {
     /* ======================
        إشعار لوحة التحكم فقط
     ====================== */
-    emitAdminNotification(io, {
+    emitOrderAdminNotification(io, {
       type: "wassel_order_created",
       order_id: orderId,
       order_number: orderNumber,
@@ -893,9 +893,11 @@ router.put("/status/:id", async (req, res) => {
       SELECT
         w.id,
         w.customer_id,
+        w.branch_id,
         COALESCE(w.order_number, w.id) AS order_number,
         w.status,
         c.name AS customer_name,
+        c.fcm_token AS customer_fcm_token,
         cap.name AS captain_name,
         u.name AS user_name
       FROM wassel_orders w
@@ -929,24 +931,38 @@ router.put("/status/:id", async (req, res) => {
     const statusText = statusMap[status] || status;
     // إرسال Socket Notification
     const io = req.app.get("io");
-    emitCustomerOrderUpdate(io, {
-      customerId: order?.customer_id,
-      orderId,
-      orderNumber: order?.order_number || orderId,
-      status,
-      statusLabel: statusText,
-      title: "تحديث حالة الطلب",
-      body: `تم تحديث طلبك رقم #${order?.order_number || orderId} إلى ${statusText}`,
-      orderKind: "wassel",
-    });
-    emitAdminNotification(io, {
+    if (status !== "ready") {
+      emitCustomerOrderUpdate(io, {
+        customerId: order?.customer_id,
+        orderId,
+        orderNumber: order?.order_number || orderId,
+        status,
+        statusLabel: statusText,
+        title: "تحديث حالة الطلب",
+        body: `تم تحديث طلبك رقم #${order?.order_number || orderId} إلى ${statusText}`,
+        orderKind: "wassel",
+      });
+      if (order?.customer_fcm_token) {
+        await sendFCMNotification(
+          order.customer_fcm_token,
+          "تحديث حالة الطلب",
+          `تم تحديث طلبك رقم #${order?.order_number || orderId} إلى ${statusText}`,
+          {
+            orderId: String(orderId),
+            orderNumber: String(order?.order_number || orderId),
+            type: "wassel_status",
+          }
+        );
+      }
+    }
+    emitOrderAdminNotification(io, {
       type: "wassel_status",
       order_id: orderId,
       order_number: order?.order_number || orderId,
       actor_name: actorName,
       customer_name: order.customer_name,
       status: status,
-      branch_id: notifyBranchId(req),
+      branch_id: order?.branch_id || notifyBranchId(req),
       message: `${actorIcon} ${actorName} حدّث حالة طلب العميل ${order.customer_name} رقم #${order?.order_number || orderId} إلى ${statusText}`
     });
     res.json({
@@ -988,6 +1004,7 @@ router.post("/assign", async (req, res) => {
         w.id,
         w.order_number,
         w.is_manual,
+        w.branch_id,
         c.name AS customer_name
       FROM wassel_orders w
       LEFT JOIN customers c ON c.id = w.customer_id
@@ -1024,13 +1041,13 @@ router.post("/assign", async (req, res) => {
     }
 
     /* إشعار لوحة التحكم */
-    emitAdminNotification(io, {
+    emitOrderAdminNotification(io, {
       type: order?.is_manual ? "manual_order_assigned" : "wassel_assigned",
       order_id: orderId,
       order_number: orderNumber,
       captain_name: captainName,
       customer_name: customerName,
-      branch_id: notifyBranchId(req),
+      branch_id: order?.branch_id || notifyBranchId(req),
       message: `👨‍✈️ تم إسناد طلب وصل لي #${orderNumber} إلى ${captainName} للعميل ${customerName}`
     });
 
@@ -1217,7 +1234,7 @@ router.put("/:id", async (req, res) => {
 ]);
 
     const [[updated]] = await db.query(
-      `SELECT customer_id, order_number, delivery_fee, extra_fee, customer_price_decision
+      `SELECT customer_id, order_number, delivery_fee, extra_fee, customer_price_decision, branch_id
        FROM wassel_orders WHERE id = ? LIMIT 1`,
       [orderId]
     );
@@ -1246,21 +1263,29 @@ router.put("/:id", async (req, res) => {
         title: "تحديث سعر طلب وصل لي",
         body: quoteMessage,
       });
-      if (io) {
-        io.to("user_" + updated.customer_id).emit("notification", {
-          title: "تحديث سعر طلب وصل لي",
-          message: quoteMessage,
-          type: "wassel_price",
-          id: orderId,
-        });
+      const [[quoteCustomer]] = await db.query(
+        `SELECT fcm_token FROM customers WHERE id = ? LIMIT 1`,
+        [updated.customer_id]
+      );
+      if (quoteCustomer?.fcm_token) {
+        await sendFCMNotification(
+          quoteCustomer.fcm_token,
+          "تحديث سعر طلب وصل لي",
+          quoteMessage,
+          {
+            orderId: String(orderId),
+            orderNumber: String(updated.order_number || orderId),
+            type: "wassel_price",
+          }
+        );
       }
     }
 
-    emitAdminNotification(req.app.get("io"), {
+    emitOrderAdminNotification(req.app.get("io"), {
       type: "wassel_order_updated",
       order_id: orderId,
       order_number: updated?.order_number || orderId,
-      branch_id: notifyBranchId(req),
+      branch_id: updated?.branch_id || notifyBranchId(req),
       message: `تم تحديث طلب وصل لي #${updated?.order_number || orderId}`,
     });
 
@@ -1292,7 +1317,7 @@ router.post("/:id/price-decision", auth, async (req, res) => {
     }
 
     const [[order]] = await db.query(
-      `SELECT id, customer_id, order_number, customer_price_decision, delivery_fee, extra_fee, status
+      `SELECT id, customer_id, order_number, customer_price_decision, delivery_fee, extra_fee, status, branch_id
        FROM wassel_orders WHERE id = ? LIMIT 1`,
       [req.params.id]
     );
@@ -1327,12 +1352,12 @@ router.post("/:id/price-decision", auth, async (req, res) => {
     }
 
     const io = req.app.get("io");
-    emitAdminNotification(io, {
+    emitOrderAdminNotification(io, {
       type: "wassel_price_decision",
       order_id: order.id,
       order_number: order.order_number || order.id,
       customer_name: req.user?.name,
-      branch_id: notifyBranchId(req),
+      branch_id: order?.branch_id || notifyBranchId(req),
       message:
         decision === "approved"
           ? `العميل وافق على سعر طلب وصل لي #${order.order_number || order.id}`
@@ -1539,9 +1564,12 @@ router.put("/:id/status", auth, async (req, res) => {
     const [[order]] = await db.query(`
       SELECT
         w.id,
+        w.customer_id,
+        w.branch_id,
         COALESCE(w.order_number, w.id) AS order_number,
         w.status,
         c.name AS customer_name,
+        c.fcm_token AS customer_fcm_token,
         cap.name AS captain_name,
         u.name AS user_name
       FROM wassel_orders w
@@ -1586,14 +1614,39 @@ router.put("/:id/status", auth, async (req, res) => {
     ====================== */
     const io = req.app.get("io");
 
-    emitAdminNotification(io, {
+    if (status !== "ready") {
+      emitCustomerOrderUpdate(io, {
+        customerId: order?.customer_id,
+        orderId: id,
+        orderNumber: order?.order_number || id,
+        status,
+        statusLabel: statusText,
+        title: "تحديث حالة الطلب",
+        body: `تم تحديث طلبك رقم #${order?.order_number || id} إلى ${statusText}`,
+        orderKind: "wassel",
+      });
+      if (order?.customer_fcm_token) {
+        await sendFCMNotification(
+          order.customer_fcm_token,
+          "تحديث حالة الطلب",
+          `تم تحديث طلبك رقم #${order?.order_number || id} إلى ${statusText}`,
+          {
+            orderId: String(id),
+            orderNumber: String(order?.order_number || id),
+            type: "wassel_status",
+          }
+        );
+      }
+    }
+
+    emitOrderAdminNotification(io, {
       type: "wassel_status",
       order_id: id,
       order_number: order?.order_number || id,
       actor_name: actorName,
       customer_name: order.customer_name,
       status: status,
-      branch_id: notifyBranchId(req),
+      branch_id: order?.branch_id || notifyBranchId(req),
       message: `${actorIcon} ${actorName} حدّث حالة طلب العميل ${order.customer_name} رقم #${order?.order_number || id} إلى ${statusText}`
     });
 
@@ -1714,7 +1767,8 @@ router.put("/item/:id", auth, async (req,res)=>{
       SELECT
         COALESCE(order_number, id) AS order_number,
         total_amount,
-        is_manual
+        is_manual,
+        branch_id
       FROM wassel_orders
       WHERE id = ?
       LIMIT 1
@@ -1723,12 +1777,12 @@ router.put("/item/:id", auth, async (req,res)=>{
     await conn.commit();
 
     const io = req.app.get("io");
-    emitAdminNotification(io, {
+    emitOrderAdminNotification(io, {
       type: orderInfo?.is_manual ? "manual_order_updated" : "wassel_order_updated",
       order_id: item.order_id,
       order_number: orderInfo?.order_number || item.order_id,
       total_amount: orderInfo?.total_amount,
-      branch_id: notifyBranchId(req),
+      branch_id: orderInfo?.branch_id || notifyBranchId(req),
       message: `تم تحديث أسعار الطلب رقم #${orderInfo?.order_number || item.order_id}`
     });
 

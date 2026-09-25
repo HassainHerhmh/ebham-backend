@@ -10,7 +10,7 @@ import {
   upsertJournalJob,
 } from "../utils/orderJournals.js";
 import { logAudit } from "../utils/auditLog.js";
-import { emitAdminNotification } from "../utils/adminRealtime.js";
+import { emitOrderAdminNotification } from "../utils/adminRealtime.js";
 
 function getStatusLabel(status) {
   switch (status) {
@@ -1250,7 +1250,7 @@ const [[customer]] = await db.query(
 const creatorName = req.user?.name || "العميل";
 
 /* لوحة التحكم */
-emitAdminNotification(io, {
+emitOrderAdminNotification(io, {
   type: "order_created",
   order_id: orderId,
   order_number: orderNumber,
@@ -1986,7 +1986,7 @@ router.put("/:id/status", async (req, res) => {
         if (status === "confirmed" || status === "processing" || status === "preparing") {
           body = `بدأ المطعم في تحضير طلبك رقم #${orderDisplayNumber} 👨‍🍳`;
         } else if (status === "ready") {
-          body = `أبشر! طلبك رقم #${orderDisplayNumber} جاهز للاستلام 🥯`;
+          body = "";
         } else if (status === "delivering") {
           body = `الكابتن استلم طلبك رقم #${orderDisplayNumber} وهو في الطريق إليك 🏍️`;
         } else if (status === "completed") {
@@ -2014,19 +2014,21 @@ router.put("/:id/status", async (req, res) => {
 
         const io = req.app.get("io");
 
-        emitCustomerOrderUpdate(io, {
-          customerId: orderContacts.customer_id,
-          orderId,
-          orderNumber: orderDisplayNumber,
-          status,
-          statusLabel: getStatusLabel(status),
-          title,
-          body: body || `تم تحديث طلبك رقم #${orderDisplayNumber} إلى (${getStatusLabel(status)})`,
-          orderKind: "delivery",
-        });
+        if (status !== "ready") {
+          emitCustomerOrderUpdate(io, {
+            customerId: orderContacts.customer_id,
+            orderId,
+            orderNumber: orderDisplayNumber,
+            status,
+            statusLabel: getStatusLabel(status),
+            title,
+            body: body || `تم تحديث طلبك رقم #${orderDisplayNumber} إلى (${getStatusLabel(status)})`,
+            orderKind: "delivery",
+          });
+        }
 
         if (io) {
-          emitAdminNotification(io, {
+          emitOrderAdminNotification(io, {
             type: "order_status_updated",
             order_id: orderId,
             order_number: orderDisplayNumber,
@@ -2144,7 +2146,7 @@ router.post("/:id/assign", async (req, res) => {
         createdAt: new Date(),
       });
 
-      emitAdminNotification(io, {
+      emitOrderAdminNotification(io, {
         type: "captain_assigned",
         order_id: orderId,
         order_number: orderDisplayNumber,
