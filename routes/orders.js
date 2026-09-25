@@ -10,6 +10,7 @@ import {
   upsertJournalJob,
 } from "../utils/orderJournals.js";
 import { logAudit } from "../utils/auditLog.js";
+import { emitAdminNotification } from "../utils/adminRealtime.js";
 
 function getStatusLabel(status) {
   switch (status) {
@@ -1243,10 +1244,11 @@ const [[customer]] = await db.query(
 const creatorName = req.user?.name || "العميل";
 
 /* لوحة التحكم */
-io.emit("admin_notification", {
+emitAdminNotification(io, {
   type: "order_created",
   order_id: orderId,
   order_number: orderNumber,
+  branch_id: branchId || req.user?.branch_id || null,
   message:
     req.user?.role === "customer"
       ? `🧾 العميل ${customer?.name} أنشأ طلب رقم #${orderNumber}`
@@ -1951,6 +1953,7 @@ router.put("/:id/status", async (req, res) => {
           o.customer_id,
           COALESCE(o.order_number, o.id) AS order_number,
           o.captain_id,
+          o.branch_id,
           c.fcm_token AS customer_token,
           cap.fcm_token AS captain_token,
           c.name AS customer_name
@@ -2011,10 +2014,11 @@ router.put("/:id/status", async (req, res) => {
         });
 
         if (io) {
-          io.emit("admin_notification", {
+          emitAdminNotification(io, {
             type: "order_status_updated",
             order_id: orderId,
             order_number: orderDisplayNumber,
+            branch_id: orderContacts.branch_id || req.user?.branch_id || null,
             message: `📦 ${actorLabel} ${actorName} حدّث طلب #${orderDisplayNumber} للعميل ${orderContacts.customer_name} إلى (${getStatusLabel(status)})`
           });
         }
@@ -2092,6 +2096,7 @@ router.post("/:id/assign", async (req, res) => {
       SELECT
         o.id,
         o.customer_id,
+        o.branch_id,
         COALESCE(o.order_number, o.id) AS order_number,
         c.name AS customer_name
       FROM orders o
@@ -2127,11 +2132,12 @@ router.post("/:id/assign", async (req, res) => {
         createdAt: new Date(),
       });
 
-      io.emit("admin_notification", {
+      emitAdminNotification(io, {
         type: "captain_assigned",
         order_id: orderId,
         order_number: orderDisplayNumber,
         captain_id,
+        branch_id: order?.branch_id || req.user?.branch_id || null,
         message: `👨‍✈️ تم تعيين الكابتن ${captain.name} للطلب رقم #${orderDisplayNumber} الخاص بالعميل ${customerName}`,
       });
     }

@@ -1,6 +1,11 @@
 import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
+import {
+  emitAdminNotification,
+  resolveRequestBranchId,
+  isHqAdminUser,
+} from "../utils/adminRealtime.js";
 
 const router = express.Router();
 
@@ -25,11 +30,27 @@ function emitSupportEvent(req, eventName, payload = {}) {
   const io = getIO(req);
   if (!io) return;
 
-  io.emit(eventName, payload);
-  io.emit("admin_notification", {
+  const branchId =
+    payload.branch_id != null
+      ? payload.branch_id
+      : resolveRequestBranchId(req);
+
+  emitAdminNotification(io, {
     type: eventName,
     ...payload,
+    branch_id: branchId,
   });
+}
+
+function canAccessChat(req, chat) {
+  if (!chat) return false;
+  if (isCustomer(req.user)) {
+    return Number(chat.customer_id) === Number(req.user.id);
+  }
+  if (!isAdmin(req.user)) return false;
+  const branchId = resolveRequestBranchId(req);
+  if (!branchId) return Boolean(isHqAdminUser(req.user));
+  return Number(chat.branch_id) === Number(branchId);
 }
 
 function normalizeMessageStatus(message) {
@@ -113,16 +134,27 @@ router.get("/my-chat", auth, async (req, res) => {
     }
 
     const customerId = req.user.id;
+    const branchId = resolveRequestBranchId(req);
 
     const [chatRows] = await db.query(
-      `
+      branchId
+        ? `
       SELECT id
       FROM support_chats
       WHERE customer_id = ?
+        AND branch_id = ?
+      ORDER BY id DESC
+      LIMIT 1
+      `
+        : `
+      SELECT id
+      FROM support_chats
+      WHERE customer_id = ?
+        AND branch_id IS NULL
       ORDER BY id DESC
       LIMIT 1
       `,
-      [customerId]
+      branchId ? [customerId, branchId] : [customerId]
     );
 
     if (!chatRows.length) {
@@ -202,6 +234,61 @@ router.post("/chats", auth, async (req, res) => {
     const customer_name = req.user.name || "عميل";
     const customer_phone = req.user.phone || null;
     const cleanMessage = String(message).trim();
+    const chatBranchId =
+      Number(branch_id) || resolveRequestBranchId(req) || null;
+
+    const [existingRows] = await db.query(
+      chatBranchId
+        ? `
+      SELECT id FROM support_chats
+      WHERE customer_id = ? AND branch_id = ? AND status <> 'closed'
+      ORDER BY id DESC LIMIT 1
+      `
+        : `
+      SELECT id FROM support_chats
+      WHERE customer_id = ? AND branch_id IS NULL AND status <> 'closed'
+      ORDER BY id DESC LIMIT 1
+      `,
+      chatBranchId ? [customer_id, chatBranchId] : [customer_id]
+    );
+
+    if (existingRows.length) {
+      const existingChatId = existingRows[0].id;
+      await db.query(
+        `
+        INSERT INTO support_chat_messages
+        (chat_id, sender_type, sender_id, message, is_read)
+        VALUES (?, 'customer', ?, ?, 0)
+        `,
+        [existingChatId, customer_id, cleanMessage]
+      );
+      await db.query(
+        `
+        UPDATE support_chats
+        SET last_message_at = NOW(), updated_at = NOW(), status = 'pending'
+        WHERE id = ?
+        `,
+        [existingChatId]
+      );
+      const existingChat = await getChatById(existingChatId);
+      emitSupportEvent(req, "support_chat_message", {
+        chat_id: existingChatId,
+        sender_type: "customer",
+        customer_id,
+        customer_name,
+        customer_phone,
+        branch_id: chatBranchId,
+        order_id: order_id || null,
+        message: cleanMessage,
+        notification_title: "رسالة جديدة",
+        notification_message: `العميل ${customer_name} أرسل لك رسالة`,
+      });
+      return res.status(201).json({
+        success: true,
+        message: "تم إرسال الرسالة",
+        chat: existingChat,
+      });
+    }
 
     const [chatInsert] = await db.query(
       `
@@ -221,7 +308,7 @@ router.post("/chats", auth, async (req, res) => {
         customer_id,
         customer_name,
         customer_phone,
-        branch_id || null,
+        chatBranchId,
         order_id || null,
       ]
     );
@@ -252,7 +339,7 @@ router.post("/chats", auth, async (req, res) => {
       customer_id,
       customer_name,
       customer_phone,
-      branch_id: branch_id || null,
+      branch_id: chatBranchId,
       order_id: order_id || null,
       message: cleanMessage,
       notification_title: "رسالة جديدة",
@@ -306,18 +393,20 @@ router.post("/chats/:id/messages", auth, async (req, res) => {
       });
     }
 
+    if (!canAccessChat(req, chat)) {
+      return res.status(403).json({
+        success: false,
+        message: "لا يمكنك الإرسال في هذه المحادثة",
+      });
+    }
+
     let senderType = "customer";
     let senderId = req.user?.id || null;
 
     if (isAdmin(req.user)) {
       senderType = "admin";
     } else if (isCustomer(req.user)) {
-      if (Number(chat.customer_id) !== Number(req.user.id)) {
-        return res.status(403).json({
-          success: false,
-          message: "لا يمكنك الإرسال في هذه المحادثة",
-        });
-      }
+      senderType = "customer";
     } else {
       return res.status(403).json({
         success: false,
@@ -416,6 +505,15 @@ router.get("/chats", auth, async (req, res) => {
     }
 
     const { status, branch_id, search } = req.query;
+    const userBranchId = resolveRequestBranchId(req);
+    const filterBranchId = userBranchId || (isHqAdminUser(req.user) ? (branch_id || null) : null);
+
+    if (!userBranchId && !isHqAdminUser(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: "غير مصرح",
+      });
+    }
 
     let sql = `
       SELECT
@@ -454,9 +552,9 @@ router.get("/chats", auth, async (req, res) => {
       params.push(status);
     }
 
-    if (branch_id) {
+    if (filterBranchId) {
       sql += ` AND c.branch_id = ? `;
-      params.push(branch_id);
+      params.push(filterBranchId);
     }
 
     if (search) {
@@ -525,6 +623,13 @@ router.get("/chats/:id", auth, async (req, res) => {
       });
     }
 
+    if (!canAccessChat(req, chat)) {
+      return res.status(403).json({
+        success: false,
+        message: "هذه المحادثة تتبع فرعاً آخر",
+      });
+    }
+
     const messages = await getChatMessages(chatId);
 
     return res.json({
@@ -575,6 +680,13 @@ router.post("/chats/:id/release", auth, async (req, res) => {
       });
     }
 
+    if (!canAccessChat(req, chat)) {
+      return res.status(403).json({
+        success: false,
+        message: "هذه المحادثة تتبع فرعاً آخر",
+      });
+    }
+
     const nextStatus = chat.status === "closed" ? "closed" : "pending";
 
     await db.query(
@@ -592,6 +704,7 @@ router.post("/chats/:id/release", auth, async (req, res) => {
       action: "released",
       customer_name: chat.customer_name,
       customer_phone: chat.customer_phone,
+      branch_id: chat.branch_id,
     });
 
     return res.json({
@@ -640,6 +753,20 @@ router.patch("/chats/:id/status", auth, async (req, res) => {
       });
     }
 
+    const existing = await getChatById(chatId);
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        message: "المحادثة غير موجودة",
+      });
+    }
+    if (!canAccessChat(req, existing)) {
+      return res.status(403).json({
+        success: false,
+        message: "هذه المحادثة تتبع فرعاً آخر",
+      });
+    }
+
     const [result] = await db.query(
       `
       UPDATE support_chats
@@ -664,6 +791,7 @@ router.patch("/chats/:id/status", auth, async (req, res) => {
       action: "status_changed",
       customer_name: chat.customer_name,
       customer_phone: chat.customer_phone,
+      branch_id: chat.branch_id,
     });
 
     return res.json({
@@ -712,6 +840,13 @@ router.patch("/chats/:id/read", auth, async (req, res) => {
       });
     }
 
+    if (!canAccessChat(req, chat)) {
+      return res.status(403).json({
+        success: false,
+        message: "هذه المحادثة تتبع فرعاً آخر",
+      });
+    }
+
     await db.query(
       `
       UPDATE support_chat_messages
@@ -728,6 +863,7 @@ router.patch("/chats/:id/read", auth, async (req, res) => {
       action: "marked_read",
       customer_name: chat.customer_name,
       customer_phone: chat.customer_phone,
+      branch_id: chat.branch_id,
     });
 
     return res.json({

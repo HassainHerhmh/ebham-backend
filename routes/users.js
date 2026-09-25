@@ -76,8 +76,21 @@ router.get("/", async (req, res) => {
           ? Number(selectedBranch)
           : null;
 
-      if (filterId && Number.isFinite(filterId)) {
-        // تصفح بيانات فرع محدد (إدارة عامة أو فرع تشغيلي)
+      let selectedIsHq = !filterId || !Number.isFinite(filterId);
+      if (!selectedIsHq) {
+        const [[selectedBranchRow]] = await pool.query(
+          `SELECT is_admin FROM branches WHERE id = ? LIMIT 1`,
+          [filterId]
+        );
+        selectedIsHq = Boolean(
+          selectedBranchRow &&
+            (selectedBranchRow.is_admin === 1 ||
+              selectedBranchRow.is_admin === true ||
+              Number(selectedBranchRow.is_admin) === 1)
+        );
+      }
+
+      if (!selectedIsHq) {
         [rows] = await pool.query(
           `
           SELECT u.*, b.name AS branch_name, a.name AS agent_name
@@ -90,7 +103,7 @@ router.get("/", async (req, res) => {
           [filterId]
         );
       } else {
-        // بدون فلتر: كل المستخدمين
+        // الإدارة العامة: كل المستخدمين مع فرع كل واحد
         [rows] = await pool.query(`
           SELECT u.*, b.name AS branch_name, a.name AS agent_name
           FROM users u
@@ -138,15 +151,23 @@ router.post("/", upload.single("image"), async (req, res) => {
       normalizeLoginValue(email) ||
       normalizedPhone;
     const phoneValue = normalizedPhone || loginValue;
+    const isHqAdmin = isHqAdminUser(authUser);
 
     if (!normalizedName || !loginValue || !password) {
       return res.status(400).json({ success: false, message: "أكمل جميع الحقول المطلوبة" });
     }
 
+    branch_id = parseBranchId(branch_id);
+
     // لو المستخدم ليس من الإدارة العامة
     // نربطه تلقائيًا بفرعه ولا نسمح بتغيير الفرع
-    if (!(authUser.is_admin_branch === true || authUser.is_admin_branch === 1 || authUser.is_admin)) {
-      branch_id = authUser.branch_id;
+    if (!isHqAdmin) {
+      branch_id = parseBranchId(authUser.branch_id);
+    } else if (!branch_id) {
+      return res.status(400).json({
+        success: false,
+        message: "حدد الإدارة العامة أو الفرع",
+      });
     }
 
     if (authUser.role === "agent") {
@@ -206,7 +227,7 @@ router.post("/", upload.single("image"), async (req, res) => {
         hashed,
         normalizedRole,
         permissions || "{}",
-        branch_id || null,
+        branch_id,
         agent_id || null,
         image_url,
       ]
@@ -272,6 +293,23 @@ function normalizeLoginValue(value) {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
   return normalized || null;
+}
+
+function parseBranchId(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function isHqAdminUser(user) {
+  return Boolean(
+    user?.is_admin_branch === true ||
+      user?.is_admin_branch === 1 ||
+      Number(user?.is_admin_branch) === 1 ||
+      user?.is_admin === true ||
+      user?.is_admin === 1 ||
+      Number(user?.is_admin) === 1
+  );
 }
 
 function getUserWriteErrorMessage(err) {
@@ -409,6 +447,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     const loginValue = normalizeLoginValue(username) || normalizeLoginValue(email);
     const normalizedPhone = normalizeLoginValue(phone);
     const image_url = req.file ? `/uploads/users/${req.file.filename}` : null;
+    branch_id = parseBranchId(branch_id);
 
     if (authUser.role === "agent") {
       agent_id = authUser.id;
@@ -442,12 +481,7 @@ router.put("/:id", upload.single("image"), async (req, res) => {
     const values = [name, loginValue, normalizedPhone, normalizeRole(role), agent_id || null];
 
     // تغيير الفرع / الإدارة العامة متاح فقط لمستخدمي الإدارة العامة
-    if (
-      branch_id &&
-      (authUser.is_admin_branch === true ||
-        authUser.is_admin_branch === 1 ||
-        authUser.is_admin)
-    ) {
+    if (branch_id && isHqAdminUser(authUser)) {
       fields.push("branch_id = ?");
       values.push(branch_id);
     }

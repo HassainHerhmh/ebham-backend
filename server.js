@@ -8,6 +8,7 @@ import admin from "firebase-admin";
 import pool from "./db.js";
 import auth from "./middlewares/auth.js";
 import { ensureSchema } from "./utils/ensureSchema.js";
+import { joinDashboardBranchRooms } from "./utils/adminRealtime.js";
 
 /* =========================
    Load ENV أولاً (مهم جداً)
@@ -659,10 +660,25 @@ io.on("connection", (socket) => {
 
   console.log("🔌 Client connected:", socket.id);
 
+  const queryBranch = socket.handshake?.query?.branch_id;
+  if (queryBranch !== undefined && queryBranch !== null && queryBranch !== "") {
+    joinDashboardBranchRooms(socket, queryBranch);
+  }
+
   socket.on("join_user", (userId) => {
     if (!userId) return;
     socket.join("user_" + userId);
     console.log("✅ User joined room:", userId);
+  });
+
+  socket.on("join_branch", (branchId) => {
+    joinDashboardBranchRooms(socket, branchId);
+    console.log("✅ Dashboard joined branch room:", branchId);
+  });
+
+  socket.on("join_admin", () => {
+    joinDashboardBranchRooms(socket, "all");
+    console.log("✅ Dashboard joined all-branches room");
   });
 
   // 1. انضمام الكابتن لغرفة خاصة به (موجود مسبقاً)

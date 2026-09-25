@@ -4,14 +4,16 @@ import {
   listJournalJobs,
   processOpenJournalJobs,
 } from "../utils/orderJournals.js";
+import { emitAdminNotification } from "../utils/adminRealtime.js";
 
 const router = express.Router();
 router.use(auth);
 
 function emitPosted(req, processed) {
   if (!processed?.posted) return;
-  req.app.get("io")?.emit("admin_notification", {
+  emitAdminNotification(req.app.get("io"), {
     type: "journal_posted",
+    branch_id: req.user?.branch_id || null,
     message: `تم ترحيل ${processed.posted} قيد محاسبي تلقائياً بعد حل سبب الفشل`,
   });
 }

@@ -3,6 +3,8 @@ import db from "../db.js";
 import auth from "../middlewares/auth.js";
 import admin from "firebase-admin";
 import { ensureOrderNumberSchema, getNextOrderNumber } from "../utils/orderNumbers.js";
+import { emitCustomerOrderUpdate } from "../utils/orderRealtime.js";
+import { emitAdminNotification } from "../utils/adminRealtime.js";
 const router = express.Router();
 
 
@@ -682,12 +684,13 @@ router.post("/", async (req, res) => {
     /* ======================
        إشعار لوحة التحكم فقط
     ====================== */
-    io.emit("admin_notification", {
+    emitAdminNotification(io, {
       type: "wassel_order_created",
       order_id: orderId,
       order_number: orderNumber,
       actor_name: actorName,
       customer_name: customerName,
+      branch_id: req.user?.branch_id || req.headers["x-branch-id"] || null,
       message: adminMessage
     });
 
@@ -805,6 +808,7 @@ router.put("/status/:id", async (req, res) => {
     const [[order]] = await db.query(`
       SELECT
         w.id,
+        w.customer_id,
         COALESCE(w.order_number, w.id) AS order_number,
         w.status,
         c.name AS customer_name,
@@ -841,13 +845,24 @@ router.put("/status/:id", async (req, res) => {
     const statusText = statusMap[status] || status;
     // إرسال Socket Notification
     const io = req.app.get("io");
-    io.emit("admin_notification", {
+    emitCustomerOrderUpdate(io, {
+      customerId: order?.customer_id,
+      orderId,
+      orderNumber: order?.order_number || orderId,
+      status,
+      statusLabel: statusText,
+      title: "تحديث حالة الطلب",
+      body: `تم تحديث طلبك رقم #${order?.order_number || orderId} إلى ${statusText}`,
+      orderKind: "wassel",
+    });
+    emitAdminNotification(io, {
       type: "wassel_status",
       order_id: orderId,
       order_number: order?.order_number || orderId,
       actor_name: actorName,
       customer_name: order.customer_name,
       status: status,
+      branch_id: req.user?.branch_id || req.headers["x-branch-id"] || null,
       message: `${actorIcon} ${actorName} حدّث حالة طلب العميل ${order.customer_name} رقم #${order?.order_number || orderId} إلى ${statusText}`
     });
     res.json({
@@ -925,12 +940,13 @@ router.post("/assign", async (req, res) => {
     }
 
     /* إشعار لوحة التحكم */
-    io.emit("admin_notification", {
+    emitAdminNotification(io, {
       type: order?.is_manual ? "manual_order_assigned" : "wassel_assigned",
       order_id: orderId,
       order_number: orderNumber,
       captain_name: captainName,
       customer_name: customerName,
+      branch_id: req.user?.branch_id || null,
       message: `👨‍✈️ تم إسناد طلب وصل لي #${orderNumber} إلى ${captainName} للعميل ${customerName}`
     });
 
@@ -1359,13 +1375,14 @@ router.put("/:id/status", auth, async (req, res) => {
     ====================== */
     const io = req.app.get("io");
 
-    io.emit("admin_notification", {
+    emitAdminNotification(io, {
       type: "wassel_status",
       order_id: id,
       order_number: order?.order_number || id,
       actor_name: actorName,
       customer_name: order.customer_name,
       status: status,
+      branch_id: req.user?.branch_id || req.headers["x-branch-id"] || null,
       message: `${actorIcon} ${actorName} حدّث حالة طلب العميل ${order.customer_name} رقم #${order?.order_number || id} إلى ${statusText}`
     });
 
@@ -1495,11 +1512,12 @@ router.put("/item/:id", auth, async (req,res)=>{
     await conn.commit();
 
     const io = req.app.get("io");
-    io?.emit("admin_notification", {
+    emitAdminNotification(io, {
       type: orderInfo?.is_manual ? "manual_order_updated" : "wassel_order_updated",
       order_id: item.order_id,
       order_number: orderInfo?.order_number || item.order_id,
       total_amount: orderInfo?.total_amount,
+      branch_id: req.user?.branch_id || null,
       message: `تم تحديث أسعار الطلب رقم #${orderInfo?.order_number || item.order_id}`
     });
 

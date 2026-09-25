@@ -3,6 +3,8 @@ import db from "../db.js";
 import auth from "../middlewares/auth.js";
 import admin from "firebase-admin";
 import { ensureOrderNumberSchema, getNextOrderNumber } from "../utils/orderNumbers.js";
+import { emitCustomerOrderUpdate } from "../utils/orderRealtime.js";
+import { emitAdminNotification } from "../utils/adminRealtime.js";
 
 const router = express.Router();
 router.use(auth);
@@ -261,12 +263,13 @@ router.post("/", async (req, res) => {
       );
     }
 
-    io.emit("admin_notification", {
+    emitAdminNotification(io, {
       type: "manual_order_created",
       order_id: orderId,
       order_number: orderNumber,
       actor_name: actorName,
       customer_name: customerName,
+      branch_id: req.user?.branch_id || null,
       message: adminMessage
     });
 
@@ -739,7 +742,18 @@ router.put("/status/:id", async (req, res) => {
       );
     }
 
-    io.emit("admin_notification", {
+    emitCustomerOrderUpdate(io, {
+      customerId: orderInfo?.customer_id,
+      orderId,
+      orderNumber: orderDisplayNumber,
+      status,
+      statusLabel: statusText,
+      title: "تحديث حالة الطلب",
+      body: `تم تحديث طلبك اليدوي رقم #${orderDisplayNumber} إلى ${statusText}`,
+      orderKind: "manual",
+    });
+
+    emitAdminNotification(io, {
       type: "manual_order_status",
       order_id: orderId,
       order_number: orderDisplayNumber,
@@ -747,6 +761,7 @@ router.put("/status/:id", async (req, res) => {
       actor_name: actorName,
       customer_name: orderInfo?.customer_name,
       status,
+      branch_id: req.user?.branch_id || null,
       message: `${actorIcon} ${actorName} حدّث حالة الطلب اليدوي للعميل ${orderInfo?.customer_name} رقم #${orderDisplayNumber} إلى ${statusText}`
     });
 
