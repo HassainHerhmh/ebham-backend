@@ -46,9 +46,19 @@ export function joinDashboardBranchRooms(socket, branchId) {
   }
 }
 
-export function resolveRequestBranchId(req) {
-  const n = Number(req?.user?.branch_id);
+export function parseBranchId(value) {
+  const n = Number(Array.isArray(value) ? value[0] : value);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+export function resolveRequestBranchId(req) {
+  return parseBranchId(req?.user?.branch_id);
+}
+
+export function resolveScopedBranchId(req) {
+  const fromUser = resolveRequestBranchId(req);
+  if (fromUser) return fromUser;
+  return parseBranchId(req?.headers?.["x-branch-id"] || req?.query?.branch_id);
 }
 
 export function isHqAdminUser(user) {

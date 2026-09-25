@@ -2,6 +2,7 @@ import express from "express";
 import db from "../db.js";
 import auth from "../middlewares/auth.js";
 import { emitCatalogUpdate } from "../utils/catalogEvents.js";
+import { resolveScopedBranchId } from "../utils/adminRealtime.js";
 
 import { body, validationResult } from "express-validator";
 import rateLimit from "express-rate-limit";
@@ -66,12 +67,50 @@ const clean = (text) => {
   return text.replace(/[<>$;]/g, "").trim();
 };
 
+function canManageAds(user) {
+  if (!user) return false;
+  const role = String(user.role || "").toLowerCase();
+  return role !== "customer" && role !== "captain";
+}
+
+function adsBranchSql(alias = "ads") {
+  return `(
+    ${alias}.branch_id = ?
+    OR (
+      ${alias}.branch_id IS NULL
+      AND restaurants.branch_id = ?
+    )
+  )`;
+}
+
+async function assertAdInBranch(id, branchId) {
+  if (!branchId) return null;
+  const [[row]] = await db.query(
+    `
+      SELECT ads.*
+      FROM ads
+      LEFT JOIN restaurants ON restaurants.id = ads.restaurant_id
+      WHERE ads.id = ?
+        AND ${adsBranchSql()}
+      LIMIT 1
+    `,
+    [id, branchId, branchId]
+  );
+  return row || null;
+}
+
 /* =====================================
    جلب الإعلانات (مفتوح)
 ===================================== */
 router.get("/", async (req, res) => {
   try {
-    const [rows] = await db.query(`
+    const branchId = resolveScopedBranchId(req);
+    if (!branchId) {
+      return res.json([]);
+    }
+
+    const [rows] = await db.query(
+      `
       SELECT 
         ads.*,
         restaurants.name AS restaurant_name
@@ -79,15 +118,17 @@ router.get("/", async (req, res) => {
       LEFT JOIN restaurants
         ON ads.restaurant_id = restaurants.id
       WHERE ads.status = 'active'
-      AND (ads.start_date IS NULL OR ads.start_date <= NOW())
-      AND (ads.end_date IS NULL OR ads.end_date >= NOW())
+        AND (ads.start_date IS NULL OR ads.start_date <= NOW())
+        AND (ads.end_date IS NULL OR ads.end_date >= NOW())
+        AND ${adsBranchSql()}
       ORDER BY ads.id DESC
-    `);
+    `,
+      [branchId, branchId]
+    );
 
     res.json(rows);
   } catch (err) {
     console.error("GET ADS ERROR:", err?.message || err);
-    // لا تكسر التطبيق — أعد قائمة فارغة إذا الجدول/الأعمدة ناقصة
     res.json([]);
   }
 });
@@ -97,17 +138,26 @@ router.get("/", async (req, res) => {
 ===================================== */
 router.get("/admin", auth, async (req, res) => {
   try {
-    if (req.user.role !== "admin") {
+    if (!canManageAds(req.user)) {
       return res.status(403).json({ error: "غير مصرح" });
     }
 
-    const [rows] = await db.query(`
+    const branchId = resolveScopedBranchId(req);
+    if (!branchId) {
+      return res.json([]);
+    }
+
+    const [rows] = await db.query(
+      `
       SELECT ads.*, restaurants.name AS restaurant_name
       FROM ads
       LEFT JOIN restaurants
       ON ads.restaurant_id = restaurants.id
+      WHERE ${adsBranchSql()}
       ORDER BY ads.id DESC
-    `);
+    `,
+      [branchId, branchId]
+    );
 
     res.json(rows);
   } catch (err) {
@@ -120,7 +170,7 @@ router.get("/admin", auth, async (req, res) => {
 ===================================== */
 router.post("/", limiter, auth, validateAd, async (req, res) => {
   try {
-    if (req.user.role !== "admin") {
+    if (!canManageAds(req.user)) {
       return res.status(403).json({ error: "غير مصرح" });
     }
 
@@ -139,6 +189,21 @@ router.post("/", limiter, auth, validateAd, async (req, res) => {
       start_date,
       end_date
     } = req.body;
+
+    const branchId = resolveScopedBranchId(req);
+    if (!branchId) {
+      return res.status(400).json({ error: "حدد الفرع أولاً" });
+    }
+
+    if (restaurant_id) {
+      const [[store]] = await db.query(
+        "SELECT id, branch_id FROM restaurants WHERE id = ? LIMIT 1",
+        [restaurant_id]
+      );
+      if (!store || Number(store.branch_id) !== Number(branchId)) {
+        return res.status(400).json({ error: "المحل لا يتبع هذا الفرع" });
+      }
+    }
 
     // تنظيف
     name = clean(name);
@@ -160,8 +225,8 @@ router.post("/", limiter, auth, validateAd, async (req, res) => {
 
     const [result] = await db.query(`
       INSERT INTO ads
-      (name,description,type,image_url,restaurant_id,category_id,discount_percent,start_date,end_date,status)
-      VALUES (?,?,?,?,?,?,?,?,?,?)
+      (name,description,type,image_url,restaurant_id,category_id,discount_percent,start_date,end_date,status,branch_id)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)
     `,[
       name,
       description || null,
@@ -172,7 +237,8 @@ router.post("/", limiter, auth, validateAd, async (req, res) => {
       discount_percent || null,
       start_date || null,
       end_date || null,
-      "active"
+      "active",
+      branchId
     ]);
 
 const adId = result.insertId;
@@ -212,7 +278,7 @@ if(product_ids?.length){
 ===================================== */
 router.put("/:id", limiter, auth, validateAd, async (req, res) => {
   try {
-    if (req.user.role !== "admin") {
+    if (!canManageAds(req.user)) {
       return res.status(403).json({ error: "غير مصرح" });
     }
 
@@ -220,6 +286,12 @@ router.put("/:id", limiter, auth, validateAd, async (req, res) => {
     if (validationError) return;
 
     const { id } = req.params;
+    const branchId = resolveScopedBranchId(req);
+    const existing = await assertAdInBranch(id, branchId);
+    if (!existing) {
+      return res.status(404).json({ error: "الإعلان غير موجود في هذا الفرع" });
+    }
+
     let {
       name,
       description,
@@ -234,6 +306,16 @@ router.put("/:id", limiter, auth, validateAd, async (req, res) => {
       status
     } = req.body;
 
+    if (restaurant_id) {
+      const [[store]] = await db.query(
+        "SELECT id, branch_id FROM restaurants WHERE id = ? LIMIT 1",
+        [restaurant_id]
+      );
+      if (!store || Number(store.branch_id) !== Number(branchId)) {
+        return res.status(400).json({ error: "المحل لا يتبع هذا الفرع" });
+      }
+    }
+
     name = clean(name);
     description = clean(description);
 
@@ -242,7 +324,7 @@ router.put("/:id", limiter, auth, validateAd, async (req, res) => {
 
     await db.query(`
       UPDATE ads SET
-      name=?,description=?,type=?,image_url=?,restaurant_id=?,category_id=?,discount_percent=?,start_date=?,end_date=?,status=COALESCE(?,status)
+      name=?,description=?,type=?,image_url=?,restaurant_id=?,category_id=?,discount_percent=?,start_date=?,end_date=?,status=COALESCE(?,status),branch_id=?
       WHERE id=?
     `,[
       name,
@@ -255,6 +337,7 @@ router.put("/:id", limiter, auth, validateAd, async (req, res) => {
       formatDate(start_date),
       formatDate(end_date),
       status,
+      branchId,
       id
     ]);
 
@@ -282,11 +365,16 @@ router.put("/:id", limiter, auth, validateAd, async (req, res) => {
 ===================================== */
 router.delete("/:id", auth, async (req, res) => {
   try {
-    if (req.user.role !== "admin") {
+    if (!canManageAds(req.user)) {
       return res.status(403).json({ error: "غير مصرح" });
     }
 
     const { id } = req.params;
+    const branchId = resolveScopedBranchId(req);
+    const existing = await assertAdInBranch(id, branchId);
+    if (!existing) {
+      return res.status(404).json({ error: "الإعلان غير موجود في هذا الفرع" });
+    }
 
     await db.query("DELETE FROM ad_products WHERE ad_id=?", [id]);
     await db.query("DELETE FROM ads WHERE id=?", [id]);
@@ -317,8 +405,14 @@ router.post("/:id/click", async (req, res) => {
 ===================================== */
 router.patch("/:id/status", auth, async (req,res)=>{
   try{
-    if (req.user.role !== "admin") {
+    if (!canManageAds(req.user)) {
       return res.status(403).json({ error: "غير مصرح" });
+    }
+
+    const branchId = resolveScopedBranchId(req);
+    const existing = await assertAdInBranch(req.params.id, branchId);
+    if (!existing) {
+      return res.status(404).json({ error: "الإعلان غير موجود في هذا الفرع" });
     }
 
     await db.query(

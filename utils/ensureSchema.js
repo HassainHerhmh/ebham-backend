@@ -70,6 +70,35 @@ const TABLES = [
     KEY \`idx_audit_created\` (\`created_at\`),
     KEY \`idx_audit_entity\` (\`entity_type\`, \`entity_id\`)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS \`loyalty_settings\` (
+    \`id\` INT NOT NULL AUTO_INCREMENT,
+    \`branch_id\` INT NULL,
+    \`amount_per_point\` DECIMAL(12,2) NOT NULL DEFAULT 100,
+    \`point_value\` DECIMAL(12,2) NOT NULL DEFAULT 1,
+    PRIMARY KEY (\`id\`),
+    KEY \`idx_loyalty_settings_branch\` (\`branch_id\`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS \`loyalty_points\` (
+    \`id\` INT NOT NULL AUTO_INCREMENT,
+    \`user_id\` INT NULL,
+    \`branch_id\` INT NULL,
+    \`points\` INT NOT NULL DEFAULT 0,
+    \`total_spent\` DECIMAL(12,2) NOT NULL DEFAULT 0,
+    PRIMARY KEY (\`id\`),
+    KEY \`idx_loyalty_points_user_branch\` (\`user_id\`, \`branch_id\`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS \`loyalty_logs\` (
+    \`id\` INT NOT NULL AUTO_INCREMENT,
+    \`user_id\` INT NULL,
+    \`branch_id\` INT NULL,
+    \`order_id\` INT NULL,
+    \`points\` INT NULL DEFAULT 0,
+    \`amount\` DECIMAL(12,2) NULL DEFAULT 0,
+    \`type\` VARCHAR(20) NULL,
+    \`created_at\` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (\`id\`),
+    KEY \`idx_loyalty_logs_user_branch\` (\`user_id\`, \`branch_id\`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
   `CREATE TABLE IF NOT EXISTS \`order_ratings\` (
     \`id\` INT NOT NULL AUTO_INCREMENT,
     \`order_kind\` VARCHAR(20) NOT NULL DEFAULT 'order',
@@ -164,6 +193,18 @@ const COLUMNS = [
   ["ads", "end_date", "DATETIME NULL"],
   ["ads", "category_id", "INT NULL"],
   ["ads", "clicks", "INT NOT NULL DEFAULT 0"],
+  ["ads", "branch_id", "INT NULL"],
+  ["loyalty_settings", "branch_id", "INT NULL"],
+  ["loyalty_settings", "amount_per_point", "DECIMAL(12,2) NOT NULL DEFAULT 100"],
+  ["loyalty_settings", "point_value", "DECIMAL(12,2) NOT NULL DEFAULT 1"],
+  ["loyalty_points", "user_id", "INT NULL"],
+  ["loyalty_points", "branch_id", "INT NULL"],
+  ["loyalty_points", "total_spent", "DECIMAL(12,2) NOT NULL DEFAULT 0"],
+  ["loyalty_logs", "user_id", "INT NULL"],
+  ["loyalty_logs", "branch_id", "INT NULL"],
+  ["loyalty_logs", "order_id", "INT NULL"],
+  ["loyalty_logs", "amount", "DECIMAL(12,2) NULL DEFAULT 0"],
+  ["loyalty_logs", "type", "VARCHAR(20) NULL"],
   ["wassel_orders", "from_lat", "DECIMAL(10,7) NULL"],
   ["wassel_orders", "from_lng", "DECIMAL(10,7) NULL"],
   ["wassel_orders", "to_lat", "DECIMAL(10,7) NULL"],
@@ -278,6 +319,50 @@ export async function ensureSchema() {
         err?.message || err
       );
     }
+  }
+
+  try {
+    await db.query(`
+      UPDATE ads a
+      LEFT JOIN restaurants r ON r.id = a.restaurant_id
+      SET a.branch_id = r.branch_id
+      WHERE a.branch_id IS NULL AND r.branch_id IS NOT NULL
+    `);
+  } catch {
+    // ignore
+  }
+
+  try {
+    await db.query(`
+      UPDATE loyalty_points lp
+      INNER JOIN customers c ON c.id = lp.user_id
+      SET lp.branch_id = c.branch_id
+      WHERE lp.branch_id IS NULL AND c.branch_id IS NOT NULL
+    `);
+  } catch {
+    // ignore
+  }
+
+  try {
+    await db.query(`
+      UPDATE loyalty_logs lg
+      INNER JOIN customers c ON c.id = lg.user_id
+      SET lg.branch_id = c.branch_id
+      WHERE lg.branch_id IS NULL AND c.branch_id IS NOT NULL
+    `);
+  } catch {
+    // ignore
+  }
+
+  try {
+    await db.query(`
+      UPDATE loyalty_logs lg
+      INNER JOIN orders o ON o.id = lg.order_id
+      SET lg.branch_id = o.branch_id
+      WHERE lg.branch_id IS NULL AND o.branch_id IS NOT NULL
+    `);
+  } catch {
+    // ignore
   }
 
   try {

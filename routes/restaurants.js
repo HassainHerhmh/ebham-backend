@@ -220,6 +220,10 @@ LEFT JOIN (
   WHERE status='active'
   AND (start_date IS NULL OR start_date <= NOW())
   AND (end_date IS NULL OR end_date >= NOW())
+  AND (
+    branch_id IS NULL
+    OR branch_id = (SELECT r.branch_id FROM restaurants r WHERE r.id = ads.restaurant_id LIMIT 1)
+  )
   GROUP BY restaurant_id
 ) ads
 ON ads.restaurant_id = ?
@@ -821,6 +825,10 @@ LEFT JOIN ads
   AND ads.status='active'
   AND (ads.start_date IS NULL OR ads.start_date <= NOW())
   AND (ads.end_date IS NULL OR ads.end_date >= NOW())
+  AND (
+    ads.branch_id IS NULL
+    OR ads.branch_id = (SELECT branch_id FROM restaurants WHERE id = ? LIMIT 1)
+  )
 
 WHERE (
   EXISTS (
@@ -838,7 +846,7 @@ WHERE (
 GROUP BY p.id
 ORDER BY p.id DESC
       `,
-      [restaurantId, restaurantId, restaurantId]
+      [restaurantId, restaurantId, restaurantId, restaurantId]
     );
 
     res.json({

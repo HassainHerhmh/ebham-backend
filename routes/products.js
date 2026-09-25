@@ -159,6 +159,12 @@ routerInstance.get("/by-category/:categoryId", async (req, res) => {
         AND ads.status='active'
         AND (ads.start_date IS NULL OR ads.start_date <= NOW())
         AND (ads.end_date IS NULL OR ads.end_date >= NOW())
+        AND (
+          ads.branch_id IS NULL
+          OR ads.branch_id = (
+            SELECT r.branch_id FROM restaurants r WHERE r.id = p.restaurant_id LIMIT 1
+          )
+        )
       WHERE pc.category_id = ?
       ORDER BY p.name ASC
       `,

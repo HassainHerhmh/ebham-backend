@@ -1089,6 +1089,12 @@ AND ads.type='discount'
 AND ads.status='active'
 AND (ads.start_date IS NULL OR ads.start_date <= NOW())
 AND (ads.end_date IS NULL OR ads.end_date >= NOW())
+AND (
+  ads.branch_id IS NULL
+  OR ads.branch_id = (
+    SELECT r.branch_id FROM restaurants r WHERE r.id = p.restaurant_id LIMIT 1
+  )
+)
 
 WHERE p.id IN (?)
 
@@ -1748,6 +1754,12 @@ router.put("/:id/update", auth, async (req, res) => {
        AND ads.status='active'
        AND (ads.start_date IS NULL OR ads.start_date <= NOW())
        AND (ads.end_date IS NULL OR ads.end_date >= NOW())
+       AND (
+         ads.branch_id IS NULL
+         OR ads.branch_id = (
+           SELECT r.branch_id FROM restaurants r WHERE r.id = p.restaurant_id LIMIT 1
+         )
+       )
       WHERE p.id IN (?)
       GROUP BY p.id
       `,
@@ -1902,7 +1914,7 @@ router.put("/:id/status", async (req, res) => {
     if (status === "completed") {
       try {
         const [[orderData]] = await conn.query(
-          `SELECT id, customer_id, total_amount
+          `SELECT id, customer_id, total_amount, branch_id
            FROM orders
            WHERE id=?`,
           [orderId]
