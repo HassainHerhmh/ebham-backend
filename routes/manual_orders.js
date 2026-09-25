@@ -127,7 +127,21 @@ ORDER BY w.id DESC
 
 
 
-    res.json({ success:true, orders:rows });
+    res.json({
+      success: true,
+      orders: (rows || []).map((row) => {
+        let items = row.items;
+        if (typeof items === "string") {
+          try {
+            items = JSON.parse(items);
+          } catch {
+            items = [];
+          }
+        }
+        if (!Array.isArray(items)) items = [];
+        return { ...row, items: items.filter(Boolean) };
+      }),
+    });
 
   } catch (err) {
 
