@@ -32,6 +32,17 @@ router.get("/customer/:customerId", async (req, res) => {
     let where = `WHERE ca.customer_id = ?`;
     let params = [customerId];
 
+    const headerIsBranch =
+      headerBranchId &&
+      headerBranchId !== "null" &&
+      headerBranchId !== "all";
+
+    // العميل: عناوين الفرع الحالي فقط (من x-branch-id)
+    if (user.role === "customer" && headerIsBranch) {
+      where += ` AND ca.branch_id = ?`;
+      params.push(Number(headerBranchId));
+    }
+
     // إذا كان المستخدم مربوط بفرع وليس أدمن عام
     if (user.branch_id && !user.is_admin_branch) {
       where += ` AND ca.branch_id = ?`;
