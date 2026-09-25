@@ -449,7 +449,7 @@ router.delete("/transport-methods/:id", async (req, res) => {
 /* ==============================================
     3️⃣ جلب جميع الطلبات
 ============================================== */
-router.get("/", async (req, res) => {
+router.get("/", auth, async (req, res) => {
   try {
     let query = `
       SELECT 
@@ -483,6 +483,9 @@ router.get("/", async (req, res) => {
 
     if (req.user.role === "captain") {
       query += ` AND w.captain_id = ?`;
+      params.push(req.user.id);
+    } else if (req.user.role === "customer") {
+      query += ` AND w.customer_id = ?`;
       params.push(req.user.id);
     }
 
@@ -539,7 +542,7 @@ router.post("/", async (req, res) => {
     const totalAmount =
       Number(delivery_fee || 0) + Number(extra_fee || 0);
 
-    if (payment_method === "wallet" && customer_id) {
+    if (payment_method === "wallet" && customer_id && totalAmount > 0) {
       const [[wallet]] = await db.query(`
         SELECT cg.type, cg.credit_limit,
           CASE 
@@ -654,9 +657,10 @@ router.post("/", async (req, res) => {
         user_id,
         scheduled_at,
         is_manual,
+        customer_price_decision,
         created_at
 
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,NOW())
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,NOW())
     `, [
       orderNumber,
       customer_id || null,
@@ -683,8 +687,15 @@ router.post("/", async (req, res) => {
       payment_method,
       bank_id || null,
 
-      req.user.id,
-      scheduledAt
+      req.user?.id || null,
+      scheduledAt,
+      req.user?.role === "customer" || !req.user
+        ? Number(delivery_fee || 0) + Number(extra_fee || 0) > 0
+          ? "pending_approval"
+          : "pending_quote"
+        : Number(delivery_fee || 0) + Number(extra_fee || 0) > 0
+          ? "approved"
+          : "pending_quote",
     ]);
 
     const orderId = result.insertId;
@@ -749,6 +760,25 @@ router.put("/status/:id", async (req, res) => {
     const { status } = req.body;
     const orderId = req.params.id;
     await conn.beginTransaction();
+
+    const [[currentOrder]] = await conn.query(
+      `SELECT customer_price_decision FROM wassel_orders WHERE id = ? LIMIT 1`,
+      [orderId]
+    );
+    const priceDecision = currentOrder?.customer_price_decision || "pending_quote";
+    if (
+      ["confirmed", "preparing", "delivering"].includes(status) &&
+      (priceDecision === "pending_quote" || priceDecision === "pending_approval")
+    ) {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        message:
+          priceDecision === "pending_quote"
+            ? "حدّث سعر الطلب أولاً وانتظر موافقة العميل"
+            : "بانتظار موافقة العميل على السعر",
+      });
+    }
 
     let timeField = null;
 
@@ -1004,6 +1034,11 @@ router.put("/:id", async (req, res) => {
   try {
 
     const orderId = req.params.id;
+    const [[before]] = await db.query(
+      `SELECT customer_id, order_number, delivery_fee, extra_fee, customer_price_decision
+       FROM wassel_orders WHERE id = ? LIMIT 1`,
+      [orderId]
+    );
 
  const {
   customer_id,
@@ -1153,6 +1188,45 @@ router.put("/:id", async (req, res) => {
   orderId
 ]);
 
+    const [[updated]] = await db.query(
+      `SELECT customer_id, order_number, delivery_fee, extra_fee, customer_price_decision
+       FROM wassel_orders WHERE id = ? LIMIT 1`,
+      [orderId]
+    );
+    const quotedTotal =
+      Number(updated?.delivery_fee || 0) + Number(updated?.extra_fee || 0);
+    const previousTotal =
+      Number(before?.delivery_fee || 0) + Number(before?.extra_fee || 0);
+    const shouldAskCustomer =
+      updated?.customer_id &&
+      quotedTotal > 0 &&
+      quotedTotal !== previousTotal &&
+      before?.customer_price_decision !== "rejected";
+    if (shouldAskCustomer) {
+      await db.query(
+        `UPDATE wassel_orders SET customer_price_decision = 'pending_approval' WHERE id = ?`,
+        [orderId]
+      );
+      const io = req.app.get("io");
+      const quoteMessage = `تم تحديث سعر طلب وصل لي #${updated.order_number || orderId} إلى ${quotedTotal} ريال. وافق أو ألغِ من طلباتي.`;
+      emitCustomerOrderUpdate(io, {
+        customerId: updated.customer_id,
+        orderId,
+        orderNumber: updated.order_number || orderId,
+        status: "pending",
+        orderKind: "wassel",
+        title: "تحديث سعر طلب وصل لي",
+        body: quoteMessage,
+      });
+      if (io) {
+        io.to("user_" + updated.customer_id).emit("notification", {
+          title: "تحديث سعر طلب وصل لي",
+          message: quoteMessage,
+          type: "wassel_price",
+          id: orderId,
+        });
+      }
+    }
 
     res.json({ success: true });
 
@@ -1169,6 +1243,77 @@ router.put("/:id", async (req, res) => {
 /* ==============================================
    8️⃣ جلب تفاصيل طلب وصل لي
 ============================================== */
+router.post("/:id/price-decision", auth, async (req, res) => {
+  try {
+    const decision =
+      req.body?.decision === "approved"
+        ? "approved"
+        : req.body?.decision === "rejected"
+          ? "rejected"
+          : null;
+    if (!decision) {
+      return res.status(400).json({ success: false, message: "قرار غير صالح" });
+    }
+
+    const [[order]] = await db.query(
+      `SELECT id, customer_id, order_number, customer_price_decision, delivery_fee, extra_fee, status
+       FROM wassel_orders WHERE id = ? LIMIT 1`,
+      [req.params.id]
+    );
+    if (!order) {
+      return res.status(404).json({ success: false, message: "الطلب غير موجود" });
+    }
+    if (
+      req.user.role === "customer" &&
+      Number(order.customer_id) !== Number(req.user.id)
+    ) {
+      return res.status(403).json({ success: false, message: "غير مصرح" });
+    }
+    if (order.customer_price_decision !== "pending_approval") {
+      return res.status(400).json({
+        success: false,
+        message: "لا يوجد سعر بانتظار موافقتك",
+      });
+    }
+
+    if (decision === "rejected") {
+      await db.query(
+        `UPDATE wassel_orders
+         SET customer_price_decision = 'rejected', status = 'cancelled', cancelled_at = NOW()
+         WHERE id = ?`,
+        [order.id]
+      );
+    } else {
+      await db.query(
+        `UPDATE wassel_orders SET customer_price_decision = 'approved' WHERE id = ?`,
+        [order.id]
+      );
+    }
+
+    const io = req.app.get("io");
+    emitAdminNotification(io, {
+      type: "wassel_price_decision",
+      order_id: order.id,
+      order_number: order.order_number || order.id,
+      customer_name: req.user?.name,
+      branch_id: req.headers["x-branch-id"] || null,
+      message:
+        decision === "approved"
+          ? `العميل وافق على سعر طلب وصل لي #${order.order_number || order.id}`
+          : `العميل ألغى طلب وصل لي #${order.order_number || order.id} بعد تحديث السعر`,
+    });
+
+    res.json({
+      success: true,
+      customer_price_decision: decision,
+      status: decision === "rejected" ? "cancelled" : order.status,
+    });
+  } catch (err) {
+    console.error("Wassel price decision:", err?.message || err);
+    res.status(500).json({ success: false, message: "فشل حفظ القرار" });
+  }
+});
+
 router.get("/:id", async (req, res) => {
 
   try {
@@ -1205,6 +1350,7 @@ const [[order]] = await db.query(`
 
     w.delivery_fee,
     w.extra_fee,
+    w.customer_price_decision,
 
     (w.delivery_fee + w.extra_fee) AS total_fee,
 
