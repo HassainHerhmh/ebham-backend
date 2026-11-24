@@ -195,9 +195,10 @@ router.post("/calc-fees", auth, async (req, res) => {
         deliveryFee = Number(neighborhood.delivery_fee || 0);
 
         if (storeIds.length > 1) {
-          extraStoreFee =
-            (storeIds.length - 1) *
-            Number(neighborhood.extra_store_fee || 0);
+          const extraPerStore = Number(
+            settings.extra_store_fee || neighborhood.extra_store_fee || 0
+          );
+          extraStoreFee = (storeIds.length - 1) * extraPerStore;
         }
       }
     }
@@ -911,7 +912,7 @@ if (branchId) {
           if (storesCount > 1) {
             extraStoreFee =
               (storesCount - 1) *
-              Number(n.extra_store_fee || 0);
+              Number(settings.extra_store_fee || n.extra_store_fee || 0);
           }
         }
       }
@@ -1711,7 +1712,10 @@ router.put("/:id/update", auth, async (req, res) => {
         if (n) {
           deliveryFee = Number(n.delivery_fee || 0);
           if (storesCount > 1) {
-            extraStoreFee = (storesCount - 1) * Number(n.extra_store_fee || 0);
+            const extraPerStore = Number(
+              settings.extra_store_fee || n.extra_store_fee || 0
+            );
+            extraStoreFee = (storesCount - 1) * extraPerStore;
           }
         }
       }
