@@ -176,13 +176,24 @@ async function handleAiAfterCustomerMessage(req, chat, customerMessage) {
 
   const aiText = String(result?.text || "").trim();
   if (aiText) {
-    await insertChatMessage({
-      chatId: chat.id,
-      senderType: "ai",
-      senderId: null,
-      message: aiText,
-      isRead: 0,
-    });
+    try {
+      await insertChatMessage({
+        chatId: chat.id,
+        senderType: "ai",
+        senderId: null,
+        message: aiText,
+        isRead: 0,
+      });
+    } catch (error) {
+      console.error("AI message insert as ai failed:", error?.message || error);
+      await insertChatMessage({
+        chatId: chat.id,
+        senderType: "admin",
+        senderId: null,
+        message: aiText,
+        isRead: 0,
+      });
+    }
   }
 
   if (result?.handoff) {
@@ -312,13 +323,31 @@ router.get("/my-chat", auth, async (req, res) => {
       UPDATE support_chat_messages
       SET is_read = 1
       WHERE chat_id = ?
-        AND sender_type = 'admin'
+        AND sender_type IN ('admin', 'ai')
         AND is_read = 0
       `,
       [chatId]
     );
 
-    const chat = await getChatById(chatId);
+    let chat = await getChatById(chatId);
+    if (
+      chat &&
+      !chat.assigned_agent_id &&
+      !chat.handed_off_at &&
+      (chat.status === "WAITING_AGENT" || chat.status === "pending" || chat.status === "AI_ACTIVE")
+    ) {
+      if (chat.status !== "AI_ACTIVE") {
+        await db.query(
+          `
+          UPDATE support_chats
+          SET status = 'AI_ACTIVE', handler_mode = 'AI', updated_at = NOW()
+          WHERE id = ?
+          `,
+          [chatId]
+        );
+        chat = await getChatById(chatId);
+      }
+    }
     const messages = await getChatMessages(chatId);
 
     if (readResult.affectedRows > 0) {

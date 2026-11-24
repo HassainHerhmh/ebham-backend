@@ -23,7 +23,11 @@ function orderStatusAr(status) {
 export function shouldAiReply(chat) {
   const status = String(chat?.status || "");
   if (chat?.assigned_agent_id) return false;
-  return status === "AI_ACTIVE" || status === "RESOLVED";
+  if (["AGENT_ACTIVE", "open", "CLOSED", "closed"].includes(status)) return false;
+  if ((status === "WAITING_AGENT" || status === "pending") && chat?.handed_off_at) {
+    return false;
+  }
+  return true;
 }
 
 export async function insertSupportEvent({
