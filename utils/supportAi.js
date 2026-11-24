@@ -49,6 +49,164 @@ function orderStatusAr(status) {
   return ORDER_STATUS_AR[key] || status || "غير معروف";
 }
 
+const AR_DAYS = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+const BRANCH_DAYS = ["السبت", "الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة"];
+
+function getYemenNow() {
+  return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Aden" }));
+}
+
+function formatTime12Ar(value) {
+  if (!value) return null;
+  const [hoursPart, minutesPart = "00"] = String(value).split(":");
+  const hours = Number(hoursPart);
+  const minutes = Number(minutesPart);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return String(value);
+  const period = hours >= 12 ? "مساءً" : "صباحاً";
+  return `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${period}`;
+}
+
+function parseTimeMinutes(value) {
+  if (!value || !String(value).includes(":")) return null;
+  const [hours, minutes] = String(value).split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+function isOpenAtRange(from, to, closed, date) {
+  if (Number(closed) === 1) return false;
+  const openMinutes = parseTimeMinutes(from);
+  const closeMinutesRaw = parseTimeMinutes(to);
+  if (openMinutes === null || closeMinutesRaw === null) return false;
+  if (openMinutes === closeMinutesRaw) return true;
+  const currentMinutes = date.getHours() * 60 + date.getMinutes();
+  if (closeMinutesRaw > openMinutes) {
+    return currentMinutes >= openMinutes && currentMinutes <= closeMinutesRaw;
+  }
+  return currentMinutes >= openMinutes || currentMinutes <= closeMinutesRaw;
+}
+
+async function getHoursData(branchId, restaurantQuery = "") {
+  const now = getYemenNow();
+  const branchDay = (now.getDay() + 1) % 7;
+  const dayName = AR_DAYS[now.getDay()];
+  const query = String(restaurantQuery || "").trim();
+
+  const [workRows] = await db.query(
+    `
+    SELECT day_of_week, open_time, close_time, is_closed, notes
+    FROM branch_work_times
+    WHERE (? IS NULL OR branch_id = ?)
+    ORDER BY day_of_week ASC
+    `,
+    [branchId, branchId]
+  );
+
+  const todayBranch = (workRows || []).find(
+    (row) => Number(row.day_of_week) === branchDay
+  );
+  const branchOpen = todayBranch
+    ? isOpenAtRange(
+        todayBranch.open_time,
+        todayBranch.close_time,
+        todayBranch.is_closed,
+        now
+      )
+    : true;
+
+  const week = (workRows || []).map((row) => ({
+    day: BRANCH_DAYS[Number(row.day_of_week)] || String(row.day_of_week),
+    from: formatTime12Ar(row.open_time),
+    to: formatTime12Ar(row.close_time),
+    closed: Number(row.is_closed) === 1,
+  }));
+
+  let restaurantSql = `
+    SELECT id, name
+    FROM restaurants
+    WHERE (? IS NULL OR branch_id = ?)
+  `;
+  const restaurantParams = [branchId, branchId];
+  if (query) {
+    restaurantSql += ` AND (name LIKE ? OR COALESCE(name_en, '') LIKE ?) `;
+    restaurantParams.push(`%${query}%`, `%${query}%`);
+  }
+  restaurantSql += ` ORDER BY name ASC LIMIT 20 `;
+
+  const [restaurants] = await db.query(restaurantSql, restaurantParams);
+  const restaurantIds = (restaurants || []).map((row) => row.id);
+  const scheduleByRestaurant = new Map();
+
+  if (restaurantIds.length) {
+    const [schedules] = await db.query(
+      `
+      SELECT restaurant_id, day, start_time, end_time, closed
+      FROM restaurant_schedule
+      WHERE restaurant_id IN (?)
+      `,
+      [restaurantIds]
+    );
+    for (const item of schedules || []) {
+      const list = scheduleByRestaurant.get(item.restaurant_id) || [];
+      list.push(item);
+      scheduleByRestaurant.set(item.restaurant_id, list);
+    }
+  }
+
+  const restaurantHours = (restaurants || []).map((row) => {
+    const schedule = scheduleByRestaurant.get(row.id) || [];
+    const todaySchedule = schedule.find((item) => item.day === dayName);
+    let isOpen = true;
+    let todayFrom = null;
+    let todayTo = null;
+    if (todaySchedule && todaySchedule.start_time && todaySchedule.end_time) {
+      todayFrom = todaySchedule.start_time;
+      todayTo = todaySchedule.end_time;
+      isOpen =
+        Number(todaySchedule.closed) !== 1 &&
+        isOpenAtRange(
+          todaySchedule.start_time,
+          todaySchedule.end_time,
+          todaySchedule.closed,
+          now
+        );
+    }
+    return {
+      name: row.name,
+      is_open: isOpen,
+      today_from: formatTime12Ar(todayFrom),
+      today_to: formatTime12Ar(todayTo),
+      closed_today: todaySchedule ? Number(todaySchedule.closed) === 1 : false,
+    };
+  });
+
+  const openCount = restaurantHours.filter((item) => item.is_open).length;
+
+  return {
+    now: now.toTimeString().slice(0, 5),
+    day_name: dayName,
+    can_order_now: branchOpen,
+    branch: {
+      is_open: branchOpen,
+      today_from: formatTime12Ar(todayBranch?.open_time),
+      today_to: formatTime12Ar(todayBranch?.close_time),
+      closed_today: Number(todayBranch?.is_closed) === 1,
+      notes: todayBranch?.notes || null,
+      week,
+    },
+    restaurants: restaurantHours,
+    open_restaurants: openCount,
+    total_restaurants: restaurantHours.length,
+    summary: branchOpen
+      ? `فرع جو مفتوح الآن (${dayName} من ${formatTime12Ar(todayBranch?.open_time) || "غير محدد"} إلى ${formatTime12Ar(todayBranch?.close_time) || "غير محدد"}). المحلات المفتوحة: ${openCount}.`
+      : `فرع جو مغلق الآن (${dayName}). ${
+          Number(todayBranch?.is_closed) === 1
+            ? "اليوم إجازة."
+            : `دوامه من ${formatTime12Ar(todayBranch?.open_time) || "غير محدد"} إلى ${formatTime12Ar(todayBranch?.close_time) || "غير محدد"}.`
+        } لا يمكن إنشاء طلب جديد حتى يفتح الفرع.`,
+  };
+}
+
 export function wantsHuman(text) {
   return /موظف|خدمة العملاء|بشري|إنسان|انسان|ادمن|أدمن|agent|human/i.test(
     String(text || "")
@@ -244,6 +402,10 @@ async function runCustomerTools({ customerId, branchId, name, args }) {
     };
   }
 
+  if (name === "get_hours") {
+    return getHoursData(branchId, args?.restaurant_name || args?.query || "");
+  }
+
   if (name === "get_app_help") {
     return {
       how_to_order:
@@ -306,6 +468,21 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "get_hours",
+      description:
+        "دوام فرع جو الحالي ومحلاته: هل مفتوح الآن، أوقات اليوم، وهل يمكن الطلب. إذا سأل عن محل معين مرر اسمه",
+      parameters: {
+        type: "object",
+        properties: {
+          restaurant_name: { type: "string" },
+          query: { type: "string" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_app_help",
       description: "شرح طريقة الطلب ووصل لي",
       parameters: { type: "object", properties: {} },
@@ -326,16 +503,25 @@ const TOOLS = [
   },
 ];
 
-function systemPrompt() {
+function systemPrompt(hoursContext = "") {
   return `أنت مساعد تطبيق جو (GO) للتوصيل في اليمن.
 تكلم بالعربية بلهجة يمنية واضحة ومهذبة، وجمل قصيرة.
 إذا رحّب العميل (هلو، مرحبا، السلام...) رد بترحيب ودود واسأله كيف تساعده. لا تحوّل الترحيب إلى موظف أبداً.
 جاوب عن التطبيق، طريقة الطلب، المحلات، المنتجات، الأسعار، رسوم التوصيل، وطلبات هذا العميل فقط.
-استخدم الأدوات لجلب بيانات حقيقية. لا تخترع حالة طلب أو سعر.
+استخدم الأدوات لجلب بيانات حقيقية. لا تخترع حالة طلب أو سعر أو وقت دوام.
+دوام الفرع الآن: ${hoursContext || "غير متوفر"}.
+إذا سأل هل يقدر يطلب الآن، أو هل الدوام شغال، أو هل محل مفتوح/مغلق: استدعِ get_hours. إن ذكر اسم محل مرّره في restaurant_name.
+إذا الفرع مغلق قل بوضوح أنه مغلق واذكر وقت الدوام. لا تقل "تقدر تطلب الآن" إذا الفرع مغلق.
 لا تنفّذ إلغاء طلب أو عمليات مالية.
 استدعِ handoff_to_human فقط إذا طلب العميل موظفاً صراحة، أو كانت شكوى/مشكلة مالية/توصيل تحتاج قرار بشري بعد أن حاولت المساعدة.
 لا تحوّل المحادثة بسبب التحية أو سؤال بسيط.
 إذا كانت المحادثة بانتظار موظف، استمر بالمساعدة ولا تحوّل مرة أخرى إلا إذا طلب العميل موظفاً صراحة.`;
+}
+
+function isHoursQuestion(text) {
+  return /دوام|مداوم|مفتوح|مغلق|خل[صص]|اطلب|الحين|الآن|الان|أقدر|اقدر|يشتغل|شغال|وقت/i.test(
+    String(text || "")
+  );
 }
 
 export async function generateSupportAiReply({
@@ -349,8 +535,19 @@ export async function generateSupportAiReply({
     return { handoff: false, text: WELCOME_TEXT };
   }
 
+  let hoursContext = "";
+  try {
+    const hours = await getHoursData(branchId);
+    hoursContext = hours.summary;
+  } catch (error) {
+    console.error("hours snapshot:", error?.message || error);
+  }
+
   const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
   if (!apiKey) {
+    if (hoursContext && isHoursQuestion(lastUser?.content)) {
+      return { handoff: false, text: hoursContext };
+    }
     return {
       handoff: false,
       text: WELCOME_TEXT,
@@ -358,7 +555,7 @@ export async function generateSupportAiReply({
   }
 
   const messages = [
-    { role: "system", content: systemPrompt() },
+    { role: "system", content: systemPrompt(hoursContext) },
     ...history.slice(-16).map((item) => ({
       role: item.role,
       content: item.content,
