@@ -10,6 +10,7 @@ import {
   generateSupportAiReply,
   insertSupportEvent,
   shouldAiReply,
+  WELCOME_TEXT,
 } from "../utils/supportAi.js";
 
 const router = express.Router();
@@ -150,7 +151,7 @@ async function getChatById(chatId) {
 }
 
 async function handleAiAfterCustomerMessage(req, chat, customerMessage) {
-  if (!shouldAiReply(chat)) return null;
+  if (!shouldAiReply(chat, customerMessage)) return null;
 
   const messages = await getChatMessages(chat.id);
   const history = messages.slice(-16).map((msg) => ({
@@ -168,9 +169,8 @@ async function handleAiAfterCustomerMessage(req, chat, customerMessage) {
   } catch (error) {
     console.error("AI reply error:", error?.message || error);
     result = {
-      handoff: true,
-      reason: "فشل توليد رد الذكاء الاصطناعي",
-      text: "أعتذر منك، يبدو أن مشكلتك تحتاج متابعة من فريق خدمة العملاء. حولت محادثتك إلى أحد الموظفين، وسيتم الرد عليك قريباً.",
+      handoff: false,
+      text: WELCOME_TEXT,
     };
   }
 
@@ -240,7 +240,13 @@ async function handleAiAfterCustomerMessage(req, chat, customerMessage) {
   await db.query(
     `
     UPDATE support_chats
-    SET status = 'AI_ACTIVE', handler_mode = 'AI', last_message_at = NOW(), updated_at = NOW()
+    SET
+      status = 'AI_ACTIVE',
+      handler_mode = 'AI',
+      handed_off_at = NULL,
+      handoff_reason = NULL,
+      last_message_at = NOW(),
+      updated_at = NOW()
     WHERE id = ?
     `,
     [chat.id]
@@ -393,17 +399,10 @@ router.post("/chats", auth, async (req, res) => {
       message,
     } = req.body;
 
-    if (!message || !String(message).trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "نص الرسالة مطلوب",
-      });
-    }
-
     const customer_id = req.user.id;
     const customer_name = req.user.name || "عميل";
     const customer_phone = req.user.phone || null;
-    const cleanMessage = String(message).trim();
+    const cleanMessage = message ? String(message).trim() : "";
     const chatBranchId =
       Number(branch_id) || resolveRequestBranchId(req) || null;
 
@@ -424,13 +423,6 @@ router.post("/chats", auth, async (req, res) => {
 
     if (existingRows.length) {
       const existingChatId = existingRows[0].id;
-      await insertChatMessage({
-        chatId: existingChatId,
-        senderType: "customer",
-        senderId: customer_id,
-        message: cleanMessage,
-        isRead: 0,
-      });
       let existingChat = await getChatById(existingChatId);
       if (existingChat.status === "CLOSED" || existingChat.status === "RESOLVED") {
         await db.query(
@@ -443,8 +435,18 @@ router.post("/chats", auth, async (req, res) => {
         );
         existingChat = await getChatById(existingChatId);
       }
-      const afterAi = await handleAiAfterCustomerMessage(req, existingChat, cleanMessage);
-      existingChat = afterAi || (await getChatById(existingChatId));
+      if (cleanMessage) {
+        await insertChatMessage({
+          chatId: existingChatId,
+          senderType: "customer",
+          senderId: customer_id,
+          message: cleanMessage,
+          isRead: 0,
+        });
+        existingChat = await getChatById(existingChatId);
+        const afterAi = await handleAiAfterCustomerMessage(req, existingChat, cleanMessage);
+        existingChat = afterAi || (await getChatById(existingChatId));
+      }
       if (needsAgentAttention(existingChat.status)) {
         emitSupportEvent(req, "support_chat_message", {
           chat_id: existingChatId,
@@ -496,17 +498,30 @@ router.post("/chats", auth, async (req, res) => {
 
     const chatId = chatInsert.insertId;
 
-    await insertChatMessage({
-      chatId,
-      senderType: "customer",
-      senderId: customer_id,
-      message: cleanMessage,
-      isRead: 0,
-    });
+    if (cleanMessage) {
+      await insertChatMessage({
+        chatId,
+        senderType: "customer",
+        senderId: customer_id,
+        message: cleanMessage,
+        isRead: 0,
+      });
+    }
 
     let chat = await getChatById(chatId);
-    const afterAi = await handleAiAfterCustomerMessage(req, chat, cleanMessage);
-    chat = afterAi || chat;
+    if (cleanMessage) {
+      const afterAi = await handleAiAfterCustomerMessage(req, chat, cleanMessage);
+      chat = afterAi || chat;
+    } else {
+      await insertChatMessage({
+        chatId,
+        senderType: "ai",
+        senderId: null,
+        message: WELCOME_TEXT,
+        isRead: 0,
+      });
+      chat = await getChatById(chatId);
+    }
 
     if (needsAgentAttention(chat.status)) {
       emitSupportEvent(req, "support_chat_created", {

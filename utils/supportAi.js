@@ -3,6 +3,18 @@ import db from "../db.js";
 const HANDOFF_CUSTOMER_TEXT =
   "أعتذر منك، يبدو أن مشكلتك تحتاج متابعة من فريق خدمة العملاء. حولت محادثتك إلى أحد الموظفين، وسيتم الرد عليك قريباً.";
 
+export const WELCOME_TEXT =
+  "يا هلا فيك في جو 👋 كيف أقدر أساعدك؟ تقدر تسأل عن طلبك، المحلات، التوصيل، أو طريقة الطلب.";
+
+export function isGreeting(text) {
+  const value = String(text || "")
+    .trim()
+    .replace(/[!.؟?,،]/g, "");
+  return /^(هلو|هلا|هلاو|اهلا|أهلا|مرحبا|مرحباً|السلام عليكم|السلام|سلام|هاي|hi|hello|hey|صباح الخير|مساء الخير)$/i.test(
+    value
+  );
+}
+
 const ORDER_STATUS_AR = {
   pending: "قيد الانتظار",
   accepted: "مقبول",
@@ -20,12 +32,14 @@ function orderStatusAr(status) {
   return ORDER_STATUS_AR[key] || status || "غير معروف";
 }
 
-export function shouldAiReply(chat) {
-  const status = String(chat?.status || "");
+export function shouldAiReply(chat, lastCustomerMessage = "") {
   if (chat?.assigned_agent_id) return false;
+  const status = String(chat?.status || "");
   if (["AGENT_ACTIVE", "open", "CLOSED", "closed"].includes(status)) return false;
+  if (isGreeting(lastCustomerMessage)) return true;
   if ((status === "WAITING_AGENT" || status === "pending") && chat?.handed_off_at) {
-    return false;
+    const reason = String(chat.handoff_reason || "");
+    return /مفتاح|تعذر الاتصال|فارغ|غير مُعد|OpenAI|api/i.test(reason);
   }
   return true;
 }
@@ -295,11 +309,12 @@ const TOOLS = [
 function systemPrompt() {
   return `أنت مساعد تطبيق جو (GO) للتوصيل في اليمن.
 تكلم بالعربية بلهجة يمنية واضحة ومهذبة، وجمل قصيرة.
+إذا رحّب العميل (هلو، مرحبا، السلام...) رد بترحيب ودود واسأله كيف تساعده. لا تحوّل الترحيب إلى موظف أبداً.
 جاوب عن التطبيق، طريقة الطلب، المحلات، المنتجات، الأسعار، رسوم التوصيل، وطلبات هذا العميل فقط.
 استخدم الأدوات لجلب بيانات حقيقية. لا تخترع حالة طلب أو سعر.
 لا تنفّذ إلغاء طلب أو عمليات مالية.
-إذا طلب العميل موظفاً، أو الشكوى تحتاج تدخل بشري، أو البيانات ناقصة/فشلت الأداة، أو لم تفهم بعد توضيح، استدعِ handoff_to_human مع سبب مختصر.
-لا تدّعِ أن المشكلة انحلت إن لم تُحل فعلياً.`;
+استدعِ handoff_to_human فقط إذا طلب العميل موظفاً صراحة، أو كانت شكوى/مشكلة مالية/توصيل تحتاج قرار بشري بعد أن حاولت المساعدة.
+لا تحوّل المحادثة بسبب التحية أو سؤال بسيط.`;
 }
 
 export async function generateSupportAiReply({
@@ -307,12 +322,16 @@ export async function generateSupportAiReply({
   branchId,
   history = [],
 }) {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const lastUser = [...history].reverse().find((item) => item.role === "user");
+  if (isGreeting(lastUser?.content)) {
+    return { handoff: false, text: WELCOME_TEXT };
+  }
+
+  const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
   if (!apiKey) {
     return {
-      handoff: true,
-      reason: "مفتاح الذكاء الاصطناعي غير مُعد",
-      text: HANDOFF_CUSTOMER_TEXT,
+      handoff: false,
+      text: WELCOME_TEXT,
     };
   }
 
@@ -349,9 +368,8 @@ export async function generateSupportAiReply({
       const errText = await response.text();
       console.error("OpenAI support error:", response.status, errText.slice(0, 400));
       return {
-        handoff: true,
-        reason: "تعذر الاتصال بخدمة الذكاء الاصطناعي",
-        text: HANDOFF_CUSTOMER_TEXT,
+        handoff: false,
+        text: WELCOME_TEXT,
       };
     }
 
@@ -359,9 +377,8 @@ export async function generateSupportAiReply({
     const choice = data?.choices?.[0]?.message;
     if (!choice) {
       return {
-        handoff: true,
-        reason: "رد الذكاء الاصطناعي فارغ",
-        text: HANDOFF_CUSTOMER_TEXT,
+        handoff: false,
+        text: WELCOME_TEXT,
       };
     }
 
@@ -382,6 +399,15 @@ export async function generateSupportAiReply({
         }
 
         if (fnName === "handoff_to_human") {
+          if (isGreeting(lastUser?.content)) {
+            messages.push({
+              role: "tool",
+              tool_call_id: call.id,
+              name: fnName,
+              content: JSON.stringify({ ok: false, ignored: true }),
+            });
+            continue;
+          }
           handoff = {
             reason: String(args.reason || "يحتاج متابعة موظف").slice(0, 500),
           };
@@ -421,18 +447,16 @@ export async function generateSupportAiReply({
     const text = String(choice.content || "").trim();
     if (!text) {
       return {
-        handoff: true,
-        reason: "لم يتم توليد رد مفهوم",
-        text: HANDOFF_CUSTOMER_TEXT,
+        handoff: false,
+        text: WELCOME_TEXT,
       };
     }
     return { handoff: false, text };
   }
 
   return {
-    handoff: true,
-    reason: "تجاوز الذكاء عدد محاولات الأداة",
-    text: HANDOFF_CUSTOMER_TEXT,
+    handoff: false,
+    text: WELCOME_TEXT,
   };
 }
 
