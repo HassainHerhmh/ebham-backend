@@ -1,12 +1,16 @@
 import db from "../db.js";
 import { emitAdminNotification } from "./adminRealtime.js";
 import {
+  AGENT_RESUME_TEXT,
   AI_RESUME_TEXT,
+  isAiResumeNotice,
+  isAgentResumeNotice,
+  isSupportSessionNotice,
   insertSupportEvent,
 } from "./supportAi.js";
 
-async function insertResumeMessage(chatId) {
-  const [lastRows] = await db.query(
+async function getLastMessage(chatId) {
+  const [rows] = await db.query(
     `
     SELECT message, sender_type
     FROM support_chat_messages
@@ -16,7 +20,12 @@ async function insertResumeMessage(chatId) {
     `,
     [chatId]
   );
-  if (lastRows[0]?.message === AI_RESUME_TEXT) return;
+  return rows[0] || null;
+}
+
+async function insertNoticeMessage(chatId, text) {
+  const last = await getLastMessage(chatId);
+  if (String(last?.message || "").trim() === text) return;
 
   try {
     await db.query(
@@ -25,19 +34,38 @@ async function insertResumeMessage(chatId) {
         (chat_id, sender_type, sender_id, message, is_read)
       VALUES (?, 'ai', NULL, ?, 0)
       `,
-      [chatId, AI_RESUME_TEXT]
+      [chatId, text]
     );
   } catch (error) {
-    console.error("AI resume message insert failed:", error?.message || error);
+    console.error("session notice insert failed:", error?.message || error);
     await db.query(
       `
       INSERT INTO support_chat_messages
         (chat_id, sender_type, sender_id, message, is_read)
       VALUES (?, 'admin', NULL, ?, 0)
       `,
-      [chatId, AI_RESUME_TEXT]
+      [chatId, text]
     );
   }
+}
+
+export async function insertAgentJoinNotice(chatId, chat = null) {
+  const last = await getLastMessage(chatId);
+  if (isAgentResumeNotice(last?.message)) return;
+
+  const status = String(chat?.status || "");
+  const handler = String(chat?.handler_mode || "").toUpperCase();
+  const lastIsAiNotice = isAiResumeNotice(last?.message);
+  const lastIsAdmin = last?.sender_type === "admin" && !isSupportSessionNotice(last?.message);
+
+  const shouldInsert =
+    lastIsAiNotice ||
+    status === "AI_ACTIVE" ||
+    handler !== "HUMAN" ||
+    !lastIsAdmin;
+
+  if (!shouldInsert) return;
+  await insertNoticeMessage(chatId, AGENT_RESUME_TEXT);
 }
 
 export async function endHumanSession({
@@ -79,7 +107,7 @@ export async function endHumanSession({
     [chatId]
   );
 
-  await insertResumeMessage(chatId);
+  await insertNoticeMessage(chatId, AI_RESUME_TEXT);
   await insertSupportEvent({
     chatId,
     eventType,
@@ -105,56 +133,54 @@ export async function endHumanSession({
 
 export async function expireIdleHumanChats(io = null, onlyChatId = null) {
   try {
-  const minutesValue = Number(process.env.SUPPORT_HUMAN_IDLE_MINUTES || 40);
-  const minutes =
-    Number.isFinite(minutesValue) && minutesValue > 0 ? minutesValue : 40;
+    const minutesValue = Number(process.env.SUPPORT_HUMAN_IDLE_MINUTES || 40);
+    const minutes =
+      Number.isFinite(minutesValue) && minutesValue > 0 ? minutesValue : 40;
 
-  const params = [];
-  let chatFilter = "";
-  if (onlyChatId) {
-    chatFilter = " AND c.id = ? ";
-    params.push(onlyChatId);
-  }
-  params.push(minutes);
+    const params = [];
+    let chatFilter = "";
+    if (onlyChatId) {
+      chatFilter = " AND c.id = ? ";
+      params.push(onlyChatId);
+    }
+    params.push(AI_RESUME_TEXT, AGENT_RESUME_TEXT, minutes);
 
-  const [rows] = await db.query(
-    `
-    SELECT c.id
-    FROM support_chats c
-    WHERE c.status NOT IN ('CLOSED', 'closed', 'AI_ACTIVE')
-      AND (
-        c.status IN ('AGENT_ACTIVE', 'open')
-        OR c.agent_claimed_at IS NOT NULL
-      )
-      ${chatFilter}
-      AND TIMESTAMPDIFF(
-        MINUTE,
-        GREATEST(
-          COALESCE(c.agent_claimed_at, c.updated_at),
-          COALESCE((
-            SELECT MAX(m.created_at)
-            FROM support_chat_messages m
-            WHERE m.chat_id = c.id
-              AND m.sender_type = 'admin'
-          ), c.agent_claimed_at, c.updated_at)
-        ),
-        NOW()
-      ) >= ?
-    `,
-    params
-  );
+    const [rows] = await db.query(
+      `
+      SELECT c.id
+      FROM support_chats c
+      WHERE c.status NOT IN ('CLOSED', 'closed', 'AI_ACTIVE')
+        AND c.agent_claimed_at IS NOT NULL
+        ${chatFilter}
+        AND TIMESTAMPDIFF(
+          MINUTE,
+          GREATEST(
+            c.agent_claimed_at,
+            COALESCE((
+              SELECT MAX(m.created_at)
+              FROM support_chat_messages m
+              WHERE m.chat_id = c.id
+                AND m.sender_type = 'admin'
+                AND m.message NOT IN (?, ?)
+            ), c.agent_claimed_at)
+          ),
+          NOW()
+        ) >= ?
+      `,
+      params
+    );
 
-  for (const row of rows) {
-    await endHumanSession({
-      chatId: row.id,
-      io,
-      actorType: "system",
-      actorName: "timeout",
-      eventType: "human_idle_timeout",
-    });
-  }
+    for (const row of rows) {
+      await endHumanSession({
+        chatId: row.id,
+        io,
+        actorType: "system",
+        actorName: "timeout",
+        eventType: "human_idle_timeout",
+      });
+    }
 
-  return rows.length;
+    return rows.length;
   } catch (error) {
     console.error("expireIdleHumanChats:", error?.message || error);
     return 0;

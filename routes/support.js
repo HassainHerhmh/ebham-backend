@@ -17,6 +17,7 @@ import {
 import {
   endHumanSession,
   expireIdleHumanChats,
+  insertAgentJoinNotice,
 } from "../utils/supportHumanSession.js";
 
 const router = express.Router();
@@ -625,7 +626,23 @@ router.post("/chats/:id/messages", auth, async (req, res) => {
       });
     }
 
-    await expireIdleHumanChats(getIO(req), chatId);
+    let senderType = "customer";
+    let senderId = req.user?.id || null;
+
+    if (isAdmin(req.user)) {
+      senderType = "admin";
+    } else if (isCustomer(req.user)) {
+      senderType = "customer";
+    } else {
+      return res.status(403).json({
+        success: false,
+        message: "غير مصرح",
+      });
+    }
+
+    if (senderType !== "admin") {
+      await expireIdleHumanChats(getIO(req), chatId);
+    }
     const chat = await getChatById(chatId);
 
     if (!chat) {
@@ -642,21 +659,11 @@ router.post("/chats/:id/messages", auth, async (req, res) => {
       });
     }
 
-    let senderType = "customer";
-    let senderId = req.user?.id || null;
-
-    if (isAdmin(req.user)) {
-      senderType = "admin";
-    } else if (isCustomer(req.user)) {
-      senderType = "customer";
-    } else {
-      return res.status(403).json({
-        success: false,
-        message: "غير مصرح",
-      });
-    }
-
     const cleanMessage = String(message).trim();
+
+    if (senderType === "admin") {
+      await insertAgentJoinNotice(chatId, chat);
+    }
 
     const messageInsertId = await insertChatMessage({
       chatId,

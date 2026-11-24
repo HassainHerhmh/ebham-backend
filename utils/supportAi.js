@@ -6,7 +6,22 @@ const HANDOFF_CUSTOMER_TEXT =
 export const WELCOME_TEXT =
   "يا هلا فيك في جو 👋 كيف أقدر أساعدك؟ تقدر تسأل عن طلبك، المحلات، التوصيل، أو طريقة الطلب.";
 
-export const AI_RESUME_TEXT = "حالياً موظف الذكاء في خدمتك";
+export const AI_RESUME_TEXT = "موظف الذكاء في خدمتك";
+export const AI_RESUME_TEXT_OLD = "حالياً موظف الذكاء في خدمتك";
+export const AGENT_RESUME_TEXT = "موظف خدمة العملاء في خدمتك";
+
+export function isAiResumeNotice(text) {
+  const value = String(text || "").trim();
+  return value === AI_RESUME_TEXT || value === AI_RESUME_TEXT_OLD;
+}
+
+export function isAgentResumeNotice(text) {
+  return String(text || "").trim() === AGENT_RESUME_TEXT;
+}
+
+export function isSupportSessionNotice(text) {
+  return isAiResumeNotice(text) || isAgentResumeNotice(text);
+}
 
 export function isGreeting(text) {
   const value = String(text || "")
