@@ -9,6 +9,7 @@ import pool from "./db.js";
 import auth from "./middlewares/auth.js";
 import { ensureSchema } from "./utils/ensureSchema.js";
 import { joinDashboardBranchRooms } from "./utils/adminRealtime.js";
+import { expireIdleHumanChats } from "./utils/supportHumanSession.js";
 
 /* =========================
    Load ENV أولاً (مهم جداً)
@@ -717,5 +718,10 @@ io.on("connection", (socket) => {
 
   httpServer.listen(PORT, () => {
     console.log(`🚀 Server running with Socket.IO on ${PORT}`);
+    setInterval(() => {
+      expireIdleHumanChats(io).catch((error) => {
+        console.error("Idle human chat expire:", error?.message || error);
+      });
+    }, 60 * 1000);
   });
 })();

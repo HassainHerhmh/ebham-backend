@@ -14,6 +14,10 @@ import {
   shouldAiReply,
   WELCOME_TEXT,
 } from "../utils/supportAi.js";
+import {
+  endHumanSession,
+  expireIdleHumanChats,
+} from "../utils/supportHumanSession.js";
 
 const router = express.Router();
 
@@ -363,6 +367,7 @@ router.get("/my-chat", auth, async (req, res) => {
     }
 
     const chatId = chatRows[0].id;
+    await expireIdleHumanChats(getIO(req), chatId);
 
     const [readResult] = await db.query(
       `
@@ -620,6 +625,7 @@ router.post("/chats/:id/messages", auth, async (req, res) => {
       });
     }
 
+    await expireIdleHumanChats(getIO(req), chatId);
     const chat = await getChatById(chatId);
 
     if (!chat) {
@@ -784,6 +790,8 @@ router.get("/chats", auth, async (req, res) => {
       });
     }
 
+    await expireIdleHumanChats(getIO(req));
+
     let sql = `
       SELECT
         c.id,
@@ -906,6 +914,7 @@ router.get("/chats/:id", auth, async (req, res) => {
       });
     }
 
+    await expireIdleHumanChats(getIO(req), chatId);
     const chat = await getChatById(chatId);
 
     if (!chat) {
@@ -1138,41 +1147,16 @@ router.post("/chats/:id/end-human", auth, async (req, res) => {
       });
     }
 
-    await db.query(
-      `
-      UPDATE support_chats
-      SET
-        status = 'AI_ACTIVE',
-        handler_mode = 'AI',
-        assigned_agent_id = NULL,
-        assigned_agent_name = NULL,
-        agent_claimed_at = NULL,
-        handed_off_at = NULL,
-        handoff_reason = NULL,
-        closed_at = NULL,
-        updated_at = NOW()
-      WHERE id = ?
-      `,
-      [chatId]
-    );
-
-    await insertSupportEvent({
+    await endHumanSession({
       chatId,
-      eventType: "end_human",
+      io: getIO(req),
       actorType: "admin",
       actorId: req.user.id,
       actorName: req.user.name || "موظف",
+      eventType: "end_human",
     });
 
     const updated = await getChatById(chatId);
-    emitSupportEvent(req, "support_chat_updated", {
-      chat_id: chatId,
-      status: "AI_ACTIVE",
-      action: "end_human",
-      customer_name: chat.customer_name,
-      customer_phone: chat.customer_phone,
-      branch_id: chat.branch_id,
-    });
 
     return res.json({
       success: true,
