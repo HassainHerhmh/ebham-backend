@@ -131,6 +131,19 @@ const TABLES = [
     PRIMARY KEY (\`id\`),
     UNIQUE KEY \`uniq_order_rating\` (\`order_kind\`, \`order_id\`)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  `CREATE TABLE IF NOT EXISTS \`support_chat_events\` (
+    \`id\` INT NOT NULL AUTO_INCREMENT,
+    \`chat_id\` INT NOT NULL,
+    \`event_type\` VARCHAR(50) NOT NULL,
+    \`actor_type\` VARCHAR(30) NULL,
+    \`actor_id\` INT NULL,
+    \`actor_name\` VARCHAR(255) NULL,
+    \`details\` TEXT NULL,
+    \`created_at\` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (\`id\`),
+    KEY \`idx_support_chat_events_chat\` (\`chat_id\`),
+    KEY \`idx_support_chat_events_created\` (\`created_at\`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 ];
 
 const COLUMNS = [
@@ -248,6 +261,13 @@ const COLUMNS = [
   ["support_chats", "order_id", "INT NULL"],
   ["support_chats", "last_message_at", "DATETIME NULL"],
   ["support_chats", "updated_at", "DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"],
+  ["support_chats", "handler_mode", "VARCHAR(20) NULL DEFAULT 'AI'"],
+  ["support_chats", "assigned_agent_id", "INT NULL"],
+  ["support_chats", "assigned_agent_name", "VARCHAR(255) NULL"],
+  ["support_chats", "handoff_reason", "TEXT NULL"],
+  ["support_chats", "handed_off_at", "DATETIME NULL"],
+  ["support_chats", "agent_claimed_at", "DATETIME NULL"],
+  ["support_chats", "closed_at", "DATETIME NULL"],
   ["support_chat_messages", "sender_id", "INT NULL"],
   ["support_chat_messages", "is_read", "TINYINT(1) NOT NULL DEFAULT 0"],
   ["commissions", "commission_type", "VARCHAR(50) NULL"],
@@ -397,6 +417,14 @@ export async function ensureSchema() {
         err?.message || err
       );
     }
+  }
+
+  try {
+    await db.query(
+      `ALTER TABLE support_chat_messages MODIFY COLUMN sender_type VARCHAR(20) NOT NULL`
+    );
+  } catch {
+    /* already varchar or table missing */
   }
 
   try {
