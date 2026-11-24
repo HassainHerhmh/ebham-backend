@@ -8,7 +8,9 @@ import {
 } from "../utils/adminRealtime.js";
 import {
   generateSupportAiReply,
+  HANDOFF_CUSTOMER_TEXT,
   insertSupportEvent,
+  isGreeting,
   shouldAiReply,
   WELCOME_TEXT,
 } from "../utils/supportAi.js";
@@ -151,13 +153,21 @@ async function getChatById(chatId) {
 }
 
 async function handleAiAfterCustomerMessage(req, chat, customerMessage) {
-  if (!shouldAiReply(chat, customerMessage)) return null;
+  if (!shouldAiReply(chat)) return null;
+
+  const alreadyWaiting =
+    Boolean(chat?.handed_off_at) &&
+    (chat.status === "WAITING_AGENT" || chat.status === "pending");
 
   const messages = await getChatMessages(chat.id);
   const history = messages.slice(-16).map((msg) => ({
     role: msg.sender_type === "customer" ? "user" : "assistant",
     content: msg.message,
   }));
+  const lastAssistantText = [...messages]
+    .reverse()
+    .find((msg) => msg.sender_type === "ai" || msg.sender_type === "admin")
+    ?.message;
 
   let result;
   try {
@@ -165,6 +175,7 @@ async function handleAiAfterCustomerMessage(req, chat, customerMessage) {
       customerId: chat.customer_id,
       branchId: chat.branch_id,
       history,
+      alreadyWaitingForAgent: alreadyWaiting,
     });
   } catch (error) {
     console.error("AI reply error:", error?.message || error);
@@ -175,7 +186,13 @@ async function handleAiAfterCustomerMessage(req, chat, customerMessage) {
   }
 
   const aiText = String(result?.text || "").trim();
-  if (aiText) {
+  const skipDuplicateHandoff =
+    result?.handoff &&
+    alreadyWaiting &&
+    lastAssistantText === HANDOFF_CUSTOMER_TEXT &&
+    aiText === HANDOFF_CUSTOMER_TEXT;
+
+  if (aiText && !skipDuplicateHandoff) {
     try {
       await insertChatMessage({
         chatId: chat.id,
@@ -197,6 +214,17 @@ async function handleAiAfterCustomerMessage(req, chat, customerMessage) {
   }
 
   if (result?.handoff) {
+    if (alreadyWaiting) {
+      await db.query(
+        `
+        UPDATE support_chats
+        SET last_message_at = NOW(), updated_at = NOW()
+        WHERE id = ?
+        `,
+        [chat.id]
+      );
+      return getChatById(chat.id);
+    }
     await db.query(
       `
       UPDATE support_chats
@@ -235,6 +263,18 @@ async function handleAiAfterCustomerMessage(req, chat, customerMessage) {
       notification_message: `العميل ${chat.customer_name} يحتاج موظفاً — محادثة #${chat.id}`,
     });
     return updated;
+  }
+
+  if (alreadyWaiting && !isGreeting(customerMessage)) {
+    await db.query(
+      `
+      UPDATE support_chats
+      SET last_message_at = NOW(), updated_at = NOW()
+      WHERE id = ?
+      `,
+      [chat.id]
+    );
+    return getChatById(chat.id);
   }
 
   await db.query(
@@ -637,11 +677,14 @@ router.post("/chats/:id/messages", auth, async (req, res) => {
         SET
           status = 'AGENT_ACTIVE',
           handler_mode = 'HUMAN',
+          assigned_agent_id = COALESCE(assigned_agent_id, ?),
+          assigned_agent_name = COALESCE(assigned_agent_name, ?),
+          agent_claimed_at = COALESCE(agent_claimed_at, NOW()),
           last_message_at = NOW(),
           updated_at = NOW()
         WHERE id = ?
         `,
-        [chatId]
+        [req.user.id, req.user.name || "موظف", chatId]
       );
     } else if (chat.status === "CLOSED" || chat.status === "RESOLVED") {
       await db.query(

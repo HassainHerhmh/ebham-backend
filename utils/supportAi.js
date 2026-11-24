@@ -32,16 +32,16 @@ function orderStatusAr(status) {
   return ORDER_STATUS_AR[key] || status || "غير معروف";
 }
 
-export function shouldAiReply(chat, lastCustomerMessage = "") {
+export function wantsHuman(text) {
+  return /موظف|خدمة العملاء|بشري|إنسان|انسان|ادمن|أدمن|agent|human/i.test(
+    String(text || "")
+  );
+}
+
+export function shouldAiReply(chat) {
   if (chat?.assigned_agent_id) return false;
   const status = String(chat?.status || "");
-  if (["AGENT_ACTIVE", "open", "CLOSED", "closed"].includes(status)) return false;
-  if (isGreeting(lastCustomerMessage)) return true;
-  if ((status === "WAITING_AGENT" || status === "pending") && chat?.handed_off_at) {
-    const reason = String(chat.handoff_reason || "");
-    return /مفتاح|تعذر الاتصال|فارغ|غير مُعد|OpenAI|api/i.test(reason);
-  }
-  return true;
+  return !["AGENT_ACTIVE", "open", "CLOSED", "closed"].includes(status);
 }
 
 export async function insertSupportEvent({
@@ -314,13 +314,15 @@ function systemPrompt() {
 استخدم الأدوات لجلب بيانات حقيقية. لا تخترع حالة طلب أو سعر.
 لا تنفّذ إلغاء طلب أو عمليات مالية.
 استدعِ handoff_to_human فقط إذا طلب العميل موظفاً صراحة، أو كانت شكوى/مشكلة مالية/توصيل تحتاج قرار بشري بعد أن حاولت المساعدة.
-لا تحوّل المحادثة بسبب التحية أو سؤال بسيط.`;
+لا تحوّل المحادثة بسبب التحية أو سؤال بسيط.
+إذا كانت المحادثة بانتظار موظف، استمر بالمساعدة ولا تحوّل مرة أخرى إلا إذا طلب العميل موظفاً صراحة.`;
 }
 
 export async function generateSupportAiReply({
   customerId,
   branchId,
   history = [],
+  alreadyWaitingForAgent = false,
 }) {
   const lastUser = [...history].reverse().find((item) => item.role === "user");
   if (isGreeting(lastUser?.content)) {
@@ -399,7 +401,10 @@ export async function generateSupportAiReply({
         }
 
         if (fnName === "handoff_to_human") {
-          if (isGreeting(lastUser?.content)) {
+          if (
+            isGreeting(lastUser?.content) ||
+            (alreadyWaitingForAgent && !wantsHuman(lastUser?.content))
+          ) {
             messages.push({
               role: "tool",
               tool_call_id: call.id,
