@@ -21,16 +21,25 @@
     "firebase-admin": "^12.0.0",
     "google-auth-library": "^9.9.0",
     "jsonwebtoken": "^9.0.2",
-    "multer": "^2.2.0",
-    "mysql2": "^3.9.0",
+    "multer": "^2.5.0",
+    "mysql2": "^3.24.6",
     "pdfkit": "^0.13.0",
     "pg": "^8.11.5",
     "socket.io": "^4.7.5"
   },
   "overrides": {
-    "brace-expansion": "5.0.9",
+    "brace-expansion": "5.1.0",
     "tar": "7.5.22",
     "uuid": "11.1.1",
-    "multer": "$multer"
+    "multer": "$multer",
+    "proxy-addr": "2.0.8",
+    "body-parser": "1.20.9",
+    "qs": "6.17.1",
+    "node-forge": "1.4.4",
+    "@fastify/busboy": "3.2.6",
+    "@grpc/grpc-js": "1.14.7",
+    "engine.io": "6.6.13",
+    "websocket-driver": "0.8.0",
+    "fast-xml-parser": "5.12.1"
   }
 }
