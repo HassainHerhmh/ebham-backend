@@ -1105,6 +1105,92 @@ router.post("/chats/:id/release", auth, async (req, res) => {
 
 /* =========================================================
    ADMIN
+   POST /support/chats/:id/end-human
+========================================================= */
+router.post("/chats/:id/end-human", auth, async (req, res) => {
+  try {
+    if (!isAdmin(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: "غير مصرح",
+      });
+    }
+
+    const chatId = Number(req.params.id);
+    if (!chatId) {
+      return res.status(400).json({
+        success: false,
+        message: "رقم المحادثة غير صحيح",
+      });
+    }
+
+    const chat = await getChatById(chatId);
+    if (!chat) {
+      return res.status(404).json({
+        success: false,
+        message: "المحادثة غير موجودة",
+      });
+    }
+    if (!canAccessChat(req, chat)) {
+      return res.status(403).json({
+        success: false,
+        message: "هذه المحادثة تتبع فرعاً آخر",
+      });
+    }
+
+    await db.query(
+      `
+      UPDATE support_chats
+      SET
+        status = 'AI_ACTIVE',
+        handler_mode = 'AI',
+        assigned_agent_id = NULL,
+        assigned_agent_name = NULL,
+        agent_claimed_at = NULL,
+        handed_off_at = NULL,
+        handoff_reason = NULL,
+        closed_at = NULL,
+        updated_at = NOW()
+      WHERE id = ?
+      `,
+      [chatId]
+    );
+
+    await insertSupportEvent({
+      chatId,
+      eventType: "end_human",
+      actorType: "admin",
+      actorId: req.user.id,
+      actorName: req.user.name || "موظف",
+    });
+
+    const updated = await getChatById(chatId);
+    emitSupportEvent(req, "support_chat_updated", {
+      chat_id: chatId,
+      status: "AI_ACTIVE",
+      action: "end_human",
+      customer_name: chat.customer_name,
+      customer_phone: chat.customer_phone,
+      branch_id: chat.branch_id,
+    });
+
+    return res.json({
+      success: true,
+      message: "تم إقفال الدردشة اليدوية وإعادة الذكاء الاصطناعي",
+      chat: updated,
+    });
+  } catch (error) {
+    console.error("POST /support/chats/:id/end-human error:", error?.message || error);
+    return res.status(500).json({
+      success: false,
+      message: "حدث خطأ أثناء إقفال الدردشة اليدوية",
+      error: error.message,
+    });
+  }
+});
+
+/* =========================================================
+   ADMIN
    PATCH /support/chats/:id/status
 ========================================================= */
 router.patch("/chats/:id/status", auth, async (req, res) => {
@@ -1160,6 +1246,8 @@ router.patch("/chats/:id/status", auth, async (req, res) => {
     const closedAtSql =
       status === "CLOSED" || status === "closed" || status === "RESOLVED"
         ? ", closed_at = NOW()"
+        : status === "AI_ACTIVE"
+        ? ", closed_at = NULL, handler_mode = 'AI', assigned_agent_id = NULL, assigned_agent_name = NULL, agent_claimed_at = NULL, handed_off_at = NULL, handoff_reason = NULL"
         : "";
     const [result] = await db.query(
       `

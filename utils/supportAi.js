@@ -41,7 +41,10 @@ export function wantsHuman(text) {
 export function shouldAiReply(chat) {
   if (chat?.assigned_agent_id) return false;
   const status = String(chat?.status || "");
-  return !["AGENT_ACTIVE", "open", "CLOSED", "closed"].includes(status);
+  if (["AGENT_ACTIVE", "open", "CLOSED", "closed"].includes(status)) return false;
+  const handler = String(chat?.handler_mode || "").toUpperCase();
+  if (handler === "HUMAN" && chat?.agent_claimed_at) return false;
+  return true;
 }
 
 export async function insertSupportEvent({
