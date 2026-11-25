@@ -6,6 +6,7 @@ import { ensureOrderNumberSchema, getNextOrderNumber } from "../utils/orderNumbe
 import { emitCustomerOrderUpdate } from "../utils/orderRealtime.js";
 import { emitOrderAdminNotification, parseBranchId, resolveDashboardViewBranchId, resolveScopedBranchId } from "../utils/adminRealtime.js";
 import { emitCatalogUpdate } from "../utils/catalogEvents.js";
+import { isBranchOpenNow } from "../utils/branchHours.js";
 const router = express.Router();
 
 
@@ -630,6 +631,17 @@ router.post("/", async (req, res) => {
     ====================== */
     let scheduledAt = null;
     let status = "pending";
+    const orderBranchId = notifyBranchId(req);
+
+    if (!scheduled_time) {
+      const branchOpen = await isBranchOpenNow(orderBranchId);
+      if (!branchOpen) {
+        return res.status(400).json({
+          success: false,
+          message: "الفرع مغلق حالياً، يرجى جدولة الطلب.",
+        });
+      }
+    }
 
     if (scheduled_time) {
       const d = new Date(scheduled_time);
@@ -647,7 +659,6 @@ router.post("/", async (req, res) => {
     ====================== */
     const orderNumber = await getNextOrderNumber();
     const feesTotal = wasselFeesTotal(delivery_fee, extra_fee);
-    const orderBranchId = notifyBranchId(req);
 
     const [result] = await db.query(`
       INSERT INTO wassel_orders (
