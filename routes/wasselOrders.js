@@ -493,8 +493,15 @@ router.get("/", auth, async (req, res) => {
     let params = [];
 
     if (req.user.role === "captain") {
-      query += ` AND w.captain_id = ?`;
-      params.push(req.user.id);
+      const captainBranch = Number(req.user.branch_id) || null;
+      if (!captainBranch) {
+        query += ` AND w.captain_id = ?`;
+        params.push(req.user.id);
+      } else {
+        query += ` AND COALESCE(w.branch_id, ca_from.branch_id, ca_to.branch_id) = ?
+          AND (w.captain_id = ? OR w.captain_id IS NULL)`;
+        params.push(captainBranch, req.user.id);
+      }
     } else if (req.user.role === "customer") {
       query += ` AND w.customer_id = ?`;
       params.push(req.user.id);

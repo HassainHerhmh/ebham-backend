@@ -119,11 +119,12 @@ LEFT JOIN wassel_order_items i
 
 WHERE w.is_manual = 1
 AND COALESCE(w.branch_id, r.branch_id, u.branch_id) = ?
+${req.user.role === "captain" ? "AND (w.captain_id IS NULL OR w.captain_id = ?)" : ""}
 
 GROUP BY w.id
 ORDER BY w.id DESC
 
-`, [viewBranch]);
+`, req.user.role === "captain" ? [viewBranch, req.user.id] : [viewBranch]);
 
 
 

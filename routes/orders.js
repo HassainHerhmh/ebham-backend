@@ -688,23 +688,41 @@ router.get("/", async (req, res) => {
         );
       }
     } 
-    // الحالة 2: الكابتن (Role Check) - يرى طلباته + الطلبات الجاهزة في الفرع
-    // ✅ إصلاح 2: إضافة شرط خاص للكابتن
-    else if (user.role === 'captain' || (!user.is_admin_branch && !branchId)) {
-        // إذا كان كابتن، نُظهر له:
-        // 1. الطلبات المسندة إليه (captain_id = user.id)
-        // 2. أو الطلبات الجاهزة (status = 'ready') التي ليس لها كابتن (لأخذها)
-        // 3. أو الطلبات قيد التوصيل الخاصة به
-        
-        [rows] = await db.query(`
+    // الحالة 2: الكابتن — طلبات فرعه فقط (المسندة له أو غير المسندة في نفس الفرع)
+    else if (user.role === "captain") {
+      const captainBranch = Number(user.branch_id) || Number(branchId) || null;
+      if (!captainBranch) {
+        [rows] = await db.query(
+          `
           ${baseQuery}
-          WHERE 
-            (o.captain_id = ? OR (o.status IN ('ready', 'processing') AND o.captain_id IS NULL))
-            ${dateWhere}
+          WHERE o.captain_id = ?
+          ${dateWhere}
           GROUP BY o.id
           ORDER BY o.id DESC
           LIMIT ?
-        `, [user.id, limit]);
+        `,
+          [user.id, limit]
+        );
+      } else {
+        [rows] = await db.query(
+          `
+          ${baseQuery}
+          WHERE o.branch_id = ?
+            AND (
+              o.captain_id = ?
+              OR (
+                o.captain_id IS NULL
+                AND o.status IN ('ready', 'processing', 'confirmed', 'preparing')
+              )
+            )
+          ${dateWhere}
+          GROUP BY o.id
+          ORDER BY o.id DESC
+          LIMIT ?
+        `,
+          [captainBranch, user.id, limit]
+        );
+      }
     }
     // الحالة 3: مستخدم عادي أو مدير فرع (فلترة حسب Branch ID)
     else {
@@ -2007,16 +2025,31 @@ router.put("/:id/status", async (req, res) => {
           });
         }
 
-        if (status === "ready" && orderContacts.captain_token) {
-          await sendFCMNotification(
-            orderContacts.captain_token,
-            "📦 طلب جاهز",
-            `الطلب رقم #${orderDisplayNumber} للعميل ${orderContacts.customer_name} جاهز في المطعم.`,
-            { orderId: String(orderId), orderNumber: String(orderDisplayNumber), type: "order_ready" }
-          );
-        }
-
         const io = req.app.get("io");
+
+        if (status === "ready") {
+          const readyTitle = "📦 طلب جاهز";
+          const readyBody = `الطلب رقم #${orderDisplayNumber} للعميل ${orderContacts.customer_name} جاهز في المطعم.`;
+          if (orderContacts.captain_id) {
+            if (orderContacts.captain_token) {
+              await sendFCMNotification(
+                orderContacts.captain_token,
+                readyTitle,
+                readyBody,
+                { orderId: String(orderId), orderNumber: String(orderDisplayNumber), type: "order_ready" }
+              );
+            }
+          } else {
+            await notifyBranchCaptains({
+              branchId: orderContacts.branch_id,
+              title: readyTitle,
+              message: readyBody,
+              type: "order_ready",
+              referenceId: orderId,
+              io,
+            });
+          }
+        }
 
         if (status !== "ready") {
           emitCustomerOrderUpdate(io, {
@@ -2086,7 +2119,7 @@ router.post("/:id/assign", async (req, res) => {
     }
 
     const [[captain]] = await db.query(
-      "SELECT id, name, fcm_token FROM captains WHERE id=?",
+      "SELECT id, name, fcm_token, branch_id FROM captains WHERE id=?",
       [captain_id]
     );
 
@@ -2094,18 +2127,6 @@ router.post("/:id/assign", async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "الكابتن غير موجود",
-      });
-    }
-
-    const [updateResult] = await db.query(
-      "UPDATE orders SET captain_id=? WHERE id=?",
-      [captain_id, orderId]
-    );
-
-    if (!updateResult?.affectedRows) {
-      return res.status(404).json({
-        success: false,
-        message: "الطلب غير موجود",
       });
     }
 
@@ -2123,6 +2144,36 @@ router.post("/:id/assign", async (req, res) => {
       `,
       [orderId]
     );
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "الطلب غير موجود",
+      });
+    }
+
+    if (
+      order.branch_id &&
+      captain.branch_id &&
+      Number(order.branch_id) !== Number(captain.branch_id)
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "لا يمكن تعيين كابتن من فرع آخر",
+      });
+    }
+
+    const [updateResult] = await db.query(
+      "UPDATE orders SET captain_id=? WHERE id=?",
+      [captain_id, orderId]
+    );
+
+    if (!updateResult?.affectedRows) {
+      return res.status(404).json({
+        success: false,
+        message: "الطلب غير موجود",
+      });
+    }
 
     const customerName = order?.customer_name || "غير معروف";
     const orderDisplayNumber = order?.order_number || orderId;
@@ -2633,6 +2684,46 @@ if (orderData?.captain_id) {
 /* =========================
    دالة مساعدة لإرسال إشعارات FCM (محدثة)
 ========================= */
+async function notifyBranchCaptains({
+  branchId,
+  title,
+  message,
+  type,
+  referenceId,
+  io,
+}) {
+  const id = Number(branchId);
+  if (!id) return;
+
+  try {
+    const [captains] = await db.query(
+      `SELECT id, fcm_token FROM captains WHERE branch_id = ?`,
+      [id]
+    );
+    for (const cap of captains || []) {
+      await insertCaptainNotification({
+        captainId: cap.id,
+        title,
+        message,
+        type,
+        referenceId,
+      });
+      if (cap.fcm_token) {
+        await sendFCMNotification(cap.fcm_token, title, message, {
+          orderId: String(referenceId || ""),
+          type: String(type || "order"),
+        });
+      }
+      io?.to("captain_" + cap.id).emit("new_notification", {
+        message,
+        createdAt: new Date(),
+      });
+    }
+  } catch (err) {
+    console.error("BRANCH CAPTAIN NOTIFY:", err?.message || err);
+  }
+}
+
 async function insertCaptainNotification({
   captainId,
   title,
